@@ -38,7 +38,29 @@ function github_upload_image () {
 function github_upload_manifest () {
     local images=("$@")
 
-    if [[ ${#images[@]} -gt 0 && -n $GITHUB_TOKEN && -n $GITHUB_ACTOR && -n $GITHUB_REPOSITORY && -n $GITHUB_REF_NAME && $GITHUB_REF_TYPE == "tag" ]]; then
+    if [[ -n $GITHUB_TOKEN && -n $GITHUB_ACTOR && -n $GITHUB_REPOSITORY && -n $GITHUB_REF_NAME && $GITHUB_REF_TYPE == "tag" ]]; then
+        LATEST="ghcr.io/${GITHUB_REPOSITORY}:latest"
+
+        # if there are multiple images, create a manifest
+        if [[ ${#images[@]} -gt 1 ]]; then
+            MANIFEST="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME#v}"
+
+            for IMAGE in "${images[@]}"; do
+                docker manifest create --amend "${LATEST}" "${IMAGE}" &> /dev/null
+                docker manifest create --amend "${MANIFEST}" "${IMAGE}" &> /dev/null
+            done
+
+            docker manifest push "${LATEST}" &> /dev/null
+            docker manifest push "${MANIFEST}" &> /dev/null
+
+        # else just tag and push the single image as latest
+        elif [[ ${#images[@]} -eq 1 ]]; then
+            docker tag "${images[0]}" "${LATEST}" &> /dev/null
+            docker push "${LATEST}" &> /dev/null
+        fi
+    fi
+
+    if [[ ${#images[@]} -gt 1 && -n $GITHUB_TOKEN && -n $GITHUB_ACTOR && -n $GITHUB_REPOSITORY && -n $GITHUB_REF_NAME && $GITHUB_REF_TYPE == "tag" ]]; then
         NEXT="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME#v}"
         LATEST="ghcr.io/${GITHUB_REPOSITORY}:latest"
 

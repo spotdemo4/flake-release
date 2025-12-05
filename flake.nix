@@ -42,6 +42,10 @@
           default = pkgs.mkShell {
             packages = with pkgs; [
               # bash
+              gh
+              file
+              zip
+              docker
               shellcheck
 
               # util
@@ -119,51 +123,71 @@
           dev.script = "./src/release.sh";
         };
 
-        packages.default = pkgs.stdenv.mkDerivation (finalAttrs: {
-          pname = "nix-flake-release";
-          version = "0.0.1";
-          src = ./.;
+        packages = rec {
+          default = pkgs.stdenv.mkDerivation (finalAttrs: {
+            pname = "nix-flake-release";
+            version = "0.0.1";
 
-          nativeBuildInputs = with pkgs; [
-            shellcheck
-          ];
+            src = builtins.path {
+              name = "root";
+              path = ./.;
+            };
 
-          runtimeInputs = with pkgs; [
-            git
-            gh
-            nix
-            file
-            zip
-            docker
-          ];
+            nativeBuildInputs = with pkgs; [
+              shellcheck
+            ];
 
-          unpackPhase = ''
-            cp -R "$src/src/." .
-          '';
+            runtimeInputs = with pkgs; [
+              git
+              gh
+              nix
+              file
+              zip
+              docker
+            ];
 
-          dontBuild = true;
+            unpackPhase = ''
+              cp -R "$src/src/." .
+            '';
 
-          configurePhase = ''
-            sed -i '1c\#!${pkgs.runtimeShell}' release.sh
-            sed -i '2c\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' release.sh
-          '';
+            dontBuild = true;
 
-          checkPhase = ''
-            shellcheck -x release.sh
-          '';
+            configurePhase = ''
+              sed -i '1c\#!${pkgs.runtimeShell}' release.sh
+              sed -i '2c\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' release.sh
+            '';
 
-          installPhase = ''
-            mkdir -p $out/bin
-            cp -R *.sh $out/bin
-          '';
+            checkPhase = ''
+              shellcheck -x release.sh
+            '';
 
-          meta = {
-            description = "nix flake releaser";
-            mainProgram = "release.sh";
-            homepage = "https://github.com/spotdemo4/nix-flake-release";
-            platforms = pkgs.lib.platforms.all;
+            installPhase = ''
+              mkdir -p $out/bin
+              cp -R *.sh $out/bin
+            '';
+
+            meta = {
+              description = "nix flake releaser";
+              mainProgram = "release.sh";
+              homepage = "https://github.com/spotdemo4/nix-flake-release";
+              platforms = pkgs.lib.platforms.all;
+            };
+          });
+
+          docker = pkgs.dockerTools.buildLayeredImage {
+            name = default.pname;
+            tag = default.version;
+            created = "now";
+            meta = default.meta;
+            contents = with pkgs; [
+              default
+              dockerTools.caCertificates
+            ];
+            config.Cmd = [
+              "${pkgs.lib.meta.getExe default}"
+            ];
           };
-        });
+        };
 
         formatter = pkgs.nixfmt-tree;
       }

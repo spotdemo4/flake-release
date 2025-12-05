@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-detect_platform() {
+detect_platform () {
     local filepath="$1"
     local file_output=$(file -b "$filepath")
     
@@ -31,4 +31,8 @@ detect_platform() {
     fi
     
     echo "${os}-${arch}"
+}
+
+host_platform () {
+    detect_platform "$(which bash)"
 }

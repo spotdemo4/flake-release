@@ -59,6 +59,16 @@ for PACKAGE in "${PACKAGES[@]}"; do
 
         echo "$PACKAGE: uploading"
         github_upload_file "$ARCHIVE"
+
+    elif [[ -d "$STORE_PATH" && -f "$EXE" ]]; then
+        echo "$PACKAGE: detected as script '$(basename "$EXE")'"
+
+        echo "$PACKAGE: archiving"
+        ARCHIVE=$(archive "$STORE_PATH" "$BUILD_DIR/${NAME}" "$(host_platform)")
+
+        echo "$PACKAGE: uploading"
+        github_upload_file "$ARCHIVE"
+
     else
         echo "$PACKAGE: unknown package type"
     fi
