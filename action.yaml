@@ -9,6 +9,6 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.2.5
+  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.2.6
   env:
     GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}

@@ -128,7 +128,7 @@
         packages = {
           default = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "nix-flake-release";
-            version = "0.2.5";
+            version = "0.2.6";
 
             src = builtins.path {
               name = "root";
