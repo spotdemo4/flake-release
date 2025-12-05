@@ -26,4 +26,4 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Release
-        uses: spotdemo4/nix-flake-release@e10543e9a86bed1a38a713043da7317069e3edcf # v0.2.3
+        uses: spotdemo4/nix-flake-release@c956b003879129cc6009b17b3b019bc6d55872eb # v0.2.4
