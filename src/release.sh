@@ -31,6 +31,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
     nix_pkg_build "$PACKAGE"
 
     echo "$PACKAGE: probing"
+    
     # `mkDerivation`` attributes
     NAME=$(nix_pkg_name "$PACKAGE")
     VERSION=$(nix_pkg_version "$PACKAGE")
