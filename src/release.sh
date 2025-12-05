@@ -12,8 +12,6 @@ source "$DIR/nix.sh"
 source "$DIR/platform.sh"
 source "$DIR/util.sh"
 
-github_release_create
-
 NIX_SYSTEM=$(nix_system)
 readarray -t PACKAGES < <(nix_packages "$NIX_SYSTEM")
 
