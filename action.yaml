@@ -4,4 +4,4 @@ author: trev
 
 runs:
   using: docker
-  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.2.3
+  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.2.4
