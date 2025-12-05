@@ -19,6 +19,12 @@ function nix_pkg_name () {
     nix eval --raw ".#${package}.name"
 }
 
+
+function nix_pkg_version () {
+    local package="$1"
+    nix eval --raw ".#${package}.version"
+}
+
 function nix_pkg_build () {
     local package="$1"
     nix build ".#${package}" --no-link --quiet

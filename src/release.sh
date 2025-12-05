@@ -18,7 +18,6 @@ NIX_SYSTEM=$(nix_system)
 readarray -t PACKAGES < <(nix_packages "$NIX_SYSTEM")
 
 STORE_PATHS=()
-IMAGE_URLS=()
 for PACKAGE in "${PACKAGES[@]}"; do
     echo "$PACKAGE: evaluating" 
 
@@ -31,7 +30,8 @@ for PACKAGE in "${PACKAGES[@]}"; do
     fi
 
     NAME=$(nix_pkg_name "$PACKAGE")
-    echo "$PACKAGE: building '$NAME'"
+    VERSION=$(nix_pkg_version "$PACKAGE")
+    echo "$PACKAGE: building '$NAME' '$VERSION'"
     nix_pkg_build "$PACKAGE"
 
     echo "$PACKAGE: probing '$NAME'"
@@ -43,12 +43,8 @@ for PACKAGE in "${PACKAGES[@]}"; do
     if [[ -f "$STORE_PATH" && -n $IMAGE_NAME && -n $IMAGE_TAG ]]; then
         echo "$PACKAGE: detected as image"
 
-        echo "$PACKAGE: loading to '$IMAGE_NAME:$IMAGE_TAG'"
-        podman load -i "$STORE_PATH" &> /dev/null
-
         echo "$PACKAGE: uploading"
-        IMAGE_URL=$(github_upload_image "$IMAGE_NAME" "$IMAGE_TAG")
-        IMAGE_URLS+=("$IMAGE_URL")
+        github_upload_image "$STORE_PATH" "$IMAGE_TAG"
 
     elif [[ -d "$STORE_PATH" && -f "$EXE" && "$PLATFORM" != "unknown-unknown" ]]; then
         echo "$PACKAGE: detected as executable '$(basename "$EXE")' for '$PLATFORM'"
@@ -57,7 +53,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
         ARCHIVE=$(archive "$EXE" "$NAME-$PLATFORM" "$PLATFORM")
 
         echo "$PACKAGE: uploading"
-        github_upload_file "$ARCHIVE"
+        github_upload_file "$ARCHIVE" "$VERSION"
 
     elif [[ -d "$STORE_PATH" && -f "$EXE" ]]; then
         echo "$PACKAGE: detected as script '$(basename "$EXE")'"
@@ -69,7 +65,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
         ARCHIVE=$(archive "$BUNDLE" "$NAME" "$(host_platform)")
 
         echo "$PACKAGE: uploading"
-        github_upload_file "$ARCHIVE"
+        github_upload_file "$ARCHIVE" "$VERSION"
 
     else
         echo "$PACKAGE: unknown package type"
@@ -77,5 +73,3 @@ for PACKAGE in "${PACKAGES[@]}"; do
 
     echo "$PACKAGE: done"
 done
-
-github_upload_manifest "${IMAGE_URLS[@]}"

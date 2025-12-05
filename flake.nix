@@ -45,7 +45,7 @@
               gh
               file
               zip
-              podman
+              skopeo
               shellcheck
 
               # util
@@ -142,7 +142,7 @@
               nix
               file
               mktemp
-              podman
+              skopeo
               zip
             ];
 
