@@ -40,13 +40,15 @@ function archive () {
         print "archiving as zip"
 
         zip -qr "${tmpdir}/${name}.zip" "${source}" >&2
+        file_info "${tmpdir}/${name}.zip" >&2
+
         echo "${tmpdir}/${name}.zip"
     else
         print "archiving as tar.xz"
 
         tar -cJhf "${tmpdir}/${name}.tar.xz" "${source}" >&2
+        file_info "${tmpdir}/${name}.tar.xz" >&2
+
         echo "${tmpdir}/${name}.tar.xz"
     fi
-
-    file_info "$ARCHIVE" >&2
 }
