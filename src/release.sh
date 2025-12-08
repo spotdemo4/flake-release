@@ -12,6 +12,8 @@ source "$DIR/nix.sh"
 source "$DIR/platform.sh"
 source "$DIR/util.sh"
 
+ARGS=( "$@" )
+
 NIX_SYSTEM=$(nix_system)
 readarray -t PACKAGES < <(nix_packages "$NIX_SYSTEM")
 if [[ ${#PACKAGES[@]} -eq 0 ]]; then
@@ -23,6 +25,11 @@ echo "" >&2
 
 STORE_PATHS=()
 for PACKAGE in "${PACKAGES[@]}"; do
+    if [[ "${#ARGS[@]}" -ne 0 && ! ${ARGS[*]} =~ $PACKAGE ]]; then
+        echo "skipping package '$PACKAGE'" >&2
+        continue
+    fi
+
     print "evaluating '$PACKAGE'"
     STORE_PATH=$(nix_pkg_path "$PACKAGE")
     if [[ ${STORE_PATHS[*]} =~ $STORE_PATH ]]; then
