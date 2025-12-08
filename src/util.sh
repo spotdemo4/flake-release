@@ -20,7 +20,7 @@ function file_info () {
     local filehash
     filehash=$(sha256sum "$filepath" | cut -d' ' -f1)
 
-    echo "${filename}: size: ${filesize}, hash: ${filehash}"
+    echo "${filename}, size: ${filesize}, hash: ${filehash}"
 }
 
 function archive () {
@@ -34,12 +34,12 @@ function archive () {
     if [[ "$platform" == "windows"* ]]; then
         print "archiving as zip"
 
-        zip -qr "${tmpdir}/${name}.zip" "${source}"
+        zip -qr "${tmpdir}/${name}.zip" "${source}" >&2
         echo "${tmpdir}/${name}.zip"
     else
         print "archiving as tar.xz"
 
-        tar -cJhf "${tmpdir}/${name}.tar.xz" "${source}"
+        tar -cJhf "${tmpdir}/${name}.tar.xz" "${source}" >&2
         echo "${tmpdir}/${name}.tar.xz"
     fi
 }
