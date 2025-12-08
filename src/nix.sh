@@ -3,6 +3,11 @@
 # https://github.com/NixOS/nix/issues/10202
 git config --global --add safe.directory "$(pwd)"
 
+# https://discourse.nixos.org/t/warning-about-home-ownership/52351
+if [[ "${CI}" == "true" ]]; then
+    chown -R "${USER}:${USER}" "${HOME}"
+fi
+
 NIX_ARGS=("--extra-experimental-features" "nix-command flakes" "--accept-flake-config" "--no-warn-dirty")
 
 function nix_system () {
