@@ -25,7 +25,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.4.3
+  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.4.4
   env:
     GITHUB_TOKEN: ${{ inputs.github_token }}
     REGISTRY: ${{ inputs.registry }}
