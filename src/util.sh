@@ -8,6 +8,21 @@ function print () {
     printf '%s: %s\n' "${GLOBAL_PACKAGE}" "${message}" >&2
 }
 
+function file_info () {
+    local filepath="$1"
+
+    local filename
+    filename=$(basename "$filepath")
+
+    local filesize
+    filesize=$(du -h "$filepath" | cut -f1)
+
+    local filehash
+    filehash=$(sha256sum "$filepath" | cut -d' ' -f1)
+
+    echo "${filename}: size: ${filesize}, hash: ${filehash}"
+}
+
 function archive () {
     local source="$1"
     local name="$2"

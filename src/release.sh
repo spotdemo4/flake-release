@@ -53,6 +53,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
         print "detected as executable '$(basename "$EXE")' for '$PLATFORM'"
 
         ARCHIVE=$(archive "$EXE" "$NAME-$PLATFORM" "$PLATFORM")
+        print "$(file_info "$ARCHIVE")"
 
         github_upload_file "$ARCHIVE" "$VERSION"
 
@@ -61,6 +62,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
 
         BUNDLE=$(nix_bundle "$PACKAGE")
         ARCHIVE=$(archive "$BUNDLE" "$NAME" "$(host_platform)")
+        print "$(file_info "$ARCHIVE")"
 
         github_upload_file "$ARCHIVE" "$VERSION"
 
