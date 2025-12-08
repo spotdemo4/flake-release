@@ -6,7 +6,7 @@ function github_release_create () {
     if [[ -n $GITHUB_TOKEN && -n $GITHUB_REPOSITORY ]]; then
         print "creating release v$version at $GITHUB_REPOSITORY"
 
-        gh release create --repo "$GITHUB_REPOSITORY" "v$version" --generate-notes &> /dev/null || true
+        gh release create --repo "$GITHUB_REPOSITORY" "v$version" --generate-notes || true
     fi
 }
 
