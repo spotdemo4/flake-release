@@ -27,6 +27,6 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Release
-        uses: spotdemo4/nix-flake-release@main
+        uses: spotdemo4/nix-flake-release@7693ce5c11fecd505136dbafc9a8826cdb9b9d13 # v0.2.8
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
