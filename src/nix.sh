@@ -34,11 +34,6 @@ function nix_pkg_version () {
     nix "${NIX_ARGS[@]}" eval --raw ".#${package}.version" 2> /dev/null || echo ""
 }
 
-function nix_pkg_build () {
-    local package="$1"
-    nix "${NIX_ARGS[@]}" build ".#${package}" --no-link --quiet
-}
-
 function nix_pkg_image_name () {
     local package="$1"
     nix "${NIX_ARGS[@]}" eval --raw ".#${package}.imageName" 2> /dev/null || echo ""
@@ -54,12 +49,17 @@ function nix_pkg_exe () {
     nix "${NIX_ARGS[@]}" eval --raw --impure ".#${package}" --apply "(import <nixpkgs> {}).lib.meta.getExe" 2> /dev/null || echo ""
 }
 
+function nix_build () {
+    local package="$1"
+    nix "${NIX_ARGS[@]}" build ".#${package}" --no-link --quiet
+}
+
 function nix_bundle () {
     local package="$1"
 
     local tmpdir
     tmpdir=$(mktemp -u)
     
-    nix "${NIX_ARGS[@]}" bundle --bundler github:DavHau/nix-portable ".#${package}" -o "${tmpdir}" &> /dev/null || echo ""
+    nix "${NIX_ARGS[@]}" bundle --bundler github:DavHau/nix-portable ".#${package}" -o "${tmpdir}" > /dev/null
     echo "${tmpdir}"
 }

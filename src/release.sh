@@ -30,7 +30,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
     fi
 
     echo "$PACKAGE: building"
-    nix_pkg_build "$PACKAGE"
+    nix_build "$PACKAGE"
 
     echo "$PACKAGE: probing"
 
