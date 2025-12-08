@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-# https://github.com/NixOS/nix/issues/10202
-git config --global --add safe.directory "$(pwd)"
-
-# https://discourse.nixos.org/t/warning-about-home-ownership/52351
 if [[ "${CI}" == "true" ]]; then
+    # https://github.com/NixOS/nix/issues/10202
+    git config --global --add safe.directory "$(pwd)"
+
+    # https://discourse.nixos.org/t/warning-about-home-ownership/52351
     chown -R "${USER}:${USER}" "${HOME}"
 fi
 
