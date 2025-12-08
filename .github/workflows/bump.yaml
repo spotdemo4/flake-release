@@ -30,7 +30,7 @@ jobs:
           shell: bump
 
       - name: Bump
-        uses: spotdemo4/bumper@32534ba92eb765a5dd0d22d2ee2064748d0a2042 # v0.2.5
+        uses: spotdemo4/bumper@a903b3594c1206a8c4d96022b36a956850dc17a7 # v0.3.0
         with:
           force: ${{ inputs.force }}
           files: |-
