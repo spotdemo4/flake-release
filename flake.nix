@@ -169,7 +169,6 @@
             installPhase = ''
               mkdir -p $out/bin
               cp -R src/*.sh $out/bin
-              ls -lah $out/bin
             '';
 
             dontFixup = true;
