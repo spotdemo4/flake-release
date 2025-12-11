@@ -9,6 +9,7 @@ set -o pipefail
 DIR="${BASH_SOURCE%/*}"
 if [[ ! -d "$DIR" ]]; then DIR="$PWD"; fi
 
+source "$DIR/git.sh"
 source "$DIR/github.sh"
 source "$DIR/image.sh"
 source "$DIR/nix.sh"

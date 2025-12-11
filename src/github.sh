@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# creates a GitHub release if it does not exist
 function github_release_create () {
     local version="$1"
 
@@ -9,7 +10,7 @@ function github_release_create () {
     fi
 }
 
-# uploads a file to GitHub Releases
+# uploads a file to a GitHub release
 function github_upload_file () {
     local file="$1"
     local version="$2"
