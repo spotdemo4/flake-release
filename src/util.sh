@@ -3,7 +3,7 @@
 function print () {
     local message="$1"
 
-    if [[ "${CI}" == "true" ]]; then
+    if [[ "${CI-}" == "true" ]]; then
         printf "::endgroup::\n" >&2
         printf '::group::%s\n' "${message}" >&2
     else
