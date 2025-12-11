@@ -5,7 +5,11 @@ if [[ "${DOCKER-}" == "true" && -n "${CI-}" ]]; then
     chown -R "${USER}:${USER}" "${HOME}"
 fi
 
-NIX_ARGS=("--extra-experimental-features" "nix-command flakes" "--accept-flake-config" "--no-warn-dirty" "--access-tokens" "github.com=${GITHUB_TOKEN:-}")
+NIX_ARGS=("--extra-experimental-features" "nix-command flakes" "--accept-flake-config" "--no-warn-dirty")
+
+if [[ -n "${GITHUB_TOKEN-}" ]]; then
+    NIX_ARGS+=("--access-tokens" "github.com=${GITHUB_TOKEN}")
+fi
 
 function nix_system () {
     local system

@@ -56,9 +56,14 @@ also available from the [nix user repository](https://nur.nix-community.org/repo
 
 ```elm
 docker run -it --rm \
-  -w /app \
   -v "$(pwd):/app" \
+  -w /app \
   -v "$HOME/.ssh:/root/.ssh" \
+  -e GITHUB_TOKEN=... \
+  -e GITHUB_REPOSITORY=spotdemo4/nix-flake-release \
+  -e REGISTRY=ghcr.io \
+  -e REGISTRY_USERNAME=... \
+  -e REGISTRY_PASSWORD=... \
   ghcr.io/spotdemo4/nix-flake-release:0.4.5
 ```
 
