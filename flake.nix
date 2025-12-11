@@ -195,7 +195,7 @@
             name = packages.default.pname;
             tag = packages.default.version;
 
-            fromImage = pkgs.images.nix;
+            fromImage = pkgs.image.nix;
             contents = with pkgs; [
               packages.default
               dockerTools.caCertificates
