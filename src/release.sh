@@ -16,8 +16,17 @@ source "$DIR/nix.sh"
 source "$DIR/platform.sh"
 source "$DIR/util.sh"
 
-ARGS=( "$@" )
+# get args
+ARGS=()
+if [[ "$#" -gt 0 ]]; then
+    ARGS+=( "${@}" )
+fi
+if [[ -n "${ENV_ARGS-}" ]]; then
+    readarray -t ENV_ARGS < <(array "${ENV_ARGS-}")
+    ARGS+=( "${ENV_ARGS[@]}" )
+fi
 
+# get nix packages
 NIX_SYSTEM=$(nix_system)
 readarray -t PACKAGES < <(nix_packages "$NIX_SYSTEM")
 if [[ ${#PACKAGES[@]} -eq 0 ]]; then

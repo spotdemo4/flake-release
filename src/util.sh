@@ -48,3 +48,30 @@ function archive () {
         echo "${tmpdir}/${name}.tar.xz"
     fi
 }
+
+function array() {
+    local string="$1"
+    local new_array=()
+    local array=()
+
+    # split by either spaces or newlines
+    if [[ "${string}" == *$'\n'* ]]; then
+        readarray -t new_array <<< "${string}"
+    else
+        IFS=" " read -r -a new_array <<< "${string}"
+    fi
+
+    # remove empty entries
+    for item in "${new_array[@]}"; do
+        if [[ -n "${item}" ]]; then
+            array+=( "${item}" )
+        fi
+    done
+
+    # return empty if no entries
+    if [[ "${#array[@]}" -eq 0 ]]; then
+        return
+    fi
+
+    printf "%s\n" "${array[@]}"
+}

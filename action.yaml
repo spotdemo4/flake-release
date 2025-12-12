@@ -3,6 +3,11 @@ description: release all packages in a nix flake
 author: trev
 
 inputs:
+  packages:
+    description: nix packages to release
+    required: false
+    default: ""
+
   github_token:
     description: github token
     required: false
@@ -32,6 +37,7 @@ runs:
   using: docker
   image: docker://ghcr.io/spotdemo4/nix-flake-release:0.4.6
   env:
+    ENV_ARGS: ${{ inputs.packages }}
     GITHUB_TOKEN: ${{ inputs.github_token }}
     REGISTRY: ${{ inputs.registry }}
     REGISTRY_USERNAME: ${{ inputs.registry_username }}
