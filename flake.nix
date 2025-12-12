@@ -150,6 +150,8 @@
               gh
               jq
               mktemp
+              ncurses
+              nix
               skopeo
               xz
               zip

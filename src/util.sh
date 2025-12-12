@@ -1,32 +1,6 @@
 #!/usr/bin/env bash
 
-function print () {
-    local message="$1"
-
-    if [[ "${CI-}" == "true" ]]; then
-        printf "::endgroup::\n" >&2
-        printf '::group::%s\n' "${message}" >&2
-    else
-        printf '%s\n' "${message}" >&2
-    fi
-}
-
-function file_info () {
-    local filepath="$1"
-
-    local filename
-    filename=$(basename "$filepath")
-
-    local filesize
-    filesize=$(du -h "$filepath" | cut -f1)
-
-    local filehash
-    filehash=$(sha256sum "$filepath" | cut -d' ' -f1)
-
-    echo "${filename}, size: ${filesize}, hash: ${filehash}"
-}
-
-function archive () {
+function archive() {
     local source="$1"
     local name="$2"
     local platform="$3"
@@ -34,16 +8,19 @@ function archive () {
     local tmpdir
     tmpdir=$(mktemp -d)
 
-    if [[ "$platform" == "windows"* ]]; then
-        echo "zipping" >&2
-        zip -qr "${tmpdir}/${name}.zip" "${source}" >&2
-        file_info "${tmpdir}/${name}.zip" >&2
+    info "archiving ${source} for ${platform}"
+
+    if [[ ! -d "${source}" ]]; then
+        warn "source not found"
+        return 1
+    fi
+
+    if [[ "${platform}" == "windows"* ]]; then
+        run zip -qr "${tmpdir}/${name}.zip" "${source}"
 
         echo "${tmpdir}/${name}.zip"
     else
-        echo "tarring" >&2
-        tar -cJhf "${tmpdir}/${name}.tar.xz" "${source}" >&2
-        file_info "${tmpdir}/${name}.tar.xz" >&2
+        run tar -cJhf "${tmpdir}/${name}.tar.xz" "${source}"
 
         echo "${tmpdir}/${name}.tar.xz"
     fi
@@ -75,3 +52,80 @@ function array() {
 
     printf "%s\n" "${array[@]}"
 }
+
+function bold() {
+    printf "%s%s%s\n" "${color_bold-}" "${1-}" "${color_reset-}"
+}
+
+function dim() {
+    printf "%s%s%s\n" "${color_dim-}" "${1-}" "${color_reset-}"
+}
+
+function info() {
+    printf "%s%s%s\n" "${color_info-}" "${1-}" "${color_reset-}" >&2
+}
+
+function warn() {
+    printf "%s%s%s\n" "${color_warn-}" "${1-}" "${color_reset-}" >&2
+}
+
+function success() {
+    printf "%s%s%s\n" "${color_success-}" "${1-}" "${color_reset-}" >&2
+}
+
+function run() {
+    local width
+    local code
+
+    if [[ -n "${DEBUG-}" ]]; then
+        "${@}" >&2
+    elif [[ -n "${CI-}" ]]; then
+
+        # print command output in collapsible group
+        printf "%s%s%s%s\n" "::group::" "${color_cmd-}" "${*}" "${color_reset-}" >&2
+        "${@}" >&2
+        code=${?}
+        printf "%s\n" "::endgroup::" >&2
+
+        return "${code}"
+    elif width=$(tput cols 2> /dev/null); then
+        local line
+        local clean
+
+        # print command output on same line
+        printf "%s%s%s\n" "${color_cmd-}" "${*}" "${color_reset-}" >&2
+        "${@}" 2>&1 | while IFS= read -r line; do
+            clean=$(echo -e "${line}" | sed -e 's/\\n//g' -e 's/\\t//g' -e 's/\\r//g' | head -c $((width - 10)))
+            printf "\r\033[2K%s%s%s" "${color_dim-}" "${clean}" "${color_reset-}" >&2
+        done
+        code=${PIPESTATUS[0]}
+        printf "\r\033[2K" >&2
+
+        return "${code}"
+    else
+        "${@}" &> /dev/null
+    fi
+}
+
+# default TERM to linux
+if [[ -n "${CI-}" || -z "${TERM-}" ]]; then
+    TERM=linux
+fi
+
+# set colors
+if colors=$(tput -T "${TERM}" colors 2> /dev/null); then
+    color_reset=$(tput -T "${TERM}" sgr0)
+    color_bold=$(tput -T "${TERM}" bold)
+    color_dim=$(tput -T "${TERM}" dim)
+
+    if [[ "$colors" -ge 256 ]]; then
+        color_info=$(tput -T "${TERM}" setaf 189)
+        color_cmd=$(tput -T "${TERM}" setaf 81)
+        color_warn=$(tput -T "${TERM}" setaf 216)
+        color_success=$(tput -T "${TERM}" setaf 117)
+    elif [[ "$colors" -ge 8 ]]; then
+        color_cmd=$(tput -T "${TERM}" setaf 4)
+        color_warn=$(tput -T "${TERM}" setaf 3)
+        color_success=$(tput -T "${TERM}" setaf 2)
+    fi
+fi

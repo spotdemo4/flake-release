@@ -9,12 +9,13 @@ set -o pipefail
 DIR="${BASH_SOURCE%/*}"
 if [[ ! -d "$DIR" ]]; then DIR="$PWD"; fi
 
+source "$DIR/util.sh"
+
 source "$DIR/git.sh"
 source "$DIR/github.sh"
 source "$DIR/image.sh"
 source "$DIR/nix.sh"
 source "$DIR/platform.sh"
-source "$DIR/util.sh"
 
 # get args
 ARGS=()
@@ -30,32 +31,33 @@ fi
 NIX_SYSTEM=$(nix_system)
 readarray -t PACKAGES < <(nix_packages "$NIX_SYSTEM")
 if [[ ${#PACKAGES[@]} -eq 0 ]]; then
-    print "no packages found in the nix flake for system '$NIX_SYSTEM'"
+    warn "no packages found in the nix flake for system '$NIX_SYSTEM'"
     exit 1
 fi
 
-echo "" >&2
-
 STORE_PATHS=()
 for PACKAGE in "${PACKAGES[@]}"; do
+    info ""
+
     if [[ "${#ARGS[@]}" -ne 0 && ! ${ARGS[*]} =~ $PACKAGE ]]; then
-        echo "skipping package '$PACKAGE'" >&2
+        info "skipping package '$PACKAGE'"
         continue
     fi
 
-    print "evaluating '$PACKAGE'"
+    info "evaluating $(bold "$PACKAGE")"
     STORE_PATH=$(nix_pkg_path "$PACKAGE")
     if [[ ${STORE_PATHS[*]} =~ $STORE_PATH ]]; then
-        echo "$PACKAGE: already built, skipping" >&2
+        info "$PACKAGE: already built, skipping"
         continue
     else
         STORE_PATHS+=("$STORE_PATH")
     fi
 
-    print "building"
-    nix_build "$PACKAGE"
+    if ! nix_build "$PACKAGE"; then
+        warn "build failed"
+        continue
+    fi
 
-    print "probing"
     # `mkDerivation`` attributes
     NAME=$(nix_pkg_name "$PACKAGE")
     VERSION=$(nix_pkg_version "$PACKAGE")
@@ -67,53 +69,65 @@ for PACKAGE in "${PACKAGES[@]}"; do
 
     # `dockerTools.buildLayeredImage`
     if [[ -n $IMAGE_NAME && -n $IMAGE_TAG && -f "$STORE_PATH" && "$STORE_PATH" == *".tar.gz" ]]; then
-        echo "detected as image '$IMAGE_NAME:$IMAGE_TAG'" >&2
 
-        print "uploading"
-        upload_image "$STORE_PATH" "$IMAGE_TAG"
+        info "detected as image $(bold "$IMAGE_NAME:$IMAGE_TAG")"
+
+        if ! upload_image "$STORE_PATH" "$IMAGE_TAG"; then
+            warn "uploading failed"
+            continue
+        fi
 
     # `dockerTools.streamLayeredImage`
     elif [[ -n $IMAGE_NAME && -n $IMAGE_TAG && -f "$STORE_PATH" && -x "$STORE_PATH" ]]; then
-        echo "detected as image '$IMAGE_NAME:$IMAGE_TAG'" >&2
 
-        print "streaming"
-        stream_image "$STORE_PATH" "$IMAGE_TAG"
+        info "detected as image $(bold "$IMAGE_NAME:$IMAGE_TAG")"
+
+        if ! stream_image "$STORE_PATH" "$IMAGE_TAG"; then
+            warn "streaming failed"
+            continue
+        fi
 
     # `mkDerivation`` executable
     elif [[ -n $NAME && -n $VERSION && -d "$STORE_PATH" && -f "$EXE" && "$PLATFORM" != "unknown-unknown" ]]; then
-        echo "detected as executable '$(basename "$EXE")' for '$PLATFORM'" >&2
 
-        print "archiving"
-        ARCHIVE=$(archive "$EXE" "$NAME-$PLATFORM" "$PLATFORM")
+        info "detected as executable $(bold "$(basename "$EXE")") for $PLATFORM"
 
-        print "uploading"
-        github_upload_file "$ARCHIVE" "$VERSION"
+        if ! ARCHIVE=$(archive "$EXE" "$NAME-$PLATFORM" "$PLATFORM"); then
+            warn "archiving failed"
+            continue
+        fi
+
+        if ! github_upload_file "$ARCHIVE" "$VERSION"; then
+            warn "uploading failed"
+            continue
+        fi
 
     # `mkDerivation`` non-executable
     elif [[ -n $NAME && -n $VERSION && -d "$STORE_PATH" ]]; then
-        echo "detected as generic derivation '${NAME}'" >&2
+
+        info "detected as generic derivation $(bold "${NAME}")"
 
         if [[ "${BUNDLE-}" == "false" ]]; then
-            echo "skipping bundling as BUNDLE is set to false" >&2
+            info "skipping bundling as BUNDLE is set to false"
             BUNDLE="$STORE_PATH"
         else
-            print "bundling"
-            BUNDLE=$(nix_bundle "$PACKAGE")
+            if ! BUNDLE=$(nix_bundle "$PACKAGE"); then
+                warn "bundling failed"
+                continue
+            fi
         fi
 
-        print "archiving"
-        ARCHIVE=$(archive "$BUNDLE" "$NAME" "$(host_platform)")
+        if ! ARCHIVE=$(archive "$BUNDLE" "$NAME" "$(host_platform)"); then
+            warn "archiving failed"
+            continue
+        fi
 
-        print "uploading"
-        github_upload_file "$ARCHIVE" "$VERSION"
+        if ! github_upload_file "$ARCHIVE" "$VERSION"; then
+            warn "uploading failed"
+            continue
+        fi
 
     else
-        echo "unknown type" >&2
-    fi
-
-    if [[ "${CI-}" == "true" ]]; then
-        printf "::endgroup::\n" >&2
-    else
-        echo "" >&2
+        warn "unknown type"
     fi
 done

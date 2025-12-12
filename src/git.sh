@@ -17,7 +17,7 @@ function git_check_safe() {
         fi
     done
 
-    echo "adding '${dir}' to git safe directories" >&2
+    info "adding '${dir}' to git safe directories"
     git config --global --add safe.directory "${dir}"
 }
 

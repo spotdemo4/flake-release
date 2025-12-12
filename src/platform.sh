@@ -17,7 +17,7 @@ detect_platform () {
     fi
 
     if [[ -n "${os-}" ]]; then
-        echo "os: ${os}" >&2
+        info "$(dim "os: ${os}")"
     fi
     
     # detect architecture
@@ -35,7 +35,7 @@ detect_platform () {
     fi
 
     if [[ -n "${arch-}" ]]; then
-        echo "architecture: ${arch}" >&2
+        info "$(dim "architecture: ${arch}")"
     fi
     
     echo "${os:-"unknown"}-${arch:-"unknown"}"

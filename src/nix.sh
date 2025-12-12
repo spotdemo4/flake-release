@@ -1,21 +1,10 @@
 #!/usr/bin/env bash
 
-# https://discourse.nixos.org/t/warning-about-home-ownership/52351
-if [[ "${DOCKER-}" == "true" && -n "${CI-}" ]]; then
-    chown -R "${USER}:${USER}" "${HOME}"
-fi
-
-NIX_ARGS=("--extra-experimental-features" "nix-command flakes" "--accept-flake-config" "--no-warn-dirty")
-
-if [[ -n "${GITHUB_TOKEN-}" ]]; then
-    NIX_ARGS+=("--access-tokens" "github.com=${GITHUB_TOKEN}")
-fi
-
 function nix_system () {
     local system
 
     system=$(nix "${NIX_ARGS[@]}" eval --impure --raw --expr "builtins.currentSystem")
-    echo "system: ${system}" >&2
+    info "$(dim "system: ${system}")"
 
     echo "${system}"
 }
@@ -28,7 +17,7 @@ function nix_packages () {
 
     local packages_list
     packages_list=$(echo "${packages}" | jq -r --arg system "$system" '.packages[$system] | keys | join(", ")')
-    echo "packages: ${packages_list}" >&2
+    info "$(dim "packages: ${packages_list}")"
 
     local packages_json
     packages_json=$(echo "${packages}" | jq -r --arg system "$system" '.packages[$system] | keys[]')
@@ -41,7 +30,7 @@ function nix_pkg_path () {
 
     local pkg_path
     pkg_path=$(nix "${NIX_ARGS[@]}" eval --raw ".#${package}")
-    echo "path: ${pkg_path}" >&2
+    info "$(dim "path: ${pkg_path}")"
 
     echo "${pkg_path}"
 }
@@ -53,7 +42,7 @@ function nix_pkg_name () {
     name=$(nix "${NIX_ARGS[@]}" eval --raw ".#${package}.name" 2> /dev/null || echo "")
 
     if [[ -n "$name" ]]; then
-        echo "name: ${name}" >&2
+        info "$(dim "name: ${name}")"
     fi
 
     echo "${name}"
@@ -66,7 +55,7 @@ function nix_pkg_version () {
     version=$(nix "${NIX_ARGS[@]}" eval --raw ".#${package}.version" 2> /dev/null || echo "")
 
     if [[ -n "$version" ]]; then
-        echo "version: ${version}" >&2
+        info "$(dim "version: ${version}")"
     fi
 
     echo "${version}"
@@ -79,7 +68,7 @@ function nix_pkg_image_name () {
     image_name=$(nix "${NIX_ARGS[@]}" eval --raw ".#${package}.imageName" 2> /dev/null || echo "")
 
     if [[ -n "$image_name" ]]; then
-        echo "image name: ${image_name}" >&2
+        info "$(dim "image name: ${image_name}")"
     fi
 
     echo "${image_name}"
@@ -92,7 +81,7 @@ function nix_pkg_image_tag () {
     image_tag=$(nix "${NIX_ARGS[@]}" eval --raw ".#${package}.imageTag" 2> /dev/null || echo "")
 
     if [[ -n "$image_tag" ]]; then
-        echo "image tag: ${image_tag}" >&2
+        info "$(dim "image tag: ${image_tag}")"
     fi
 
     echo "${image_tag}"
@@ -105,7 +94,7 @@ function nix_pkg_exe () {
     exe=$(nix "${NIX_ARGS[@]}" eval --raw --impure ".#${package}" --apply "(import <nixpkgs> {}).lib.meta.getExe" 2> /dev/null || echo "")
 
     if [[ -n "$exe" ]]; then
-        echo "exe: ${exe}" >&2
+        info "$(dim "exe: ${exe}")"
     fi
 
     echo "${exe}"
@@ -113,7 +102,12 @@ function nix_pkg_exe () {
 
 function nix_build () {
     local package="$1"
-    nix "${NIX_ARGS[@]}" build ".#${package}" --no-link >&2
+
+    local code
+    run nix "${NIX_ARGS[@]}" build ".#${package}" --no-link
+    code=$?
+
+    return ${code}
 }
 
 function nix_bundle () {
@@ -122,7 +116,21 @@ function nix_bundle () {
     local tmpdir
     tmpdir=$(mktemp -u)
     
-    nix "${NIX_ARGS[@]}" bundle --bundler github:DavHau/nix-portable#zstd-max ".#${package}" -o "${tmpdir}" >&2
+    local code
+    run nix "${NIX_ARGS[@]}" bundle --bundler github:DavHau/nix-portable#zstd-max ".#${package}" -o "${tmpdir}"
+    code=$?
 
     echo "${tmpdir}"
+    return ${code}
 }
+
+# https://discourse.nixos.org/t/warning-about-home-ownership/52351
+if [[ "${DOCKER-}" == "true" && -n "${CI-}" ]]; then
+    chown -R "${USER}:${USER}" "${HOME}"
+fi
+
+NIX_ARGS=("--extra-experimental-features" "nix-command flakes" "--accept-flake-config" "--no-warn-dirty")
+
+if [[ -n "${GITHUB_TOKEN-}" ]]; then
+    NIX_ARGS+=("--access-tokens" "github.com=${GITHUB_TOKEN}")
+fi
