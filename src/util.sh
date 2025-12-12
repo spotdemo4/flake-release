@@ -8,6 +8,15 @@ function archive() {
     local tmpdir
     tmpdir=$(mktemp -d)
 
+    local filecount
+    filecount=$(find "${source}" -type f | wc -l | tr -d ' ')
+    if [[ "${filecount}" -eq 0 ]]; then
+        warn "no files found to archive"
+        return 1
+    elif [[ "${filecount}" -eq 1 ]]; then
+        source=$(dirname "$(find "${source}" -type f)")
+    fi
+
     info "archiving ${source} for ${platform}"
 
     if [[ ! -d "${source}" ]]; then
@@ -15,15 +24,17 @@ function archive() {
         return 1
     fi
 
-    if [[ "${platform}" == "windows"* ]]; then
-        run zip -qr "${tmpdir}/${name}.zip" "${source}"
+    pushd "$(dirname "${source}")" &> /dev/null || return 1
 
+    if [[ "${platform}" == "windows"* ]]; then
+        run zip -qr "${tmpdir}/${name}.zip" .
         echo "${tmpdir}/${name}.zip"
     else
-        run tar -cJhf "${tmpdir}/${name}.tar.xz" "${source}"
-
+        run tar -cJhf "${tmpdir}/${name}.tar.xz" .
         echo "${tmpdir}/${name}.tar.xz"
     fi
+
+    popd &> /dev/null || return 1
 }
 
 function array() {
