@@ -116,7 +116,7 @@ function run() {
         # print command output on same line
         printf "%s%s%s\n" "${color_cmd-}" "${*}" "${color_reset-}" >&2
         "${@}" 2>&1 | while IFS= read -r line; do
-            clean=$(echo -e "${line}" | sed -e 's/\\n//g' -e 's/\\t//g' -e 's/\\r//g' | head -c $((width - 10)))
+            clean=$(echo -e "${line}" | sed -e 's/\\n//g' -e 's/\\t//g' -e 's/\\r//g' 2> /dev/null | head -c $((width - 10)))
             printf "\r\033[2K%s%s%s" "${color_dim-}" "${clean}" "${color_reset-}" >&2
         done
         code=${PIPESTATUS[0]}
