@@ -42,5 +42,29 @@ detect_platform () {
 }
 
 host_platform () {
-    detect_platform "$(which bash)"
+    local uname_os
+    uname_os=$(uname -s)
+    local uname_arch
+    uname_arch=$(uname -m)
+
+    local os
+    case "${uname_os}" in
+        Linux*)     os="linux" ;;
+        Darwin*)    os="darwin" ;;
+        MINGW*|MSYS*|CYGWIN*) os="windows" ;;
+        *)          os="unknown" ;;
+    esac
+
+    local arch
+    case "${uname_arch}" in
+        x86_64*)    arch="amd64" ;;
+        i386*|i686*) arch="386" ;;
+        aarch64*|arm64*) arch="arm64" ;;
+        armv7*|armv6*) arch="arm" ;;
+        mips*)      arch="mips" ;;
+        *)          arch="unknown" ;;
+    esac
+
+    info "$(dim "host platform: ${os}-${arch}")"
+    echo "${os}-${arch}"
 }
