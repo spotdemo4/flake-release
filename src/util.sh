@@ -8,6 +8,10 @@ function archive() {
     local tmpdir
     tmpdir=$(mktemp -d)
 
+    if [[ -f "${source}" ]]; then
+        source=$(dirname "${source}")
+    fi
+
     local filecount
     filecount=$(find -L "${source}" -type f | wc -l | tr -d ' ')
     if [[ "${filecount}" -eq 0 ]]; then
@@ -24,7 +28,7 @@ function archive() {
         return 1
     fi
 
-    pushd "$(dirname "${source}")" &> /dev/null || return 1
+    pushd "${source}" &> /dev/null || return 1
 
     if [[ "${platform}" == "windows"* ]]; then
         run zip -qr "${tmpdir}/${name}.zip" .
