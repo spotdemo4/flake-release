@@ -8,25 +8,31 @@ function archive() {
     local tmpdir
     tmpdir=$(mktemp -d)
 
+    # check source exists
+    if [[ ! -d "${source}" ]]; then
+        warn "source not found"
+        return 1
+    fi
+
+    # if source is a file, use its directory
     if [[ -f "${source}" ]]; then
         source=$(dirname "${source}")
     fi
 
+    # make single file executable
     local filecount
     filecount=$(find -L "${source}" -type f | wc -l | tr -d ' ')
     if [[ "${filecount}" -eq 0 ]]; then
         warn "no files found to archive"
         return 1
     elif [[ "${filecount}" -eq 1 ]]; then
-        source=$(dirname "$(find -L "${source}" -type f)")
+        local filepath
+        filepath=$(find -L "${source}" -type f)
+        chmod +x "${filepath}"
+        source=$(dirname "${filepath}")
     fi
 
     info "archiving ${source} for ${platform}"
-
-    if [[ ! -d "${source}" ]]; then
-        warn "source not found"
-        return 1
-    fi
 
     pushd "${source}" &> /dev/null || return 1
 
