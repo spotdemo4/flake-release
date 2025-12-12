@@ -17,7 +17,7 @@ release [packages...]
 
 ```yaml
 - name: Release
-  uses: spotdemo4/nix-flake-release@v0.5.0
+  uses: spotdemo4/nix-flake-release@v0.5.1
   with:
     packages: # default: all
     github_token: # default: ${{ github.token }}
@@ -66,7 +66,7 @@ docker run -it --rm \
   -e REGISTRY=ghcr.io \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
-  ghcr.io/spotdemo4/nix-flake-release:0.5.0
+  ghcr.io/spotdemo4/nix-flake-release:0.5.1
 ```
 
 ### Downloads
@@ -75,6 +75,6 @@ docker run -it --rm \
 
 requires [jq](https://jqlang.org/), [skopeo](https://github.com/containers/skopeo), [gh](https://cli.github.com/) (github)
 
-#### [nix-flake-release-0.5.0.tar.xz](https://github.com/spotdemo4/nix-flake-release/releases/download/v0.5.0/nix-flake-release-0.5.0.tar.xz) - bundle
+#### [nix-flake-release-0.5.1.tar.xz](https://github.com/spotdemo4/nix-flake-release/releases/download/v0.5.1/nix-flake-release-0.5.1.tar.xz) - bundle
 
 contains all dependencies, only use if necessary
