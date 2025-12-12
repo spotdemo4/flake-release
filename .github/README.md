@@ -3,7 +3,7 @@
 ![check](https://github.com/spotdemo4/nix-flake-release/actions/workflows/check.yaml/badge.svg?branch=main)
 ![vulnerable](https://github.com/spotdemo4/nix-flake-release/actions/workflows/vulnerable.yaml/badge.svg?branch=main)
 
-Generates release artifacts for a nix flake
+Generates release artifacts for packages in a nix flake
 
 ## Usage
 
@@ -19,10 +19,12 @@ release [packages...]
 - name: Release
   uses: spotdemo4/nix-flake-release@v0.4.6
   with:
+    packages: # default: all
     github_token: # default: ${{ github.token }}
     registry: # default: ghcr.io
     registry_username: # default: ${{ github.actor }}
     registry_password: # default: ${{ github.token }}
+    bundle: # whether to bundle generic derivations, default: true
 ```
 
 ### Nix
