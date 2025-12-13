@@ -23,6 +23,6 @@ jobs:
           private-key: ${{ secrets.PRIVATE_KEY }}
 
       - name: Release
-        uses: spotdemo4/nix-flake-release@1efff2c8387fde55b3c12d015cdecc794d6538ad # v0.5.1
+        uses: spotdemo4/nix-flake-release@705a37cf5f4a18304b19c853cf9abc575a71a757 # v0.6.0
         with:
           github_token: ${{ steps.checkout.outputs.token }}
