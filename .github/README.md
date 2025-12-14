@@ -8,7 +8,7 @@ Generates release artifacts for packages in a nix flake
 ## Usage
 
 ```elm
-release [packages...]
+nix-flake-release [packages...]
 ```
 
 ## Install
