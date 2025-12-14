@@ -187,14 +187,14 @@
               cp -R src/*.sh $out/lib/nix-flake-release
 
               mkdir -p $out/bin
-              makeWrapper "$out/lib/nix-flake-release/release.sh" "$out/bin/release"
+              makeWrapper "$out/lib/nix-flake-release/release.sh" "$out/bin/nix-flake-release"
             '';
 
             dontFixup = true;
 
             meta = {
               description = "nix flake releaser";
-              mainProgram = "release";
+              mainProgram = "nix-flake-release";
               homepage = "https://github.com/spotdemo4/nix-flake-release";
               changelog = "https://github.com/spotdemo4/nix-flake-release/releases/tag/v${finalAttrs.version}";
               platforms = pkgs.lib.platforms.all;
