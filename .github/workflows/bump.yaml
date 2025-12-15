@@ -25,14 +25,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: spotdemo4/better-checkout@eaec73409dbe842ad8446ee818976878b0e9108d # v0.0.2
+        uses: spotdemo4/better-checkout@fbd1d9e60d4d4c5c9efb2244c052cac648d62944 # v0.1.1
         with:
           app-id: ${{ vars.CLIENT_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
           fetch-depth: 0
 
       - name: Bump
-        uses: spotdemo4/bumper@0b7f3117b7bd048abb22d66611e0f785db46b044 # v0.7.1
+        uses: spotdemo4/bumper@4700c6f7fffd5e49c9bdfd316fb64233e87a9576 # v0.7.2
         with:
           debug: ${{ runner.debug }}
           force: ${{ inputs.force }}
