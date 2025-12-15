@@ -8,15 +8,15 @@ function archive() {
     local tmpdir
     tmpdir=$(mktemp -d)
 
-    # check source exists
-    if [[ ! -d "${source}" ]]; then
-        warn "source not found"
-        return 1
-    fi
-
     # if source is a file, use its directory
     if [[ -f "${source}" ]]; then
         source=$(dirname "${source}")
+    fi
+
+    # check source directory exists
+    if [[ ! -d "${source}" ]]; then
+        warn "source not found"
+        return 1
     fi
 
     # make single file executable
