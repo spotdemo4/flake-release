@@ -73,8 +73,11 @@ for PACKAGE in "${PACKAGES[@]}"; do
     IMAGE_NAME=$(nix_pkg_image_name "$PACKAGE")
     IMAGE_TAG=$(nix_pkg_image_tag "$PACKAGE")
 
-    if ! release "${VERSION}" "$(git_changelog "${VERSION}")"; then
-        warn "release failed"
+    # create release
+    if [[ -n $VERSION ]]; then
+        if ! release "${VERSION}" "$(git_changelog "${VERSION}")"; then
+            warn "could not create release v${VERSION}"
+        fi
     fi
 
     # `dockerTools.buildLayeredImage`

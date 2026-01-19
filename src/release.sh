@@ -5,15 +5,11 @@ function release () {
     local changelog="$2"
 
     if [[ -n "${GITEA_ACTIONS-}" ]]; then
-        if ! gitea_release "$version" "$changelog"; then
-            warn "release failed"
-        fi
+        gitea_release "$version" "$changelog"
     elif [[ -n "${FORGEJO_ACTIONS-}" ]]; then
         echo "forgejo is not supported yet"
     else
-        if ! github_release "$version" "$changelog"; then
-            warn "release failed"
-        fi
+        github_release "$version" "$changelog"
     fi
 }
 
@@ -22,14 +18,10 @@ function release_asset () {
     local asset="$2"
 
     if [[ -n "${GITEA_ACTIONS-}" ]]; then
-        if ! gitea_release_asset "$version" "$asset"; then
-            warn "uploading failed"
-        fi
+        gitea_release_asset "$version" "$asset"
     elif [[ -n "${FORGEJO_ACTIONS-}" ]]; then
         echo "forgejo is not supported yet"
     else
-        if ! github_release_asset "$version" "$asset"; then
-            warn "uploading failed"
-        fi
+        github_release_asset "$version" "$asset"
     fi
 }
