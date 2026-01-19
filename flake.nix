@@ -175,8 +175,8 @@
 
             configurePhase = ''
               chmod +w src
-              sed -i '1c\#!${pkgs.runtimeShell}' src/release.sh
-              sed -i '2c\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/release.sh
+              sed -i '1c\#!${pkgs.runtimeShell}' src/start.sh
+              sed -i '2c\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/start.sh
             '';
 
             doCheck = true;
@@ -189,7 +189,7 @@
               cp -R src/*.sh $out/lib/nix-flake-release
 
               mkdir -p $out/bin
-              makeWrapper "$out/lib/nix-flake-release/release.sh" "$out/bin/nix-flake-release"
+              makeWrapper "$out/lib/nix-flake-release/start.sh" "$out/bin/nix-flake-release"
             '';
 
             dontFixup = true;
