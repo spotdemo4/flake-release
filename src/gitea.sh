@@ -4,7 +4,7 @@
 function gitea_login () {
     if [[ -n ${GITHUB_TOKEN-} && -n ${GITHUB_SERVER_URL} ]]; then
         info "logging in to ${GITHUB_SERVER_URL}"
-        run tea login add --name gitea --url "${GITHUB_SERVER_URL}" --token "${GITHUB_TOKEN}"
+        run tea login add --name gitea --url "${GITHUB_SERVER_URL}" --token "${GITHUB_TOKEN}" || true
         run tea login default gitea
     fi
 }

@@ -38,7 +38,6 @@ NIX_SYSTEM=$(nix_system)
 readarray -t PACKAGES < <(nix_packages "$NIX_SYSTEM")
 if [[ ${#PACKAGES[@]} -eq 0 ]]; then
     warn "no packages found in the nix flake for system '$NIX_SYSTEM'"
-    exit 1
 fi
 
 STORE_PATHS=()
@@ -136,3 +135,6 @@ for PACKAGE in "${PACKAGES[@]}"; do
         warn "unknown type"
     fi
 done
+
+# cleanup
+rm -rf ~/.config/tea # gitea tea
