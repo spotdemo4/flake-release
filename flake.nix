@@ -92,7 +92,10 @@
           shellcheck = {
             src = fs.toSource {
               root = ./.;
-              fileset = fs.fileFilter (file: file.hasExt "sh") ./.;
+              fileset = fs.unions [
+                (fs.fileFilter (file: file.hasExt "sh") ./.)
+                ./.shellcheckrc
+              ];
             };
             deps = with pkgs; [
               shellcheck
