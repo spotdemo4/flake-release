@@ -168,9 +168,12 @@
             pname = "nix-flake-release";
             version = "0.8.3";
 
-            src = builtins.path {
-              name = "root";
-              path = ./.;
+            src = fs.toSource {
+              root = ./.;
+              fileset = fs.unions [
+                (fs.fileFilter (file: file.hasExt "sh") ./.)
+                ./.shellcheckrc
+              ];
             };
 
             nativeBuildInputs = with pkgs; [
@@ -194,7 +197,7 @@
 
             doCheck = true;
             checkPhase = ''
-              shellcheck src/*.sh
+              shellcheck **/*.sh
             '';
 
             installPhase = ''
