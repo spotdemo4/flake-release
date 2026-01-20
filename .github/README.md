@@ -17,7 +17,7 @@ nix-flake-release [packages...]
 
 ```yaml
 - name: Release
-  uses: spotdemo4/nix-flake-release@v0.8.4
+  uses: spotdemo4/nix-flake-release@v0.8.5
   with:
     packages: # default: all
     github_token: # default: ${{ github.token }}
@@ -66,7 +66,7 @@ docker run -it --rm \
   -e REGISTRY=ghcr.io \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
-  ghcr.io/spotdemo4/nix-flake-release:0.8.4
+  ghcr.io/spotdemo4/nix-flake-release:0.8.5
 ```
 
 ### Downloads
@@ -80,12 +80,12 @@ git clone https://github.com/spotdemo4/nix-flake-release &&
 ./nix-flake-release/src/release.sh
 ```
 
-#### [nix-flake-release-0.8.4.tar.xz](https://github.com/spotdemo4/nix-flake-release/releases/download/v0.8.4/nix-flake-release-0.8.4.tar.xz) - bundle
+#### [nix-flake-release-0.8.5.tar.xz](https://github.com/spotdemo4/nix-flake-release/releases/download/v0.8.5/nix-flake-release-0.8.5.tar.xz) - bundle
 
 contains all dependencies, only use if necessary
 
 ```elm
-wget https://github.com/spotdemo4/nix-flake-release/releases/latest/download/nix-flake-release-0.8.4.tar.xz &&
-tar xf nix-flake-release-0.8.4.tar.xz &&
+wget https://github.com/spotdemo4/nix-flake-release/releases/latest/download/nix-flake-release-0.8.5.tar.xz &&
+tar xf nix-flake-release-0.8.5.tar.xz &&
 ./release
 ```
