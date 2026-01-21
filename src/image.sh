@@ -56,12 +56,13 @@ function manifest_push() {
         template="docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}-ARCH"
         target="docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}"
 
-        manifest-tool push from-args \
+        manifest-tool \
+            --username "${REGISTRY_USERNAME}" \
+            --password "${REGISTRY_PASSWORD}" \
+            push from-args \
             --platforms "${platforms}" \
             --template "${template}" \
             --target "${target}" \
-            --tags "latest" \
-            --username "${REGISTRY_USERNAME}" \
-            --password "${REGISTRY_PASSWORD}"
+            --tags "latest"
     fi
 }
