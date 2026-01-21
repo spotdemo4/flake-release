@@ -107,27 +107,43 @@ function nix_build () {
     run nix build ".#${package}" --no-link
     code=$?
 
-    if [[ ${code} -ne 0 ]]; then
-        warn "build failed, retrying"
-        run nix build ".#${package}" --no-link
-        code=$?
-    fi
-
     return ${code}
 }
 
 function nix_bundle () {
     local package="$1"
+    local bundle="$2"
 
-    local tmpdir
-    tmpdir=$(mktemp -u)
+    local tmplink
+    tmplink=$(mktemp -u)
     
-    local code
-    run nix bundle --bundler github:DavHau/nix-portable#zstd-max ".#${package}" -o "${tmpdir}"
-    code=$?
+    case "${bundle}" in
+        "appimage")
+            info "bundling as AppImage"
+            if ! run nix bundle --bundler github:ralismark/nix-appimage ".#${package}" -o "${tmplink}"; then
+                warn "AppImage bundle failed"
+                return 1
+            fi
+            ;;
 
-    echo "${tmpdir}"
-    return ${code}
+        "arx")
+            info "bundling as arx"
+            if ! run nix bundle --bundler github:nix-community/nix-bundle ".#${package}" -o "${tmplink}"; then
+                warn "arx bundle failed"
+                return 1
+            fi
+            ;;
+
+        *)
+            info "bundling as portable executable"
+            if ! run nix bundle --bundler github:DavHau/nix-portable#zstd-max ".#${package}" -o "${tmplink}"; then
+                warn "portable bundle failed"
+                return 1
+            fi
+            ;;
+    esac
+
+    find "$(readlink "${tmplink}")" -type f
 }
 
 # https://discourse.nixos.org/t/warning-about-home-ownership/52351

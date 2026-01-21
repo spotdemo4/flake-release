@@ -2,26 +2,26 @@
 
 # creates a GitHub release if it does not exist
 function github_release () {
-    local version="$1"
+    local tag="$1"
     local changelog="$2"
 
     if [[ -n ${GITHUB_TOKEN-} && -n "${GITHUB_REPOSITORY-}" ]]; then
-        info "creating release v$version at $GITHUB_REPOSITORY"
+    info "creating release ${tag} at ${GITHUB_REPOSITORY}"
         run gh release create \
-            --title "v$version" \
-            --notes-file "$changelog" \
-            --repo "$GITHUB_REPOSITORY" \
-            "v$version"
+            --title "${tag}" \
+            --notes-file "${changelog}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            "${tag}"
     fi
 }
 
 # uploads a file to a GitHub release
 function github_release_asset () {
-    local version="$1"
+    local tag="$1"
     local asset="$2"
 
     if [[ -n ${GITHUB_TOKEN-} && -n "${GITHUB_REPOSITORY-}" ]]; then
-        info "uploading asset to release v$version at $GITHUB_REPOSITORY"
-        run gh release upload --repo "$GITHUB_REPOSITORY" --clobber "v$version" "$asset"
+        info "uploading asset to release ${tag} at $GITHUB_REPOSITORY"
+        run gh release upload --repo "${GITHUB_REPOSITORY}" --clobber "${tag}" "$asset"
     fi
 }

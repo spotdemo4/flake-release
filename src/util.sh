@@ -1,50 +1,92 @@
 #!/usr/bin/env bash
 
 function archive() {
-    local source="$1"
+    local path="$1"
+    local os="$2"
+
+    local filecount
+    filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ')
+
+    local bincount
+    filecount=$(find -L "${path}/bin" -type f | wc -l | tr -d ' ')
+
+    local indir
+    indir=$(mktemp -d)
+
+    local outdir
+    outdir=$(mktemp -d)
+
+    if [[ "${filecount}" -eq "${bincount}" ]]; then
+        cp -R "${path}/bin/"* "${indir}/"
+    else
+        cp -R "${path}/"* "${indir}/"
+    fi
+
+    # archive for windows as zip
+    if [[ "${os}" == "windows" ]]; then
+
+        pushd "${indir}" &> /dev/null || return 1
+        run zip -9r "${outdir}/archive.zip" .
+        popd &> /dev/null || return 1
+
+        echo "${outdir}/archive.zip"
+
+    # if only one binary, compress directly
+    elif [[ "${bincount}" -eq 1 ]]; then
+
+        local filepath
+        filepath=$(find -L "${indir}" -type f)
+        info "compressing ${filepath}"
+        xz -9e -c "${filepath}" > "${outdir}/archive.xz"
+
+        echo "${outdir}/archive.xz"
+
+    # compress multiple files as tar.xz
+    else
+        pushd "${indir}" &> /dev/null || return 1
+        run tar -I "xz -9e" -chf "${outdir}/archive.tar.xz" .
+        popd &> /dev/null || return 1
+
+        echo "${outdir}/archive.tar.xz"
+    fi
+
+    rm -rf "${indir}"
+}
+
+function rename() {
+    local filepath="$1"
     local name="$2"
-    local platform="$3"
+    local version="$3"
+    local platform="$4"
+
+    local filename
+    filename=$(basename "${filepath}")
+    fileext="${filename##*.}"
 
     local tmpdir
     tmpdir=$(mktemp -d)
 
-    # if source is a file, use its directory
-    if [[ -f "${source}" ]]; then
-        source=$(dirname "${source}")
-    fi
+    local final
+    final="${tmpdir}/${name}-${version}-${platform}.${fileext}"
 
-    # check source directory exists
-    if [[ ! -d "${source}" ]]; then
-        warn "source not found"
-        return 1
-    fi
+    mv "${filepath}" "${final}"
+    echo "${final}"
+}
 
-    # make single file executable
+function only_bins() {
+    local path="$1"
+
     local filecount
-    filecount=$(find -L "${source}" -type f | wc -l | tr -d ' ')
+    filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ')
     if [[ "${filecount}" -eq 0 ]]; then
-        warn "no files found to archive"
-        return 1
-    elif [[ "${filecount}" -eq 1 ]]; then
-        local filepath
-        filepath=$(find -L "${source}" -type f)
-        chmod +x "${filepath}"
-        source=$(dirname "${filepath}")
+        return
     fi
 
-    info "archiving ${source} for ${platform}"
-
-    pushd "${source}" &> /dev/null || return 1
-
-    if [[ "${platform}" == "windows"* ]]; then
-        run zip -qr "${tmpdir}/${name}.zip" .
-        echo "${tmpdir}/${name}.zip"
-    else
-        run tar -cJhf "${tmpdir}/${name}.tar.xz" .
-        echo "${tmpdir}/${name}.tar.xz"
+    local bincount
+    bincount=$(find -L "${path}/bin" -type f -executable -exec sh -c 'file -i "$1" | grep -q "executable; charset=binary"' shell {} \; -print | wc -l | tr -d ' ')
+    if [[ "${filecount}" -eq "${bincount}" ]]; then
+        echo "true"
     fi
-
-    popd &> /dev/null || return 1
 }
 
 function array() {
@@ -124,7 +166,7 @@ function run() {
 
         return "${code}"
     else
-        "${@}" &> /dev/null
+        "${@}" > /dev/null
     fi
 }
 

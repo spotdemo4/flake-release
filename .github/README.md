@@ -1,7 +1,7 @@
 # <img src="https://brand.nixos.org/internals/nixos-logomark-default-gradient-none.svg" alt="NixOS" width="24"> nix flake release
 
-![check](https://github.com/spotdemo4/nix-flake-release/actions/workflows/check.yaml/badge.svg?branch=main)
-![vulnerable](https://github.com/spotdemo4/nix-flake-release/actions/workflows/vulnerable.yaml/badge.svg?branch=main)
+[![check](https://github.com/spotdemo4/nix-flake-release/actions/workflows/check.yaml/badge.svg?branch=main)](https://github.com/spotdemo4/nix-flake-release/actions/workflows/check.yaml)
+[![vulnerable](https://github.com/spotdemo4/nix-flake-release/actions/workflows/vulnerable.yaml/badge.svg?branch=main)](https://github.com/spotdemo4/nix-flake-release/actions/workflows/vulnerable.yaml)
 
 Generates release artifacts for packages in a nix flake
 
@@ -71,21 +71,11 @@ docker run -it --rm \
 
 ### Downloads
 
-#### [release.sh](/src/start.sh) - bash script
+#### [nix-release.sh](/src/nix-release.sh) - bash script
 
-requires [jq](https://jqlang.org/), [skopeo](https://github.com/containers/skopeo/), [gh](https://cli.github.com/) (github)
+requires [jq](https://jqlang.org/), [skopeo](https://github.com/containers/skopeo/), [gh](https://cli.github.com/) (github), [tea](https://gitea.com/gitea/tea) (gitea)
 
 ```elm
 git clone https://github.com/spotdemo4/nix-flake-release &&
-./nix-flake-release/src/release.sh
-```
-
-#### [nix-flake-release-0.8.5.tar.xz](https://github.com/spotdemo4/nix-flake-release/releases/download/v0.8.5/nix-flake-release-0.8.5.tar.xz) - bundle
-
-contains all dependencies, only use if necessary
-
-```elm
-wget https://github.com/spotdemo4/nix-flake-release/releases/latest/download/nix-flake-release-0.8.5.tar.xz &&
-tar xf nix-flake-release-0.8.5.tar.xz &&
-./release
+./nix-flake-release/src/nix-release.sh
 ```

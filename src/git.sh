@@ -21,21 +21,22 @@ function git_check_safe() {
     git config --global --add safe.directory "${dir}"
 }
 
-function git_changelog() {
-    local version="$1"
+function git_latest_tag() {
+    git describe --tags --abbrev=0
+}
 
-    local current_tag
-    current_tag="v${version}"
+function git_changelog() {
+    local tag="$1"
 
     local file
     file=$(mktemp)
 
-    last_tag=$(git tag --sort=v:refname | grep -B1 "^v${version}$" | head -1 || echo "")
+    last_tag=$(git tag --sort=v:refname | grep -B1 "^${tag}$" | head -1 || echo "")
     if [[ -z "${last_tag}" ]]; then
         last_tag=$(git rev-list --max-parents=0 HEAD)
     fi
 
-    git log --pretty=format:"* %s (%H)" "${last_tag}..${current_tag}" > "${file}"
+    git log --pretty=format:"* %s (%H)" "${last_tag}..${tag}" > "${file}"
 
     echo "${file}"
 }

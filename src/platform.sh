@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
-detect_platform () {
-    local filepath="$1"
+detect_os () {
+    local path="$1"
+
+    filepath=$(find -L "${path}/bin" -type f -executable -print -quit)
+    if [[ -z "${filepath-}" ]]; then
+        host_os
+        return
+    fi
 
     local file_output
     file_output=$(file -b "$filepath")
@@ -17,9 +23,22 @@ detect_platform () {
     fi
 
     if [[ -n "${os-}" ]]; then
-        info "$(dim "os: ${os}")"
+        echo "${os}"
     fi
-    
+}
+
+detect_arch() {
+    local path="$1"
+
+    filepath=$(find -L "${path}/bin" -type f -executable -print -quit)
+    if [[ -z "${filepath-}" ]]; then
+        host_arch
+        return
+    fi
+
+    local file_output
+    file_output=$(file -b "$filepath")
+
     # detect architecture
     local arch
     if [[ "$file_output" =~ "x86-64" ]] || [[ "$file_output" =~ "x86_64" ]]; then
@@ -35,17 +54,13 @@ detect_platform () {
     fi
 
     if [[ -n "${arch-}" ]]; then
-        info "$(dim "architecture: ${arch}")"
+        echo "${arch}"
     fi
-    
-    echo "${os:-"unknown"}-${arch:-"unknown"}"
 }
 
-host_platform () {
+host_os() {
     local uname_os
     uname_os=$(uname -s)
-    local uname_arch
-    uname_arch=$(uname -m)
 
     local os
     case "${uname_os}" in
@@ -54,6 +69,13 @@ host_platform () {
         MINGW*|MSYS*|CYGWIN*) os="windows" ;;
         *)          os="unknown" ;;
     esac
+
+    echo "${os}"
+}
+
+host_arch() {
+    local uname_arch
+    uname_arch=$(uname -m)
 
     local arch
     case "${uname_arch}" in
@@ -65,6 +87,5 @@ host_platform () {
         *)          arch="unknown" ;;
     esac
 
-    info "$(dim "host platform: ${os}-${arch}")"
-    echo "${os}-${arch}"
+    echo "${arch}"
 }

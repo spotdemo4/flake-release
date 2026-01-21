@@ -11,25 +11,25 @@ function gitea_login () {
 
 # creates a Gitea release if it does not exist
 function gitea_release () {
-    local version="$1"
+    local tag="$1"
     local changelog="$2"
 
     if [[ -n ${GITHUB_TOKEN-} && -n "${GITHUB_REPOSITORY-}" ]]; then
-        info "creating release v$version at $GITHUB_REPOSITORY"
+        info "creating release ${tag} at ${GITHUB_REPOSITORY}"
         run tea release create \
-            --title "v$version" \
-            --note-file "$changelog" \
+            --title "${tag}" \
+            --note-file "${changelog}" \
             --repo "$GITHUB_REPOSITORY" \
-            "v$version"
+            "${tag}"
     fi
 }
 
 function gitea_release_asset () {
-    local version="$1"
+    local tag="$1"
     local asset="$2"
 
     if [[ -n ${GITHUB_TOKEN-} && -n "${GITHUB_REPOSITORY-}" ]]; then
-        info "uploading asset to release v${version} at $GITHUB_REPOSITORY"
-        run tea release assets create --repo "$GITHUB_REPOSITORY" "v${version}" "${asset}"
+        info "uploading asset to release ${tag} at ${GITHUB_REPOSITORY}"
+        run tea release assets create --repo "${GITHUB_REPOSITORY}" "${tag}" "${asset}"
     fi
 }

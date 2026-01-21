@@ -31,7 +31,7 @@ inputs:
   bundle:
     description: whether to bundle nix derivations before archiving
     required: false
-    default: "false"
+    default: ""
 
 runs:
   using: docker
