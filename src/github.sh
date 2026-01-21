@@ -6,7 +6,7 @@ function github_release () {
     local changelog="$2"
 
     if [[ -n ${GITHUB_TOKEN-} && -n "${GITHUB_REPOSITORY-}" ]]; then
-    info "creating release ${tag} at ${GITHUB_REPOSITORY}"
+        info "creating release ${tag} at ${GITHUB_REPOSITORY}"
         run gh release create \
             --title "${tag}" \
             --notes-file "${changelog}" \
