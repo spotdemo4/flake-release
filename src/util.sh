@@ -57,7 +57,8 @@ function rename() {
     local filepath="$1"
     local name="$2"
     local version="$3"
-    local platform="$4"
+    local os="$4"
+    local arch="$5"
 
     local filename
     filename=$(basename "${filepath}")
@@ -67,7 +68,7 @@ function rename() {
     tmpdir=$(mktemp -d)
 
     local final
-    final="${tmpdir}/${name}_${version}_${platform}.${fileext}"
+    final="${tmpdir}/${name}_${version}_${os}_${arch}.${fileext}"
 
     cp -R "${filepath}" "${final}"
     rm -rf "${filepath}" &> /dev/null || true

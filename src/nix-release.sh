@@ -139,9 +139,12 @@ for PACKAGE in "${PACKAGES[@]}"; do
             continue
         fi
 
-        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}_${ARCH}")
+        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
 
-        release_asset "${TAG}" "${ASSET}"
+        if ! release_asset "${TAG}" "${ASSET}"; then
+            warn "uploading failed"
+            continue
+        fi
 
     # `mkDerivation` bundle
     elif [[ -n "${PNAME}" && -n "${VERSION}" && -d "${STORE_PATH}" && -n "${BUNDLE-}" ]]; then
@@ -153,9 +156,12 @@ for PACKAGE in "${PACKAGES[@]}"; do
             continue
         fi
 
-        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}_${ARCH}")
+        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
 
-        release_asset "${TAG}" "${ASSET}"
+        if ! release_asset "${TAG}" "${ASSET}"; then
+            warn "uploading failed"
+            continue
+        fi
 
     else
         warn "unknown package type"

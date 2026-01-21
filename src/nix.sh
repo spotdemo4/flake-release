@@ -158,7 +158,7 @@ function nix_bundle () {
     
     case "${bundle}" in
         "appimage")
-            info "bundling as AppImage"
+            info "creating AppImage bundle"
             if ! run nix bundle --bundler github:ralismark/nix-appimage ".#${package}" -o "${tmplink}"; then
                 warn "AppImage bundle failed"
                 return 1
@@ -166,7 +166,7 @@ function nix_bundle () {
             ;;
 
         "arx")
-            info "bundling as arx"
+            info "creating arx bundle"
             if ! run nix bundle --bundler github:nix-community/nix-bundle ".#${package}" -o "${tmplink}"; then
                 warn "arx bundle failed"
                 return 1
@@ -174,7 +174,7 @@ function nix_bundle () {
             ;;
 
         *)
-            info "bundling as portable executable"
+            info "creating portable bundle"
             if ! run nix bundle --bundler github:DavHau/nix-portable#zstd-max ".#${package}" -o "${tmplink}"; then
                 warn "portable bundle failed"
                 return 1
