@@ -17,7 +17,7 @@ nix-flake-release [packages...]
 
 ```yaml
 - name: Release
-  uses: spotdemo4/nix-flake-release@v0.9.2
+  uses: spotdemo4/nix-flake-release@v0.9.3
   with:
     packages: # default: all
     github_token: # default: ${{ github.token }}
@@ -67,7 +67,7 @@ docker run -it \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
   -e BUNDLE=... \
-  ghcr.io/spotdemo4/nix-flake-release:0.9.2
+  ghcr.io/spotdemo4/nix-flake-release:0.9.3
 ```
 
 ### Downloads
