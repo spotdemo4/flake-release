@@ -35,17 +35,17 @@ function nix_pkg_path () {
     echo "${pkg_path}"
 }
 
-function nix_pkg_name () {
+function nix_pkg_pname () {
     local package="$1"
 
-    local name
-    name=$(nix eval --raw ".#${package}.name" 2> /dev/null || echo "")
+    local pname
+    pname=$(nix eval --raw ".#${package}.pname" 2> /dev/null || echo "")
 
-    if [[ -n "$name" ]]; then
-        info "$(dim "name: ${name}")"
+    if [[ -n "${pname}" ]]; then
+        info "$(dim "pname: ${pname}")"
     fi
 
-    echo "${name}"
+    echo "${pname}"
 }
 
 function nix_pkg_version () {

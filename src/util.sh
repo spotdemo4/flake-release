@@ -67,9 +67,11 @@ function rename() {
     tmpdir=$(mktemp -d)
 
     local final
-    final="${tmpdir}/${name}-${version}-${platform}.${fileext}"
+    final="${tmpdir}/${name}_${version}_${platform}.${fileext}"
 
-    mv "${filepath}" "${final}"
+    cp -R "${filepath}" "${final}"
+    rm -rf "${filepath}" &> /dev/null || true
+
     echo "${final}"
 }
 

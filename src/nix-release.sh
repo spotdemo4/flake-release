@@ -78,7 +78,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
     fi
 
     # `mkDerivation` attributes
-    NAME=$(nix_pkg_name "${PACKAGE}")
+    PNAME=$(nix_pkg_pname "${PACKAGE}")
     VERSION=$(nix_pkg_version "${PACKAGE}")
 
     # `dockerTools` attributes
@@ -120,30 +120,30 @@ for PACKAGE in "${PACKAGES[@]}"; do
         IMAGE_ARCHS+=( "${ARCH}" )
 
     # `mkDerivation` executable(s)
-    elif [[ -n "${NAME}" && -n "${VERSION}" && -d "${STORE_PATH}" && -n "${ONLY_BINS-}" ]]; then
+    elif [[ -n "${PNAME}" && -n "${VERSION}" && -d "${STORE_PATH}" && -n "${ONLY_BINS-}" ]]; then
 
-        info "compressing $(bold "${NAME}")"
+        info "compressing $(bold "${PNAME}")"
 
         if ! ARCHIVE=$(archive "${STORE_PATH}" "${OS}"); then
             warn "archiving failed"
             continue
         fi
 
-        ASSET=$(rename "${ARCHIVE}" "${NAME}" "${VERSION}" "${OS}_${ARCH}")
+        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}_${ARCH}")
 
         release_asset "${TAG}" "${ASSET}"
 
     # `mkDerivation` bundle
-    elif [[ -n "${NAME}" && -n "${VERSION}" && -d "${STORE_PATH}" && -n "${BUNDLE-}" ]]; then
+    elif [[ -n "${PNAME}" && -n "${VERSION}" && -d "${STORE_PATH}" && -n "${BUNDLE-}" ]]; then
 
-        info "bundling $(bold "${NAME}")"
+        info "bundling $(bold "${PNAME}")"
 
         if ! ARCHIVE=$(nix_bundle "${PACKAGE}" "${BUNDLE}"); then
             warn "bundling failed"
             continue
         fi
 
-        ASSET=$(rename "${ARCHIVE}" "${NAME}" "${VERSION}" "${OS}_${ARCH}")
+        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}_${ARCH}")
 
         release_asset "${TAG}" "${ASSET}"
 
