@@ -55,7 +55,7 @@ fi
 
 # build and upload assets
 STORE_PATHS=()
-IMAGE_ARCHS=()
+IMAGE_PLATFORMS=()
 for PACKAGE in "${PACKAGES[@]}"; do
     info ""
 
@@ -98,26 +98,33 @@ for PACKAGE in "${PACKAGES[@]}"; do
     # `dockerTools.buildLayeredImage`
     if [[ -n "${IMAGE_NAME}" && -n "${IMAGE_TAG}" && -f "${STORE_PATH}" && "${STORE_PATH}" == *".tar.gz" ]]; then
 
-        info "detected as image $(bold "$IMAGE_NAME:$IMAGE_TAG")"
+        info "detected as image $(bold "${IMAGE_NAME}:${IMAGE_TAG}")"
 
-        if ! ARCH=$(upload_image "$STORE_PATH" "$IMAGE_TAG"); then
+        IMAGE_OS=$(image_os "${STORE_PATH}")
+        IMAGE_ARCH=$(image_arch "${STORE_PATH}")
+
+        if ! upload_image "${STORE_PATH}" "${IMAGE_TAG}" "${IMAGE_ARCH}"; then
             warn "uploading failed"
             continue
         fi
 
-        IMAGE_ARCHS+=( "${ARCH}" )
+        IMAGE_PLATFORMS+=( "${IMAGE_OS}/${IMAGE_ARCH}" )
 
     # `dockerTools.streamLayeredImage`
     elif [[ -n "${IMAGE_NAME}" && -n "${IMAGE_TAG}" && -f "${STORE_PATH}" && -x "${STORE_PATH}" ]]; then
 
-        info "detected as image $(bold "$IMAGE_NAME:$IMAGE_TAG")"
+        info "detected as image $(bold "${IMAGE_NAME}:${IMAGE_TAG}")"
 
-        if ! ARCH=$(stream_image "$STORE_PATH" "$IMAGE_TAG"); then
-            warn "streaming failed"
+        IMAGE_ZIPPED=$(image_gzip "${STORE_PATH}")
+        IMAGE_OS=$(image_os "${IMAGE_ZIPPED}")
+        IMAGE_ARCH=$(image_arch "${IMAGE_ZIPPED}")
+
+        if ! upload_image "${STORE_PATH}" "${IMAGE_TAG}" "${IMAGE_ARCH}"; then
+            warn "upload failed"
             continue
         fi
 
-        IMAGE_ARCHS+=( "${ARCH}" )
+        IMAGE_PLATFORMS+=( "${IMAGE_OS}/${IMAGE_ARCH}" )
 
     # `mkDerivation` executable(s)
     elif [[ -n "${PNAME}" && -n "${VERSION}" && -d "${STORE_PATH}" && -n "${ONLY_BINS-}" ]]; then
@@ -153,7 +160,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
 done
 
 # create and push manifest
-manifest_push "${TAG#v}" "$( IFS=','; echo "${IMAGE_ARCHS[*]}" )"
+manifest_push "${TAG#v}" "$( IFS=','; echo "${IMAGE_PLATFORMS[*]}" )"
 
 # cleanup
 rm -rf ~/.config/tea # gitea tea

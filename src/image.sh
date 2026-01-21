@@ -4,9 +4,7 @@
 function upload_image() {
     local path="$1"
     local tag="$2"
-
-    local arch
-    arch=$(skopeo inspect --format "{{.Os}}/{{.Architecture}}" "docker-archive:${path}")
+    local arch="$3"
 
     if [[ -n "${REGISTRY-}" && -n "${GITHUB_REPOSITORY-}" && -n "${REGISTRY_USERNAME-}" && -n "${REGISTRY_PASSWORD-}" ]]; then
         local image
@@ -16,36 +14,35 @@ function upload_image() {
         run skopeo --insecure-policy copy \
             --dest-creds "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" \
             "docker-archive:${path}" "${image}"
-
-        echo "${arch}"
     fi
 }
 
-# streams an image to a container registry
-function stream_image() {
+function image_os() {
     local path="$1"
-    local tag="$2"
 
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    "${path}" | gzip --fast > "${tmpdir}/image.tar.gz"
+    local os
+    os=$(skopeo inspect --format "{{.Os}}" "docker-archive:${path}")
+
+    echo "${os}"
+}
+
+function image_arch() {
+    local path="$1"
 
     local arch
-    arch=$(skopeo inspect --format "{{.Os}}/{{.Architecture}}" "docker-archive:${tmpdir}/image.tar.gz")
+    arch=$(skopeo inspect --format "{{.Architecture}}" "docker-archive:${path}")
 
-    if [[ -n "${REGISTRY-}" && -n "${GITHUB_REPOSITORY-}" && -n "${REGISTRY_USERNAME-}" && -n "${REGISTRY_PASSWORD-}" ]]; then
-        local image
-        image="docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}-${arch}"
+    echo "${arch}"
+}
 
-        info "uploading to ${image}"
-        run skopeo --insecure-policy copy \
-            --dest-creds "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" \
-            "docker-archive:${tmpdir}/image.tar.gz" "${image}"
+function image_gzip() {
+    local path="$1"
 
-        echo "${arch}"
-    fi
+    local image
+    image=$(mktemp)
+    "${path}" | gzip --fast > "${image}"
 
-    rm -rf "${tmpdir}"
+    echo "${image}"
 }
 
 function manifest_push() {
