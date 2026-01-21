@@ -79,13 +79,19 @@ function only_bins() {
     local path="$1"
 
     local filecount
-    filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ')
+    filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ' || echo "0")
     if [[ "${filecount}" -eq 0 ]]; then
         return
     fi
 
     local bincount
-    bincount=$(find -L "${path}/bin" -type f -executable -exec sh -c 'file -i "$1" | grep -q "executable; charset=binary"' shell {} \; -print | wc -l | tr -d ' ')
+    bincount=$(
+        find -L "${path}/bin" -type f -executable \
+            -exec sh -c 'file -i "$1" | grep -q "executable; charset=binary"' shell {} \; -print |
+            wc -l |
+            tr -d ' ' ||
+            echo "0"
+    )
     if [[ "${filecount}" -eq "${bincount}" ]]; then
         echo "true"
     fi

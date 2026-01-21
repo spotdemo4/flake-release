@@ -53,8 +53,8 @@ function manifest_push() {
     local platforms="$2"
 
     if [[ -n "${REGISTRY-}" && -n "${GITHUB_REPOSITORY-}" && -n ${REGISTRY_USERNAME-} && -n ${REGISTRY_PASSWORD-} ]]; then
-        template="docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}-ARCH"
-        target="docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}"
+        template="${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}-ARCH"
+        target="${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}"
 
         manifest-tool \
             --username "${REGISTRY_USERNAME}" \
