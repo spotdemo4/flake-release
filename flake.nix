@@ -166,7 +166,7 @@
         packages = {
           default = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "nix-flake-release";
-            version = "0.8.7";
+            version = "0.8.8";
 
             src = fs.toSource {
               root = ./.;
