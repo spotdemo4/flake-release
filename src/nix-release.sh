@@ -79,9 +79,6 @@ for PACKAGE in "${PACKAGES[@]}"; do
     # `mkDerivation` attributes
     PNAME=$(nix_pkg_pname "${PACKAGE}")
     VERSION=$(nix_pkg_version "${PACKAGE}")
-    HOMEPAGE=$(nix_pkg_homepage "${PACKAGE}")
-    DESCRIPTION=$(nix_pkg_description "${PACKAGE}")
-    LICENSE=$(nix_pkg_license "${PACKAGE}")
 
     # `dockerTools` attributes
     IMAGE_NAME=$(nix_pkg_image_name "${PACKAGE}")
@@ -205,7 +202,7 @@ if
     [[ -n "${REGISTRY_USERNAME-}" ]] &&
     [[ -n "${REGISTRY_PASSWORD-}" ]];
 then
-    manifest_update "${TAG#v}" "${HOMEPAGE-}" "${DESCRIPTION-}" "${LICENSE-}"
+    manifest_update "${TAG#v}"
 fi
 
 # cleanup
