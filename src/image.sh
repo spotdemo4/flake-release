@@ -48,6 +48,9 @@ function image_gzip() {
 function manifest_push() {
     local tag="$1"
     local platforms="$2"
+    local source="$3"
+    local description="$4"
+    local license="$5"
 
     if [[ -n "${REGISTRY-}" && -n "${GITHUB_REPOSITORY-}" && -n ${REGISTRY_USERNAME-} && -n ${REGISTRY_PASSWORD-} ]]; then
         template="${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${tag}-ARCH"
@@ -60,6 +63,9 @@ function manifest_push() {
             --platforms "${platforms}" \
             --template "${template}" \
             --target "${target}" \
-            --tags "latest"
+            --tags "latest" \
+            --annotations "org.opencontainers.image.source=${source}" \
+            --annotations "org.opencontainers.image.description=${description}" \
+            --annotations "org.opencontainers.image.licenses=${license}"
     fi
 }

@@ -80,6 +80,9 @@ for PACKAGE in "${PACKAGES[@]}"; do
     # `mkDerivation` attributes
     PNAME=$(nix_pkg_pname "${PACKAGE}")
     VERSION=$(nix_pkg_version "${PACKAGE}")
+    HOMEPAGE=$(nix_pkg_homepage "${PACKAGE}")
+    DESCRIPTION=$(nix_pkg_description "${PACKAGE}")
+    LICENSE=$(nix_pkg_license "${PACKAGE}")
 
     # `dockerTools` attributes
     IMAGE_NAME=$(nix_pkg_image_name "${PACKAGE}")
@@ -160,7 +163,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
 done
 
 # create and push manifest
-manifest_push "${TAG#v}" "$( IFS=','; echo "${IMAGE_PLATFORMS[*]}" )"
+manifest_push "${TAG#v}" "$( IFS=','; echo "${IMAGE_PLATFORMS[*]}" )" "${HOMEPAGE-}" "${DESCRIPTION-}" "${LICENSE-}"
 
 # cleanup
 rm -rf ~/.config/tea # gitea tea

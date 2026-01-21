@@ -61,6 +61,45 @@ function nix_pkg_version () {
     echo "${version}"
 }
 
+function nix_pkg_homepage () {
+    local package="$1"
+
+    local homepage
+    homepage=$(nix eval --raw ".#${package}.meta.homepage" 2> /dev/null || echo "")
+
+    if [[ -n "$homepage" ]]; then
+        info "$(dim "homepage: ${homepage}")"
+    fi
+
+    echo "${homepage}"
+}
+
+function nix_pkg_description () {
+    local package="$1"
+
+    local description
+    description=$(nix eval --raw ".#${package}.meta.description" 2> /dev/null || echo "")
+
+    if [[ -n "$description" ]]; then
+        info "$(dim "description: ${description}")"
+    fi
+
+    echo "${description}"
+}
+
+function nix_pkg_license () {
+    local package="$1"
+
+    local license
+    license=$(nix eval --raw ".#${package}.meta.license.spdxId" 2> /dev/null || echo "")
+
+    if [[ -n "$license" ]]; then
+        info "$(dim "license: ${license}")"
+    fi
+
+    echo "${license}"
+}
+
 function nix_pkg_image_name () {
     local package="$1"
 

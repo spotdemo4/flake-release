@@ -215,6 +215,7 @@
               mainProgram = "nix-flake-release";
               homepage = "https://github.com/spotdemo4/nix-flake-release";
               changelog = "https://github.com/spotdemo4/nix-flake-release/releases/tag/v${finalAttrs.version}";
+              license = pkgs.lib.licenses.mit;
               platforms = pkgs.lib.platforms.all;
             };
           });
