@@ -166,7 +166,7 @@
           };
         };
 
-        packages = {
+        packages = with pkgs.lib; {
           default = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "nix-flake-release";
             version = "0.9.7";
@@ -183,7 +183,6 @@
               makeWrapper
               shellcheck
             ];
-
             runtimeInputs = deps;
 
             unpackPhase = ''
@@ -195,7 +194,7 @@
             configurePhase = ''
               chmod +w src
               sed -i '1c\#!${pkgs.runtimeShell}' src/nix-release.sh
-              sed -i '2c\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/nix-release.sh
+              sed -i '2c\export PATH="${makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/nix-release.sh
             '';
 
             doCheck = true;
@@ -218,8 +217,8 @@
               mainProgram = "nix-flake-release";
               homepage = "https://github.com/spotdemo4/nix-flake-release";
               changelog = "https://github.com/spotdemo4/nix-flake-release/releases/tag/v${finalAttrs.version}";
-              license = pkgs.lib.licenses.mit;
-              platforms = pkgs.lib.platforms.all;
+              license = licenses.mit;
+              platforms = platforms.all;
             };
           });
 
@@ -230,21 +229,20 @@
             fromImage = pkgs.image.nix;
             contents = with pkgs; [
               dockerTools.caCertificates
-              packages.default
             ];
 
             created = "now";
             meta = packages.default.meta;
 
             config = {
-              Cmd = [ "${pkgs.lib.meta.getExe packages.default}" ];
+              Cmd = [ "${meta.getExe packages.default}" ];
               Env = [ "DOCKER=true" ];
               Labels = {
+                "org.opencontainers.image.title" = packages.default.pname;
+                "org.opencontainers.image.description" = packages.default.meta.description;
                 "org.opencontainers.image.source" = packages.default.meta.homepage;
                 "org.opencontainers.image.version" = packages.default.version;
                 "org.opencontainers.image.licenses" = packages.default.meta.license.spdxId;
-                "org.opencontainers.image.title" = packages.default.pname;
-                "org.opencontainers.image.description" = packages.default.meta.description;
               };
             };
           };
