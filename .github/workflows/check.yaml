@@ -18,10 +18,8 @@ jobs:
     if: ${{ ! startsWith(github.event.head_commit.message, 'bump:') }}
     runs-on: ubuntu-24.04
     steps:
-      - id: init
-        name: Initialize
-        uses: spotdemo4/nix-init@6447eadb209b3c4a48125db0307d59f35ec9230c # v1.20.0
+      - name: Initialize
+        uses: spotdemo4/nix-init@ed84640dc773603827ade8ecfd81c535733130ac # v1.21.4
 
       - name: Run checks
-        if: ${{ steps.init.outputs.duplicate != 'true' }}
         run: nix flake check

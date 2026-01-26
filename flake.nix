@@ -37,6 +37,7 @@
             trev.overlays.images
           ];
         };
+        fs = pkgs.lib.fileset;
         deps = with pkgs; [
           file
           findutils
@@ -51,11 +52,12 @@
           xz
           zip
         ];
-        fs = pkgs.lib.fileset;
       in
       rec {
         devShells = {
           default = pkgs.mkShell {
+            name = "default";
+            shellHook = pkgs.shellhook.ref;
             packages =
               with pkgs;
               [
@@ -68,16 +70,17 @@
                 prettier
               ]
               ++ deps;
-            shellHook = pkgs.shellhook.ref;
           };
 
           update = pkgs.mkShell {
+            name = "update";
             packages = with pkgs; [
               renovate
             ];
           };
 
           vulnerable = pkgs.mkShell {
+            name = "vulnerable";
             packages = with pkgs; [
               # nix
               flake-checker
