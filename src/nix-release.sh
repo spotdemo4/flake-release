@@ -89,10 +89,6 @@ for PACKAGE in "${PACKAGES[@]}"; do
         continue
     fi
 
-    # package info
-    OS=$(detect_os "${STORE_PATH}")
-    ARCH=$(detect_arch "${STORE_PATH}")
-
     # `dockerTools.buildLayeredImage`
     if
         [[ -n "${IMAGE_NAME}" ]] &&
@@ -153,7 +149,13 @@ for PACKAGE in "${PACKAGES[@]}"; do
         [[ -d "${STORE_PATH}" ]] &&
         [[ -n "$(only_bins "${STORE_PATH}")" ]];
     then
-        info "compressing $(bold "${PNAME}")"
+        info "detected as executable $(bold "${PNAME}")"
+
+        OS=$(detect_os "${STORE_PATH}")
+        info "os: ${OS}"
+
+        ARCH=$(detect_arch "${STORE_PATH}")
+        info "arch: ${ARCH}"
 
         if ! ARCHIVE=$(archive "${STORE_PATH}" "${OS}"); then
             warn "archiving failed"
@@ -173,17 +175,21 @@ for PACKAGE in "${PACKAGES[@]}"; do
         [[ -n "${VERSION}" ]] &&
         [[ -n "${GITHUB_REPOSITORY-}" ]] &&
         [[ -n "${GITHUB_TOKEN-}" ]] &&
-        [[ -d "${STORE_PATH}" ]] &&
-        [[ -n "${BUNDLE-}" ]];
+        [[ -d "${STORE_PATH}" ]];
     then
-        info "bundling $(bold "${PNAME}")"
+        info "detected as bundle $(bold "${PNAME}")"
+
+        if [[ -z "${BUNDLE-}" ]]; then
+            warn "no bundle type specified"
+            continue
+        fi
 
         if ! ARCHIVE=$(nix_bundle "${PACKAGE}" "${BUNDLE}"); then
             warn "bundling failed"
             continue
         fi
 
-        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
+        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "$(host_os)" "$(host_arch)")
 
         if ! release_asset "${TAG}" "${ASSET}"; then
             warn "uploading failed"
@@ -195,6 +201,8 @@ for PACKAGE in "${PACKAGES[@]}"; do
     fi
 done
 
+info ""
+
 # create and push manifest
 if
     [[ -n "${GITHUB_REPOSITORY-}" ]] &&
@@ -202,6 +210,7 @@ if
     [[ -n "${REGISTRY_USERNAME-}" ]] &&
     [[ -n "${REGISTRY_PASSWORD-}" ]];
 then
+    info "updating image manifest for tag $(bold "${TAG#v}")"
     manifest_update "${TAG#v}"
 fi
 
