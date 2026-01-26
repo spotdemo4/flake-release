@@ -67,7 +67,7 @@ function manifest_update() {
     fi
 
     local remote_tags
-    readarray -t remote_tags < <(echo "${list_tags}" | jq -r --arg tag "${tag}" '.Tags[] | select(startswith("$tag-"))')
+    readarray -t remote_tags < <(echo "${list_tags}" | jq -r --arg tag "${tag}" '.Tags[] | select(startswith($tag + "-"))')
 
     if [[ "${#remote_tags[@]}" -eq 0 ]]; then
         warn "no remote images found for tag '${tag}'"
