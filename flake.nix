@@ -170,7 +170,7 @@
         packages = with pkgs.lib; rec {
           default = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "nix-flake-release";
-            version = "0.9.8";
+            version = "0.10.0";
 
             src = fs.toSource {
               root = ./.;
