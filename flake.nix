@@ -62,15 +62,30 @@
             packages =
               with pkgs;
               [
-                # util
-                bumper
-
                 # lint
                 shellcheck
                 nixfmt
                 prettier
+
+                # util
+                bumper
+                nix-flake-release
               ]
               ++ deps;
+          };
+
+          bump = pkgs.mkShell {
+            name = "bump";
+            packages = with pkgs; [
+              bumper
+            ];
+          };
+
+          release = pkgs.mkShell {
+            name = "release";
+            packages = with pkgs; [
+              nix-flake-release
+            ];
           };
 
           update = pkgs.mkShell {
