@@ -1,7 +1,7 @@
-# <img src="https://brand.nixos.org/internals/nixos-logomark-default-gradient-none.svg" alt="NixOS" width="24"> nix flake release
+# <img src="https://brand.nixos.org/internals/nixos-logomark-default-gradient-none.svg" alt="NixOS" width="24"> flake release
 
-[![check](https://github.com/spotdemo4/nix-flake-release/actions/workflows/check.yaml/badge.svg?branch=main)](https://github.com/spotdemo4/nix-flake-release/actions/workflows/check.yaml)
-[![vulnerable](https://github.com/spotdemo4/nix-flake-release/actions/workflows/vulnerable.yaml/badge.svg?branch=main)](https://github.com/spotdemo4/nix-flake-release/actions/workflows/vulnerable.yaml)
+[![check](https://img.shields.io/github/actions/workflow/status/spotdemo4/flake-release/check.yaml?branch=main&logo=github&logoColor=%23bac2de&label=check&labelColor=%23313244)](https://github.com/spotdemo4/flake-release/actions/workflows/check.yaml)
+[![vulnerable](https://img.shields.io/github/actions/workflow/status/spotdemo4/flake-release/vulnerable.yaml?branch=main&logo=github&logoColor=%23bac2de&label=vulnerable&labelColor=%23313244)](https://github.com/spotdemo4/flake-release/actions/workflows/vulnerable.yaml)
 
 Generates release artifacts for packages in a nix flake:
 
@@ -14,7 +14,7 @@ Works with GitHub, Gitea & Forgejo
 ## Usage
 
 ```elm
-nix-flake-release [packages...]
+flake-release [packages...]
 ```
 
 ### Environment
@@ -22,7 +22,7 @@ nix-flake-release [packages...]
 | Variable          | Description                     | Example                                                                                                                                                               |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GITHUB_TYPE       | Host type for release           | `github` / `gitea` / `forgejo`                                                                                                                                        |
-| GITHUB_REPOSITORY | Repository to push releases     | `spotdemo4/nix-flake-release`                                                                                                                                         |
+| GITHUB_REPOSITORY | Repository to push releases     | `spotdemo4/flake-release`                                                                                                                                             |
 | GITHUB_SERVER_URL | Server to push releases         | `https://github.com`                                                                                                                                                  |
 | GITHUB_ACTOR      | User for Gitea & Forgejo        | `github-actions[bot]`                                                                                                                                                 |
 | GITHUB_TOKEN      | Token used to push releases     |                                                                                                                                                                       |
@@ -37,7 +37,7 @@ nix-flake-release [packages...]
 
 ```yaml
 - name: Release
-  uses: spotdemo4/nix-flake-release@v0.11.1
+  uses: spotdemo4/flake-release@v0.11.1
   with:
     packages: # default: all
     github_repository: # default: ${{ github.repository }}
@@ -53,29 +53,29 @@ nix-flake-release [packages...]
 ### Nix
 
 ```elm
-nix run github:spotdemo4/nix-flake-release
+nix run github:spotdemo4/flake-release
 ```
 
 #### Flake
 
 ```nix
 inputs = {
-    nix-flake-release = {
-        url = "github:spotdemo4/nix-flake-release";
+    flake-release = {
+        url = "github:spotdemo4/flake-release";
         inputs.nixpkgs.follows = "nixpkgs";
     };
 };
 
-outputs = { nix-flake-release, ... }: {
+outputs = { flake-release, ... }: {
     devShells.x86_64-linux.default = pkgs.mkShell {
         packages = [
-            nix-flake-release.packages.x86_64-linux.default
+            flake-release.packages.x86_64-linux.default
         ];
     };
 }
 ```
 
-also available from the [nix user repository](https://nur.nix-community.org/repos/trev/) as `nur.repos.trev.nix-flake-release`
+also available from the [nix user repository](https://nur.nix-community.org/repos/trev/) as `nur.repos.trev.flake-release`
 
 ### Docker
 
@@ -90,16 +90,16 @@ docker run -it \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
   -e BUNDLE=... \
-  ghcr.io/spotdemo4/nix-flake-release:0.11.1
+  ghcr.io/spotdemo4/flake-release:0.11.1
 ```
 
 ### Downloads
 
-#### [nix-release.sh](/src/nix-release.sh) - bash script
+#### [flake-release.sh](/src) - bash script
 
 requires [jq](https://jqlang.org/), [skopeo](https://github.com/containers/skopeo/), [manifest-tool](https://github.com/estesp/manifest-tool), [gh](https://cli.github.com/) (github), [tea](https://gitea.com/gitea/tea) (gitea), [fj](https://codeberg.org/forgejo-contrib/forgejo-cli) (forgejo)
 
 ```elm
-git clone https://github.com/spotdemo4/nix-flake-release &&
-./nix-flake-release/src/nix-release.sh
+git clone https://github.com/spotdemo4/flake-release &&
+./flake-release/src/flake-release.sh
 ```

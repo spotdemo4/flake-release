@@ -184,7 +184,7 @@
 
         packages = with pkgs.lib; rec {
           default = pkgs.stdenv.mkDerivation (finalAttrs: {
-            pname = "nix-flake-release";
+            pname = "flake-release";
             version = "0.11.1";
 
             src = fs.toSource {
@@ -209,8 +209,8 @@
 
             configurePhase = ''
               chmod +w src
-              sed -i '1c\#!${pkgs.runtimeShell}' src/nix-release.sh
-              sed -i '2c\export PATH="${makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/nix-release.sh
+              sed -i '1c\#!${pkgs.runtimeShell}' src/flake-release.sh
+              sed -i '2c\export PATH="${makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/flake-release.sh
             '';
 
             doCheck = true;
@@ -219,20 +219,20 @@
             '';
 
             installPhase = ''
-              mkdir -p $out/lib/nix-flake-release
-              cp -R src/*.sh $out/lib/nix-flake-release
+              mkdir -p $out/lib/flake-release
+              cp -R src/*.sh $out/lib/flake-release
 
               mkdir -p $out/bin
-              makeWrapper "$out/lib/nix-flake-release/nix-release.sh" "$out/bin/nix-flake-release"
+              makeWrapper "$out/lib/flake-release/flake-release.sh" "$out/bin/flake-release"
             '';
 
             dontFixup = true;
 
             meta = {
-              description = "nix flake releaser";
-              mainProgram = "nix-flake-release";
-              homepage = "https://github.com/spotdemo4/nix-flake-release";
-              changelog = "https://github.com/spotdemo4/nix-flake-release/releases/tag/v${finalAttrs.version}";
+              description = "flake package releaser";
+              mainProgram = "flake-release";
+              homepage = "https://github.com/spotdemo4/flake-release";
+              changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${finalAttrs.version}";
               license = licenses.mit;
               platforms = platforms.all;
             };
