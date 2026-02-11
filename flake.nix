@@ -63,6 +63,8 @@
               [
                 # lint
                 shellcheck
+
+                # format
                 nixfmt
                 prettier
 
