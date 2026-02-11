@@ -68,7 +68,8 @@
 
                 # util
                 bumper
-                nix-flake-release
+                flake-release
+                renovate
               ]
               ++ deps;
           };
@@ -81,7 +82,7 @@
 
           release = pkgs.mkShell {
             packages = with pkgs; [
-              nix-flake-release
+              flake-release
             ];
           };
 
