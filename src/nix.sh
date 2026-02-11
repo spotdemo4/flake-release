@@ -14,6 +14,11 @@ function nix_packages() {
 
     local packages
     packages=$(nix flake show --json 2> /dev/null)
+    
+    if [[ "$(echo "${packages}" | jq 'has("packages")')" == "false" ]]; then
+        warn "flake has no packages"
+        return
+    fi
 
     local packages_list
     packages_list=$(echo "${packages}" | jq -r --arg system "$system" '.packages[$system] | keys | join(", ")')
