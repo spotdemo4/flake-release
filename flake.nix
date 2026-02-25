@@ -209,7 +209,7 @@
             configurePhase = ''
               chmod +w src
               sed -i '1c\#!${pkgs.runtimeShell}' src/flake-release.sh
-              sed -i '2c\export PATH="${makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/flake-release.sh
+              sed -i '2i\export PATH="${makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/flake-release.sh
             '';
 
             doCheck = true;

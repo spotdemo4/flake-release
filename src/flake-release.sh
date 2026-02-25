@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# export PATH="${PATH}" placeholder
 
 set -o errexit
 set -o nounset
