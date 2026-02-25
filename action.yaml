@@ -52,7 +52,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.11.4
+  image: docker://ghcr.io/spotdemo4/nix-flake-release:0.11.5
   env:
     ENV_ARGS: ${{ inputs.packages }}
     GIT_TYPE: ${{ inputs.git_type }}

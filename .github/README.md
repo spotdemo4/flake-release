@@ -39,7 +39,7 @@ flake-release [packages...]
 
 ```yaml
 - name: Release
-  uses: spotdemo4/flake-release@v0.11.4
+  uses: spotdemo4/flake-release@v0.11.5
   with:
     packages: # default: all
     github_repository: # default: ${{ github.repository }}
@@ -92,7 +92,7 @@ docker run -it \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
   -e BUNDLE=... \
-  ghcr.io/spotdemo4/flake-release:0.11.4
+  ghcr.io/spotdemo4/flake-release:0.11.5
 ```
 
 ### Downloads
