@@ -49,7 +49,7 @@ jobs:
       - name: Publish script
         if: matrix.image == 'ubuntu-24.04'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.init.outputs.token }}
         run: |
           ./.github/inline.sh ./src/flake-release.sh > flake-release.sh
           gh release upload "$(git describe --tags --abbrev=0)" flake-release.sh
