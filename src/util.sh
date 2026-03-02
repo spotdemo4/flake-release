@@ -100,7 +100,7 @@ function only_bins() {
     fi
 
     local filecount
-    filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ' || echo "0")
+    filecount=$(find -L "${path}/bin" -type f | wc -l | tr -d ' ' || echo "0")
     if [[ "${filecount}" -eq 0 ]]; then
         return
     fi
