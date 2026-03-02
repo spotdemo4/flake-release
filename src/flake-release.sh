@@ -157,7 +157,7 @@ for PACKAGE in "${PACKAGES[@]}"; do
         [[ -n "${PNAME}" ]] &&
         [[ -n "${VERSION}" ]] &&
         [[ -d "${STORE_PATH}" ]] &&
-        [[ -n "$(only_bins "${STORE_PATH}")" ]];
+        [[ -n "$(all_static "${STORE_PATH}")" ]];
     then
         info "detected as executable $(bold "${PNAME}")"
 

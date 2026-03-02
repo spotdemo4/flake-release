@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+shopt -s globstar
+
 function archive() {
     local path="$1"
     local os="$2"
@@ -92,24 +94,33 @@ function rename() {
     delete "${filepath}"
 }
 
-function only_bins() {
+function all_static() {
     local path="$1"
 
     if [[ ! -d "${path}/bin" ]]; then
         return
     fi
 
-    local filecount
-    filecount=$(find -L "${path}/bin" -type f | wc -l | tr -d ' ' || echo "0")
-    if [[ "${filecount}" -eq 0 ]]; then
-        return
-    fi
+    for file in "${path}"/bin/**; do
+        # Check if it is a regular file (skip directories)
+        if [[ ! -f "$file" ]]; then
+            continue
+        fi
 
-    local bincount
-    bincount=$(find -L "${path}/bin" -type f -executable -exec sh -c 'file -i "$1" | grep -q "charset=binary"' shell {} \; -print | wc -l | tr -d ' ')
-    if [[ "${filecount}" -eq "${bincount}" ]]; then
-        echo "true"
-    fi
+        # Check if the file is a binary (executable) and not a script
+        encoding=$(file -b --mime-encoding "${file}" 2> /dev/null || echo "")
+        if [[ "${encoding}" != "binary" ]]; then
+            return
+        fi
+
+        # Check if the binary is dynamically linked
+        info=$(file "${file}" 2> /dev/null || echo "")
+        if [[ "${info}" == *"dynamically linked"* ]]; then
+            return
+        fi
+    done
+
+    echo "true"
 }
 
 function delete() {

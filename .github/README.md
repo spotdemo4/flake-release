@@ -8,8 +8,8 @@
 Generates release artifacts for packages in a nix flake:
 
 - `dockerTools.buildLayeredImage` & `dockerTools.streamLayeredImage` can be uploaded to a container registry
-- packages that contain only executable binaries will be compressed & uploaded to a release directly
-- packages that depend on nix store paths can be bundled into an AppImage (`appimage`), Arx tarball (`arx`), or with a portable nix binary (`portable`)
+- packages that contain only static executable binaries will be compressed & uploaded to a release directly
+- others can be bundled into an AppImage (`appimage`), Arx tarball (`arx`), or with a portable nix binary (`portable`)
 
 Works with GitHub, Gitea & Forgejo
 
