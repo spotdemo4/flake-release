@@ -157,15 +157,6 @@ function nix_build() {
 function nix_bundle() {
     local package="$1"
     local bundle="$2"
-    local os="$3"
-
-    if
-        [[ "${bundle,,}" == "appimage" ]] &&
-        [[ "${os}" == "darwin" ]];
-    then
-        warn "AppImage not supported by darwin"
-        bundle="arx"
-    fi
 
     local tmplink
     tmplink=$(mktemp -u)

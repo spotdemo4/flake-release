@@ -192,7 +192,12 @@ for PACKAGE in "${PACKAGES[@]}"; do
             continue
         fi
 
-        if ! ARCHIVE=$(nix_bundle "${PACKAGE}" "${BUNDLE}" "$(host_os)"); then
+        if [[ "$(host_os)" == "darwin" ]]; then
+            warn "skipping building bundle for darwin"
+            continue
+        fi
+
+        if ! ARCHIVE=$(nix_bundle "${PACKAGE}" "${BUNDLE}"); then
             warn "bundling failed"
             continue
         fi
