@@ -31,6 +31,7 @@
       let
         pkgs = init.appendOverlays [
           (_: prev: {
+            # https://github.com/NixOS/nixpkgs/pull/500733
             llhttp = prev.llhttp.overrideAttrs {
               cmakeFlags = [
                 (prev.lib.cmakeBool "LLHTTP_BUILD_SHARED_LIBS" (!prev.stdenv.hostPlatform.isStatic))
@@ -168,8 +169,8 @@
           };
         };
 
-        packages = pkgs.mkPackages pkgs (target: {
-          default = target.stdenv.mkDerivation (finalAttrs: {
+        packages = pkgs.mkPackages pkgs (pkgs: {
+          default = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "flake-release";
             version = "0.12.1";
 
@@ -181,12 +182,12 @@
               ];
             };
 
-            nativeBuildInputs = with target; [
+            nativeBuildInputs = with pkgs; [
               makeWrapper
               shellcheck
             ];
 
-            runtimeInputs = with target; [
+            runtimeInputs = with pkgs; [
               file
               findutils
               forgejo-cli
@@ -235,10 +236,10 @@
           });
         });
 
-        images = pkgs.mkImages pkgs (target: {
-          default = target.mkImage self.packages.${system}.default {
+        images = pkgs.mkImages pkgs (pkgs: {
+          default = pkgs.mkImage self.packages.${system}.default {
             fromImage = pkgs.image.nix;
-            contents = with target; [ dockerTools.caCertificates ];
+            contents = with pkgs; [ dockerTools.caCertificates ];
             config.Env = [ "DOCKER=true" ];
           };
         });
