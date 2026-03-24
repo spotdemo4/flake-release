@@ -22,58 +22,43 @@
 
   outputs =
     {
-      nixpkgs,
+      self,
       trev,
       ...
     }:
     trev.libs.mkFlake (
-      system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [
-            trev.overlays.packages
-            trev.overlays.libs
-            trev.overlays.images
-          ];
-        };
-        fs = pkgs.lib.fileset;
-        deps = with pkgs; [
-          file
-          findutils
-          forgejo-cli
-          gh
-          gnused
-          jq
-          manifest-tool
-          mktemp
-          ncurses
-          skopeo
-          tea
-          xz
-          zip
-        ];
-      in
-      {
+      system: pkgs: {
         devShells = {
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
-            packages =
-              with pkgs;
-              [
-                # lint
-                shellcheck
+            packages = with pkgs; [
+              # deps
+              file
+              findutils
+              forgejo-cli
+              gh
+              gnused
+              jq
+              manifest-tool
+              mktemp
+              ncurses
+              skopeo
+              tea
+              xz
+              zip
 
-                # format
-                nixfmt
-                prettier
+              # lint
+              shellcheck
 
-                # util
-                bumper
-                flake-release
-                renovate
-              ]
-              ++ deps;
+              # format
+              nixfmt
+              prettier
+
+              # util
+              bumper
+              flake-release
+              renovate
+            ];
           };
 
           bump = pkgs.mkShell {
@@ -105,46 +90,40 @@
           };
         };
 
-        checks = pkgs.lib.mkChecks {
+        checks = pkgs.mkChecks {
           shellcheck = {
-            src = fs.toSource {
-              root = ./.;
-              fileset = fs.unions [
-                (fs.fileFilter (file: file.hasExt "sh") ./.)
-                ./.shellcheckrc
-              ];
-            };
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              (pkgs.lib.fileset.fileFilter (file: file.hasExt "sh") ./.)
+              ./.shellcheckrc
+            ];
             deps = with pkgs; [
               shellcheck
             ];
-            script = ''
-              shellcheck **/*.sh
+            forEach = ''
+              shellcheck "$file"
             '';
           };
 
           actions = {
-            src = fs.toSource {
-              root = ./.;
-              fileset = fs.unions [
-                ./action.yaml
-                ./.github/workflows
-              ];
-            };
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./action.yaml
+              ./.github/workflows
+            ];
             deps = with pkgs; [
               action-validator
               octoscan
             ];
-            script = ''
-              action-validator **/*.yaml
-              octoscan scan .
+            forEach = ''
+              action-validator "$file"
+              octoscan scan "$file"
             '';
           };
 
           renovate = {
-            src = fs.toSource {
-              root = ./.github;
-              fileset = ./.github/renovate.json;
-            };
+            root = ./.github;
+            fileset = ./.github/renovate.json;
             deps = with pkgs; [
               renovate
             ];
@@ -154,51 +133,61 @@
           };
 
           nix = {
-            src = fs.toSource {
-              root = ./.;
-              fileset = fs.fileFilter (file: file.hasExt "nix") ./.;
-            };
+            root = ./.;
+            filter = file: file.hasExt "nix";
             deps = with pkgs; [
-              nixfmt-tree
+              nixfmt
             ];
-            script = ''
-              treefmt --ci
+            forEach = ''
+              nixfmt --check "$file"
             '';
           };
 
           prettier = {
-            src = fs.toSource {
-              root = ./.;
-              fileset = fs.fileFilter (file: file.hasExt "yaml" || file.hasExt "json" || file.hasExt "md") ./.;
-            };
+            root = ./.;
+            filter = file: file.hasExt "yaml" || file.hasExt "json" || file.hasExt "md";
             deps = with pkgs; [
               prettier
             ];
-            script = ''
-              prettier --check .
+            forEach = ''
+              prettier --check "$file"
             '';
           };
         };
 
-        packages = with pkgs.lib; rec {
-          default = pkgs.stdenv.mkDerivation (finalAttrs: {
+        packages = pkgs.mkPackages pkgs (target: {
+          default = target.stdenv.mkDerivation (finalAttrs: {
             pname = "flake-release";
             version = "0.12.1";
 
-            src = fs.toSource {
+            src = pkgs.lib.fileset.toSource {
               root = ./.;
-              fileset = fs.unions [
-                (fs.fileFilter (file: file.hasExt "sh") ./.)
+              fileset = pkgs.lib.fileset.unions [
                 ./.shellcheckrc
+                (pkgs.lib.fileset.fileFilter (file: file.hasExt "sh") ./.)
               ];
             };
 
-            nativeBuildInputs = with pkgs; [
+            nativeBuildInputs = with target; [
               makeWrapper
               shellcheck
             ];
 
-            runtimeInputs = deps;
+            runtimeInputs = with target; [
+              file
+              findutils
+              forgejo-cli
+              gh
+              gnused
+              jq
+              manifest-tool
+              mktemp
+              ncurses
+              skopeo
+              tea
+              xz
+              zip
+            ];
 
             unpackPhase = ''
               cp -a "$src/." .
@@ -209,12 +198,7 @@
             configurePhase = ''
               chmod +w src
               sed -i '1c\#!${pkgs.runtimeShell}' src/flake-release.sh
-              sed -i '2i\export PATH="${makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/flake-release.sh
-            '';
-
-            doCheck = true;
-            checkPhase = ''
-              shellcheck **/*.sh
+              sed -i '2i\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/flake-release.sh
             '';
 
             installPhase = ''
@@ -232,38 +216,22 @@
               mainProgram = "flake-release";
               homepage = "https://github.com/spotdemo4/flake-release";
               changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${finalAttrs.version}";
-              license = licenses.mit;
-              platforms = platforms.all;
+              license = pkgs.lib.licenses.mit;
+              platforms = pkgs.lib.platforms.linux;
             };
           });
+        });
 
-          image = pkgs.dockerTools.buildLayeredImage {
-            name = default.pname;
-            tag = default.version;
-
+        images = pkgs.mkImages pkgs (target: {
+          default = target.mkImage self.packages.${system}.default {
             fromImage = pkgs.image.nix;
-            contents = with pkgs; [
-              dockerTools.caCertificates
-            ];
-
-            created = "now";
-            meta = default.meta;
-
-            config = {
-              Entrypoint = [ "${meta.getExe default}" ];
-              Env = [ "DOCKER=true" ];
-              Labels = {
-                "org.opencontainers.image.title" = default.pname;
-                "org.opencontainers.image.description" = default.meta.description;
-                "org.opencontainers.image.source" = default.meta.homepage;
-                "org.opencontainers.image.version" = default.version;
-                "org.opencontainers.image.licenses" = default.meta.license.spdxId;
-              };
-            };
+            contents = with target; [ dockerTools.caCertificates ];
+            config.Env = [ "DOCKER=true" ];
           };
-        };
+        });
 
         formatter = pkgs.nixfmt-tree;
+        schemas = trev.schemas;
       }
     );
 }
