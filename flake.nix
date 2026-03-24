@@ -27,7 +27,20 @@
       ...
     }:
     trev.libs.mkFlake (
-      system: pkgs: {
+      system: init:
+      let
+        pkgs = init.appendOverlays [
+          (_: prev: {
+            llhttp = prev.llhttp.overrideAttrs {
+              cmakeFlags = [
+                (prev.lib.cmakeBool "LLHTTP_BUILD_SHARED_LIBS" (!prev.stdenv.hostPlatform.isStatic))
+                (prev.lib.cmakeBool "LLHTTP_BUILD_STATIC_LIBS" prev.stdenv.hostPlatform.isStatic)
+              ];
+            };
+          })
+        ];
+      in
+      {
         devShells = {
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
@@ -214,10 +227,10 @@
             meta = {
               description = "flake package releaser";
               mainProgram = "flake-release";
-              homepage = "https://github.com/spotdemo4/flake-release";
-              changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${finalAttrs.version}";
               license = pkgs.lib.licenses.mit;
               platforms = pkgs.lib.platforms.linux;
+              homepage = "https://github.com/spotdemo4/flake-release";
+              changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${finalAttrs.version}";
             };
           });
         });

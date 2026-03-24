@@ -54,7 +54,7 @@ runs:
   using: docker
   image: docker://ghcr.io/spotdemo4/nix-flake-release:0.12.1
   env:
-    ENV_ARGS: ${{ inputs.packages }}
+    PACKAGES: ${{ inputs.packages }}
     GIT_TYPE: ${{ inputs.git_type }}
     GITHUB_REPOSITORY: ${{ inputs.github_repository }}
     GITHUB_SERVER_URL: ${{ inputs.github_server_url }}

@@ -18,14 +18,28 @@ source "$DIR/image.sh"
 source "$DIR/nix.sh"
 source "$DIR/platform.sh"
 
-# get args
-ARGS=()
-if [[ "$#" -gt 0 ]]; then
-    ARGS+=( "${@}" )
-fi
-if [[ -n "${ENV_ARGS-}" ]]; then
-    readarray -t ENV_ARGS < <(array "${ENV_ARGS-}")
-    ARGS+=( "${ENV_ARGS[@]}" )
+# settings
+DRY_RUN="${DRY_RUN:-false}"
+
+# get packages from args
+PACKAGES=()
+for arg in "${@}"; do
+    if [[ "${arg}" == "--help" ]]; then
+        info "Usage: flake-release [packages...] [--dry-run]"
+        info ""
+        info "If no packages are provided as arguments, the script will attempt to get packages from the nix flake for the current system."
+        exit 0
+    elif [[ "${arg}" == "--dry-run" ]]; then
+        DRY_RUN="true"
+    else
+        PACKAGES+=( "${arg}" )
+    fi
+done
+
+# get packages from env
+if [[ -n "${PACKAGES-}" ]]; then
+    readarray -t ENV_PACKAGES < <(array "${PACKAGES-}")
+    PACKAGES+=( "${ENV_PACKAGES[@]}" )
 fi
 
 # git type
@@ -63,27 +77,27 @@ elif [[ "${TYPE}" == "forgejo" ]]; then
 fi
 
 # release
-if ! release "${TYPE}" "${TAG}" "${CHANGELOG}"; then
-    warn "could not create release ${TAG}"
+if [[ "${DRY_RUN}" == "true" ]]; then
+    info "dry run: skipping release creation"
+else
+    if ! release "${TYPE}" "${TAG}" "${CHANGELOG}"; then
+        warn "could not create release ${TAG}"
+    fi
 fi
 
-# get nix packages
-NIX_SYSTEM=$(nix_system)
-readarray -t PACKAGES < <(nix_packages "${NIX_SYSTEM}")
-if [[ ${#PACKAGES[@]} -eq 0 ]]; then
-    warn "no packages found in the nix flake for system '${NIX_SYSTEM}'"
+# get nix packages from .#packages.${system} if not provided
+if [[ "${#PACKAGES[@]}" -eq 0 ]]; then
+    NIX_SYSTEM=$(nix_system)
+    readarray -t PACKAGES < <(nix_packages "${NIX_SYSTEM}")
+    if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+        warn "no packages found in the nix flake for system '${NIX_SYSTEM}'"
+    fi
 fi
 
 # build and upload assets
 STORE_PATHS=()
 for PACKAGE in "${PACKAGES[@]}"; do
     info ""
-
-    if [[ "${#ARGS[@]}" -ne 0 && ! ${ARGS[*]} =~ ${PACKAGE} ]]; then
-        info "skipping package '${PACKAGE}'"
-        continue
-    fi
-
     info "evaluating $(bold "${PACKAGE}")"
     STORE_PATH=$(nix_pkg_path "${PACKAGE}")
     if [[ ${STORE_PATHS[*]} =~ ${STORE_PATH} ]]; then
@@ -147,9 +161,13 @@ for PACKAGE in "${PACKAGES[@]}"; do
             continue
         fi
 
-        if ! image_upload "${STORE_PATH}" "${IMAGE_TAG}" "${IMAGE_ARCH}"; then
-            warn "upload failed"
-            continue
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            info "dry run: skipping image upload"
+        else
+            if ! image_upload "${STORE_PATH}" "${IMAGE_TAG}" "${IMAGE_ARCH}"; then
+                warn "upload failed"
+                continue
+            fi
         fi
 
     # `mkDerivation` executable(s)
@@ -174,10 +192,15 @@ for PACKAGE in "${PACKAGES[@]}"; do
 
         ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
 
-        if ! release_asset "${TYPE}" "${TAG}" "${ASSET}"; then
-            warn "uploading failed"
-            continue
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            info "dry run: skipping asset upload"
+        else
+            if ! release_asset "${TYPE}" "${TAG}" "${ASSET}"; then
+                warn "uploading failed"
+            fi
         fi
+
+        delete "${ASSET}"
 
     # `mkDerivation` bundle
     elif
@@ -204,11 +227,15 @@ for PACKAGE in "${PACKAGES[@]}"; do
 
         ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "$(host_os)" "$(host_arch)")
 
-        if ! release_asset "${TYPE}" "${TAG}" "${ASSET}"; then
-            warn "uploading failed"
-            continue
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            info "dry run: skipping asset upload"
+        else
+            if ! release_asset "${TYPE}" "${TAG}" "${ASSET}"; then
+                warn "uploading failed"
+            fi
         fi
 
+        delete "${ASSET}"
     else
         warn "unknown package type"
     fi
@@ -218,8 +245,12 @@ info ""
 
 # create and push manifest
 if [[ "${IMAGES-}" == "true" ]]; then
-    info "updating image manifest for tag $(bold "${TAG#v}")"
-    manifest_update "${TAG#v}"
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        info "dry run: skipping manifest update"
+    else
+        info "updating image manifest for tag $(bold "${TAG#v}")"
+        manifest_update "${TAG#v}"
+    fi
 fi
 
 # logout

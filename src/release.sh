@@ -26,8 +26,6 @@ function release_asset() {
     elif [[ "${type}" == "github" ]]; then
         github_release_asset "${tag}" "${asset}"
     fi
-
-    delete "${asset}"
 }
 
 function release_type() {
