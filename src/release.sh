@@ -29,6 +29,8 @@ function release_asset() {
 }
 
 function release_type() {
+    local origin="$1"
+
     if [[ "${GIT_TYPE-}" == "gitea" ]]; then
         echo "gitea"
         return 0
@@ -49,6 +51,19 @@ function release_type() {
     elif [[ -n "${GITHUB_ACTIONS-}" ]]; then
         echo "github"
         return 0
+    fi
+
+    if [[ -n "${origin}" ]]; then
+        if [[ "${origin}" == *"gitea"* ]]; then
+            echo "gitea"
+            return 0
+        elif [[ "${origin}" == *"forgejo"* ]]; then
+            echo "forgejo"
+            return 0
+        elif [[ "${origin}" == *"github"* ]]; then
+            echo "github"
+            return 0
+        fi
     fi
 
     warn "unknown release type"

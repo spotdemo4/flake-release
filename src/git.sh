@@ -29,6 +29,10 @@ function git_user() {
     git config user.name
 }
 
+function git_origin() {
+    git remote get-url origin
+}
+
 function git_changelog() {
     local tag="$1"
 

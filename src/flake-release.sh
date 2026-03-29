@@ -21,8 +21,9 @@ source "$DIR/platform.sh"
 # settings
 DRY_RUN="${DRY_RUN:-false}"
 
-# get packages from args
 PACKAGES=()
+
+# get packages from args
 for arg in "${@}"; do
     if [[ "${arg}" == "--help" ]]; then
         info "Usage: flake-release [packages...] [--dry-run]"
@@ -43,7 +44,7 @@ if [[ -n "${PACKAGES-}" ]]; then
 fi
 
 # git type
-if ! TYPE=$(release_type); then
+if ! TYPE=$(release_type "$(git_origin)"); then
     exit 1
 fi
 info "git type: ${TYPE}"
