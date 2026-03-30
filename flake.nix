@@ -27,21 +27,7 @@
       ...
     }:
     trev.libs.mkFlake (
-      system: init:
-      let
-        pkgs = init.appendOverlays [
-          (_: prev: {
-            # https://github.com/NixOS/nixpkgs/pull/500733
-            llhttp = prev.llhttp.overrideAttrs {
-              cmakeFlags = [
-                (prev.lib.cmakeBool "LLHTTP_BUILD_SHARED_LIBS" (!prev.stdenv.hostPlatform.isStatic))
-                (prev.lib.cmakeBool "LLHTTP_BUILD_STATIC_LIBS" prev.stdenv.hostPlatform.isStatic)
-              ];
-            };
-          })
-        ];
-      in
-      {
+      system: pkgs: {
         devShells = {
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
