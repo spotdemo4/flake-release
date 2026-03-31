@@ -87,7 +87,7 @@ else
 fi
 
 # get nix packages from .#packages.${system} if not provided
-if [[ "${#PACKAGES[@]}" -eq 0 ]]; then
+if [[ ${#PACKAGES[@]} -eq 0 ]]; then
     NIX_SYSTEM=$(nix_system)
     readarray -t PACKAGES < <(nix_packages "${NIX_SYSTEM}")
     if [[ ${#PACKAGES[@]} -eq 0 ]]; then
