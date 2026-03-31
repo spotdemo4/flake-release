@@ -223,7 +223,7 @@
         });
 
         images = pkgs.mkImages pkgs (pkgs: {
-          default = pkgs.mkImage self.packages.${system}.default {
+          default = pkgs.mkImage (self.packages.${system}.default or self.packages.x86_64-linux.default) {
             fromImage = pkgs.image.nix;
             contents = with pkgs; [ dockerTools.caCertificates ];
             config.Env = [ "DOCKER=true" ];
