@@ -21,8 +21,7 @@ source "$DIR/platform.sh"
 # settings
 DRY_RUN="${DRY_RUN:-false}"
 
-PACKAGES=()
-
+PKGS=()
 # get packages from args
 for arg in "${@}"; do
     if [[ "${arg}" == "--help" ]]; then
@@ -33,14 +32,13 @@ for arg in "${@}"; do
     elif [[ "${arg}" == "--dry-run" ]]; then
         DRY_RUN="true"
     else
-        PACKAGES+=( "${arg}" )
+        PKGS+=( "${arg}" )
     fi
 done
-
 # get packages from env
 if [[ -n "${PACKAGES-}" ]]; then
     readarray -t ENV_PACKAGES < <(array "${PACKAGES-}")
-    PACKAGES+=( "${ENV_PACKAGES[@]}" )
+    PKGS+=( "${ENV_PACKAGES[@]}" )
 fi
 
 # git type
@@ -87,17 +85,17 @@ else
 fi
 
 # get nix packages from .#packages.${system} if not provided
-if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+if [[ ${#PKGS[@]} -eq 0 ]]; then
     NIX_SYSTEM=$(nix_system)
-    readarray -t PACKAGES < <(nix_packages "${NIX_SYSTEM}")
-    if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+    readarray -t PKGS < <(nix_packages "${NIX_SYSTEM}")
+    if [[ ${#PKGS[@]} -eq 0 ]]; then
         warn "no packages found in the nix flake for system '${NIX_SYSTEM}'"
     fi
 fi
 
 # build and upload assets
 STORE_PATHS=()
-for PACKAGE in "${PACKAGES[@]}"; do
+for PACKAGE in "${PKGS[@]}"; do
     info ""
     info "evaluating $(bold "${PACKAGE}")"
     STORE_PATH=$(nix_pkg_path "${PACKAGE}")
