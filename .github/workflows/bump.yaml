@@ -25,7 +25,8 @@ jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
-      - name: Initialize
+      - id: init
+        name: Initialize
         uses: spotdemo4/nix-init@32b128f67703e246a0895d72d65ae455bf38d559 # v1.41.0
         with:
           app_id: ${{ vars.CLIENT_ID }}
@@ -36,6 +37,7 @@ jobs:
       - name: Bump
         run: bumper
         env:
+          GITHUB_TOKEN: ${{ steps.init.outputs.token }}
           FORCE: ${{ inputs.force }}
           PATHS: |-
             action.yaml
