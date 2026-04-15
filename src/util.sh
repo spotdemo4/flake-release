@@ -6,6 +6,18 @@ function archive() {
     local path="$1"
     local os="$2"
 
+    if
+        [[ "${path}" == *.AppImage ]] ||
+        [[ "${path}" == *.appimage ]] ||
+        [[ "${path}" == *.zip ]] ||
+        [[ "${path}" == *.xz ]] ||
+        [[ "${path}" == *.tar.gz ]] ||
+        [[ "${path}" == *.tar.xz ]];
+    then
+        echo "${path}"
+        return
+    fi
+
     local filecount
     filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ')
 
