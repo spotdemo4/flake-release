@@ -57,7 +57,8 @@ function archive() {
             [[ "${filename}" == *.tar.gz ]] ||
             [[ "${filename}" == *.tar.xz ]];
         then
-            echo "${filepath}"
+            info "already compressed, not compressing again"
+            realpath "${filepath}"
         else
             info "compressing ${filepath}"
             xz -9e -c "${filepath}" > "${outdir}/archive.xz"
