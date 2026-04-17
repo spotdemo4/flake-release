@@ -9,41 +9,32 @@ concurrency:
   group: release
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   packages: write
 
 jobs:
   release:
-    strategy:
-      matrix:
-        image:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
-      fail-fast: false
-    runs-on: ${{ matrix.image }}
+    runs-on: ubuntu-latest
     steps:
-      - id: init
-        name: Initialize
+      - name: Initialize
         uses: spotdemo4/nix-init@757d5ba1fa0749e877484703bece0e17c7bd5670 # v1.43.0
         with:
-          app_id: ${{ vars.CLIENT_ID }}
-          app_key: ${{ secrets.PRIVATE_KEY }}
           fetch_depth: 0
           shell: release
 
       - name: Publish to GitHub
         run: flake-release
         env:
-          GITHUB_TOKEN: ${{ steps.init.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY: ghcr.io
           REGISTRY_USERNAME: ${{ github.actor }}
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGES: images.x86_64-linux.default
 
       - name: Publish to GitHub (script)
-        if: matrix.image == 'ubuntu-24.04'
         env:
-          GH_TOKEN: ${{ steps.init.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Publishing bash script
 
@@ -54,7 +45,6 @@ jobs:
           gh release upload "$(git describe --tags --abbrev=0)" flake-release.sh
 
       - name: Publish to FlakeHub
-        if: matrix.image == 'ubuntu-24.04'
         uses: DeterminateSystems/flakehub-push@71f57208810a5d299fc6545350981de98fdbc860 # v6
         with:
           visibility: public

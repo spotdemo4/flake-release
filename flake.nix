@@ -155,16 +155,16 @@
           };
         };
 
-        packages = pkgs.mkPackages pkgs (pkgs: {
-          default = pkgs.stdenv.mkDerivation (finalAttrs: {
+        packages.default = pkgs.stdenv.mkDerivation (
+          final: with pkgs.lib; {
             pname = "flake-release";
             version = "0.14.4";
 
-            src = pkgs.lib.fileset.toSource {
+            src = fileset.toSource {
               root = ./.;
-              fileset = pkgs.lib.fileset.unions [
+              fileset = fileset.unions [
                 ./.shellcheckrc
-                (pkgs.lib.fileset.fileFilter (file: file.hasExt "sh") ./.)
+                (fileset.fileFilter (file: file.hasExt "sh") ./.)
               ];
             };
 
@@ -198,7 +198,7 @@
             configurePhase = ''
               chmod +w src
               sed -i '1c\#!${pkgs.runtimeShell}' src/flake-release.sh
-              sed -i '2i\export PATH="${pkgs.lib.makeBinPath finalAttrs.runtimeInputs}:$PATH"' src/flake-release.sh
+              sed -i '2i\export PATH="${makeBinPath final.runtimeInputs}:$PATH"' src/flake-release.sh
             '';
 
             installPhase = ''
@@ -212,23 +212,22 @@
             dontFixup = true;
 
             meta = {
-              description = "flake package releaser";
               mainProgram = "flake-release";
-              license = pkgs.lib.licenses.mit;
-              platforms = pkgs.lib.platforms.linux;
+              description = "Flake package releaser";
+              license = licenses.mit;
+              platforms = platforms.unix;
               homepage = "https://github.com/spotdemo4/flake-release";
-              changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${finalAttrs.version}";
+              changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${final.version}";
             };
-          });
-        });
+          }
+        );
 
-        images = pkgs.mkImages pkgs (pkgs: {
-          default = pkgs.mkImage (self.packages.${system}.default or self.packages.x86_64-linux.default) {
-            fromImage = pkgs.image.nix;
-            contents = with pkgs; [ dockerTools.caCertificates ];
-            config.Env = [ "DOCKER=true" ];
-          };
-        });
+        images.default = pkgs.mkImage {
+          fromImage = pkgs.image.nix;
+          src = self.packages.${system}.default;
+          contents = with pkgs; [ dockerTools.caCertificates ];
+          config.Env = [ "DOCKER=true" ];
+        };
 
         formatter = pkgs.nixfmt-tree;
         schemas = trev.schemas;
