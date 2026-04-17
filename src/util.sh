@@ -6,13 +6,16 @@ function archive() {
     local path="$1"
     local os="$2"
 
+    local filename
+    filename=$(basename "${path}")
+
     if
-        [[ "${path}" == *.AppImage ]] ||
-        [[ "${path}" == *.appimage ]] ||
-        [[ "${path}" == *.zip ]] ||
-        [[ "${path}" == *.xz ]] ||
-        [[ "${path}" == *.tar.gz ]] ||
-        [[ "${path}" == *.tar.xz ]];
+        [[ "${filename}" == *.AppImage ]] ||
+        [[ "${filename}" == *.appimage ]] ||
+        [[ "${filename}" == *.zip ]] ||
+        [[ "${filename}" == *.xz ]] ||
+        [[ "${filename}" == *.tar.gz ]] ||
+        [[ "${filename}" == *.tar.xz ]];
     then
         echo "${path}"
         return
