@@ -6,21 +6,6 @@ function archive() {
     local path="$1"
     local os="$2"
 
-    local filename
-    filename=$(basename "${path}")
-
-    if
-        [[ "${filename}" == *.AppImage ]] ||
-        [[ "${filename}" == *.appimage ]] ||
-        [[ "${filename}" == *.zip ]] ||
-        [[ "${filename}" == *.xz ]] ||
-        [[ "${filename}" == *.tar.gz ]] ||
-        [[ "${filename}" == *.tar.xz ]];
-    then
-        echo "${path}"
-        return
-    fi
-
     local filecount
     filecount=$(find -L "${path}" -type f | wc -l | tr -d ' ')
 
@@ -59,10 +44,25 @@ function archive() {
 
         local filepath
         filepath=$(find -L "${indir}" -type f)
-        info "compressing ${filepath}"
-        xz -9e -c "${filepath}" > "${outdir}/archive.xz"
 
-        echo "${outdir}/archive.xz"
+        local filename
+        filename=$(basename "${filepath}")
+
+        # check if already compressed
+        if
+            [[ "${filename}" == *.AppImage ]] ||
+            [[ "${filename}" == *.appimage ]] ||
+            [[ "${filename}" == *.zip ]] ||
+            [[ "${filename}" == *.xz ]] ||
+            [[ "${filename}" == *.tar.gz ]] ||
+            [[ "${filename}" == *.tar.xz ]];
+        then
+            echo "${filepath}"
+        else
+            info "compressing ${filepath}"
+            xz -9e -c "${filepath}" > "${outdir}/archive.xz"
+            echo "${outdir}/archive.xz"
+        fi
 
     # compress multiple files as tar.xz
     else
