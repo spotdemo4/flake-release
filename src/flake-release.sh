@@ -65,8 +65,16 @@ if [[ -z "${REGISTRY_USERNAME-}" ]]; then
 fi
 info "registry user: ${REGISTRY_USERNAME}"
 
-# get changelog
-CHANGELOG=$(git_changelog "${TAG}")
+# default registry password to GITHUB_TOKEN if not set
+if [[ -z "${REGISTRY_PASSWORD-}" ]] && [[ -n "${GITHUB_TOKEN-}" ]]; then
+    REGISTRY_PASSWORD="${GITHUB_TOKEN}"
+fi
+
+# default registry to ghcr.io if not set
+if [[ -z "${REGISTRY-}" ]] && [[ "${TYPE}" == "github" ]]; then
+    REGISTRY="ghcr.io"
+fi
+info "registry: ${REGISTRY:-<none>}"
 
 # login
 if [[ "${TYPE}" == "gitea" ]]; then
@@ -74,6 +82,9 @@ if [[ "${TYPE}" == "gitea" ]]; then
 elif [[ "${TYPE}" == "forgejo" ]]; then
     forgejo_login
 fi
+
+# get changelog
+CHANGELOG=$(git_changelog "${TAG}")
 
 # release
 if [[ "${DRY_RUN}" == "true" ]]; then
