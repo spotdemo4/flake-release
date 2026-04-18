@@ -231,6 +231,10 @@
           config.Env = [ "DOCKER=true" ];
         };
 
+        appimages.default = pkgs.mkAppImage {
+          src = self.packages.${system}.default;
+        };
+
         formatter = pkgs.nixfmt-tree;
         schemas = trev.schemas;
       }

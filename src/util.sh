@@ -23,6 +23,7 @@ function archive() {
 
     # if only one binary, skip compression
     if [[ "${bincount}" -eq 1 ]]; then
+        info "$(dim "archive: skipped")"
         realpath "$(find -L "${path}/bin" -type f)"
 
     # archive for windows as zip
@@ -63,6 +64,7 @@ function rename() {
         final="$(mktemp -d)/${name}_${version}_${os}_${arch}"
     fi
 
+    info "$(dim "rename: ${filename} -> ${final}")"
     cp -R "${filepath}" "${final}"
     echo "${final}"
 
