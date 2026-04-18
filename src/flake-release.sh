@@ -84,13 +84,9 @@ else
     fi
 fi
 
-# get nix packages from .#packages.${system} if not provided
+# get nix packages from .#packages.${system}.default if not provided
 if [[ ${#PKGS[@]} -eq 0 ]]; then
-    NIX_SYSTEM=$(nix_system)
-    readarray -t PKGS < <(nix_packages "${NIX_SYSTEM}")
-    if [[ ${#PKGS[@]} -eq 0 ]]; then
-        warn "no packages found in the nix flake for system '${NIX_SYSTEM}'"
-    fi
+    PKGS+=( "packages.$(nix_system).default" )
 fi
 
 # build and upload assets

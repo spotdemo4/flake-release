@@ -9,27 +9,6 @@ function nix_system() {
     echo "${system}"
 }
 
-function nix_packages() {
-    local system="$1"
-
-    local packages
-    packages=$(nix flake show --json 2> /dev/null)
-    
-    if [[ "$(echo "${packages}" | jq 'has("packages")')" == "false" ]]; then
-        warn "flake has no packages"
-        return
-    fi
-
-    local packages_list
-    packages_list=$(echo "${packages}" | jq -r --arg system "$system" '.packages[$system] | keys | join(", ")')
-    info "$(dim "packages: ${packages_list}")"
-
-    local packages_json
-    packages_json=$(echo "${packages}" | jq -r --arg system "$system" '.packages[$system] | keys[]')
-
-    echo "${packages_json}"
-}
-
 function nix_pkg_path() {
     local package="$1"
 
