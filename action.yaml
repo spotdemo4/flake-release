@@ -46,10 +46,6 @@ inputs:
     required: false
     default: ${{ github.token }}
 
-  bundle:
-    description: whether to bundle nix derivations before archiving
-    required: false
-
 runs:
   using: docker
   image: docker://ghcr.io/spotdemo4/nix-flake-release:0.14.8
@@ -63,4 +59,3 @@ runs:
     REGISTRY: ${{ inputs.registry }}
     REGISTRY_USERNAME: ${{ inputs.registry_username }}
     REGISTRY_PASSWORD: ${{ inputs.registry_password }}
-    BUNDLE: ${{ inputs.bundle }}

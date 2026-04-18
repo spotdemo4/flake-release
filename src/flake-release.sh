@@ -179,7 +179,7 @@ for PACKAGE in "${PKGS[@]}"; do
         ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
 
         if [[ "${DRY_RUN}" == "true" ]]; then
-            info "dry run: skipping asset upload"
+            info "dry run: skipping upload"
         else
             if ! release_asset "${TYPE}" "${TAG}" "${ASSET}"; then
                 warn "uploading failed"
@@ -204,7 +204,7 @@ for PACKAGE in "${PKGS[@]}"; do
         ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
 
         if [[ "${DRY_RUN}" == "true" ]]; then
-            info "dry run: skipping asset upload"
+            info "dry run: skipping upload"
         else
             if ! release_asset "${TYPE}" "${TAG}" "${ASSET}"; then
                 warn "uploading failed"

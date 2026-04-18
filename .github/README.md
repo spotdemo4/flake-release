@@ -9,7 +9,7 @@ Generates release artifacts for packages in a nix flake:
 
 - `dockerTools.buildLayeredImage` & `dockerTools.streamLayeredImage` can be uploaded to a container registry
 - packages that contain only static executable binaries will be compressed & uploaded to a release directly
-- others can be bundled into an AppImage (`appimage`), Arx tarball (`arx`), or with a portable nix binary (`portable`)
+- others will be bundled into an AppImage
 
 Works with GitHub, Gitea & Forgejo
 
@@ -21,17 +21,16 @@ flake-release [packages...]
 
 ### Environment
 
-| Variable          | Description                     | Example                                                                                                                                                               |
-| ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GIT_TYPE          | Host type for release           | `github` / `gitea` / `forgejo`                                                                                                                                        |
-| GITHUB_REPOSITORY | Repository to push releases     | `spotdemo4/flake-release`                                                                                                                                             |
-| GITHUB_SERVER_URL | Server to push releases         | `https://github.com`                                                                                                                                                  |
-| GITHUB_ACTOR      | User for Gitea & Forgejo        | `github-actions[bot]`                                                                                                                                                 |
-| GITHUB_TOKEN      | Token used to push releases     |                                                                                                                                                                       |
-| REGISTRY          | Container registry              | `ghcr.io`                                                                                                                                                             |
-| REGISTRY_USERNAME | Username for container registry | `github-actions[bot]`                                                                                                                                                 |
-| REGISTRY_PASSWORD | Password for container registry |                                                                                                                                                                       |
-| BUNDLE            | Type of bundle to create        | [`appimage`](https://github.com/ralismark/nix-appimage) / [`arx`](https://github.com/nix-community/nix-bundle) / [`portable`](https://github.com/DavHau/nix-portable) |
+| Variable          | Description                     | Example                        |
+| ----------------- | ------------------------------- | ------------------------------ |
+| GIT_TYPE          | Host type for release           | `github` / `gitea` / `forgejo` |
+| GITHUB_REPOSITORY | Repository to push releases     | `spotdemo4/flake-release`      |
+| GITHUB_SERVER_URL | Server to push releases         | `https://github.com`           |
+| GITHUB_ACTOR      | User for Gitea & Forgejo        | `github-actions[bot]`          |
+| GITHUB_TOKEN      | Token used to push releases     |                                |
+| REGISTRY          | Container registry              | `ghcr.io`                      |
+| REGISTRY_USERNAME | Username for container registry | `github-actions[bot]`          |
+| REGISTRY_PASSWORD | Password for container registry |                                |
 
 ## Install
 
@@ -49,7 +48,6 @@ flake-release [packages...]
     registry: # default: ghcr.io
     registry_username: # default: ${{ github.actor }}
     registry_password: # default: ${{ github.token }}
-    bundle: # default: null
 ```
 
 ### Nix
@@ -91,7 +89,6 @@ docker run -it \
   -e REGISTRY=... \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
-  -e BUNDLE=... \
   ghcr.io/spotdemo4/flake-release:0.14.8
 ```
 
