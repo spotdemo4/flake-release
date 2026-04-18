@@ -159,7 +159,7 @@
         packages.default = pkgs.stdenv.mkDerivation (
           final: with pkgs.lib; {
             pname = "flake-release";
-            version = "0.14.8";
+            version = "0.15.0";
 
             src = fileset.toSource {
               root = ./.;
