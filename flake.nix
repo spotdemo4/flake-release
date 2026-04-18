@@ -37,6 +37,7 @@
               findutils
               forgejo-cli
               gh
+              git
               gnused
               jq
               manifest-tool
@@ -178,6 +179,7 @@
               findutils
               forgejo-cli
               gh
+              git
               gnused
               jq
               manifest-tool

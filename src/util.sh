@@ -105,7 +105,6 @@ function all_static() {
 
         # Check if the file is statically linked
         if ! is_static "${file}"; then
-            echo "File ${file} is not a statically linked binary."
             return 1
         fi
     done
