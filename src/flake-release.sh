@@ -16,7 +16,6 @@ source "$DIR/forgejo.sh"
 source "$DIR/release.sh"
 source "$DIR/image.sh"
 source "$DIR/nix.sh"
-source "$DIR/platform.sh"
 
 # settings
 DRY_RUN="${DRY_RUN:-false}"
@@ -35,6 +34,7 @@ for arg in "${@}"; do
         PKGS+=( "${arg}" )
     fi
 done
+
 # get packages from env
 if [[ -n "${PACKAGES-}" ]]; then
     readarray -t ENV_PACKAGES < <(array "${PACKAGES-}")
@@ -113,10 +113,13 @@ for PACKAGE in "${PKGS[@]}"; do
     # `mkDerivation` attributes
     PNAME=$(nix_pkg_pname "${PACKAGE}")
     VERSION=$(nix_pkg_version "${PACKAGE}")
+    PLATFORM=$(nix_pkg_platform "${PACKAGE}")
+    OS=$(echo "${PLATFORM}" | jq -r '.GOOS // empty')
+    ARCH=$(echo "${PLATFORM}" | jq -r '.GOARCH // empty')
 
     # `dockerTools` attributes
-    IMAGE_NAME=$(nix_pkg_image_name "${PACKAGE}")
-    IMAGE_TAG=$(nix_pkg_image_tag "${PACKAGE}")
+    IMAGE_NAME=$(nix_image_name "${PACKAGE}")
+    IMAGE_TAG=$(nix_image_tag "${PACKAGE}")
 
     if [[ "${VERSION}" != "${TAG#v}" && "${IMAGE_TAG}" != "${TAG#v}" ]]; then
         warn "package version '${VERSION:-"${IMAGE_TAG}"}' does not match git tag '${TAG#v}'"
@@ -127,15 +130,10 @@ for PACKAGE in "${PKGS[@]}"; do
     if
         [[ -n "${IMAGE_NAME}" ]] &&
         [[ -n "${IMAGE_TAG}" ]] &&
-        [[ -f "${STORE_PATH}" ]];
+        [[ -f "${STORE_PATH}" ]] &&
+        [[ "${OS}" == "linux" ]];
     then
         info "detected as image $(bold "${IMAGE_NAME}:${IMAGE_TAG}")"
-
-        if [[ "$(host_os)" == "darwin" ]]; then
-            warn "skipping building image for darwin"
-            continue
-        fi
-
         IMAGES="true"
 
         # `dockerTools.buildLayeredImage`
@@ -153,7 +151,7 @@ for PACKAGE in "${PKGS[@]}"; do
         fi
 
         IMAGE_ARCH=$(image_arch "${STORE_PATH}")
-        info "arch: ${IMAGE_ARCH}"
+        info "image arch: ${IMAGE_ARCH}"
 
         if image_exists "${IMAGE_TAG}" "${IMAGE_ARCH}"; then
             warn "image already exists, skipping upload"
@@ -169,20 +167,13 @@ for PACKAGE in "${PKGS[@]}"; do
             fi
         fi
 
-    # `mkDerivation` executable(s)
+    # `mkDerivation` static executable(s)
     elif
         [[ -n "${PNAME}" ]] &&
         [[ -n "${VERSION}" ]] &&
-        [[ -d "${STORE_PATH}" ]] &&
-        [[ -n "$(all_static "${STORE_PATH}")" ]];
+        all_static "${STORE_PATH}";
     then
-        info "detected as executable $(bold "${PNAME}")"
-
-        OS=$(detect_os "${STORE_PATH}")
-        info "os: ${OS}"
-
-        ARCH=$(detect_arch "${STORE_PATH}")
-        info "arch: ${ARCH}"
+        info "detected as static executable(s)"
 
         if ! ARCHIVE=$(archive "${STORE_PATH}" "${OS}"); then
             warn "archiving failed"
@@ -201,30 +192,20 @@ for PACKAGE in "${PKGS[@]}"; do
 
         delete "${ASSET}"
 
-    # `mkDerivation` bundle
+    # `mkDerivation` AppImage bundle
     elif
         [[ -n "${PNAME}" ]] &&
         [[ -n "${VERSION}" ]] &&
-        [[ -d "${STORE_PATH}" ]];
+        [[ "${OS}" == "linux" ]];
     then
-        info "detected as bundle $(bold "${PNAME}")"
+        info "bundling as AppImage"
 
-        if [[ -z "${BUNDLE-}" ]]; then
-            warn "BUNDLE is not set, no bundle type specified"
-            continue
-        fi
-
-        if [[ "$(host_os)" == "darwin" ]]; then
-            warn "skipping building bundle for darwin"
-            continue
-        fi
-
-        if ! ARCHIVE=$(nix_bundle "${PACKAGE}" "${BUNDLE}"); then
+        if ! ARCHIVE=$(nix_bundle_appimage "${PACKAGE}"); then
             warn "bundling failed"
             continue
         fi
 
-        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "$(host_os)" "$(host_arch)")
+        ASSET=$(rename "${ARCHIVE}" "${PNAME}" "${VERSION}" "${OS}" "${ARCH}")
 
         if [[ "${DRY_RUN}" == "true" ]]; then
             info "dry run: skipping asset upload"

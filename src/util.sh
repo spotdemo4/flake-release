@@ -12,70 +12,31 @@ function archive() {
     local bincount
     bincount=$(find -L "${path}/bin" -type f | wc -l | tr -d ' ')
 
-    local indir
-    indir=$(mktemp -d)
+    if [[ "${filecount}" -eq "${bincount}" ]]; then
+        pushd "${path}/bin" &> /dev/null || return 1
+    else
+        pushd "${path}" &> /dev/null || return 1
+    fi
 
     local outdir
     outdir=$(mktemp -d)
 
-    if [[ "${filecount}" -eq 1 ]]; then
-        filepath=$(find -L "${path}" -type f)
-        cp -R "${filepath}" "${indir}/"
-    elif [[ "${filecount}" -eq "${bincount}" ]]; then
-        cp -R "${path}/bin/"* "${indir}/"
-    else
-        cp -R "${path}/"* "${indir}/"
-    fi
-
-    # set permissions
-    chmod -R 0755 "${indir}/"
+    # if only one binary, skip compression
+    if [[ "${bincount}" -eq 1 ]]; then
+        realpath "$(find -L "${path}/bin" -type f)"
 
     # archive for windows as zip
-    if [[ "${os}" == "windows" ]]; then
-
-        pushd "${indir}" &> /dev/null || return 1
+    elif [[ "${os}" == "windows" ]]; then
         run zip -9r "${outdir}/archive.zip" .
-        popd &> /dev/null || return 1
-
         echo "${outdir}/archive.zip"
-
-    # if only one binary, compress directly
-    elif [[ "${bincount}" -eq 1 ]]; then
-
-        local filepath
-        filepath=$(find -L "${indir}" -type f)
-
-        local filename
-        filename=$(basename "${filepath}")
-
-        # check if already compressed
-        if
-            [[ "${filename}" == *.AppImage ]] ||
-            [[ "${filename}" == *.appimage ]] ||
-            [[ "${filename}" == *.zip ]] ||
-            [[ "${filename}" == *.xz ]] ||
-            [[ "${filename}" == *.tar.gz ]] ||
-            [[ "${filename}" == *.tar.xz ]];
-        then
-            info "already compressed, not compressing again"
-            cp -R "${filepath}" "${outdir}/${filename}"
-            echo "${outdir}/${filename}"
-        else
-            info "compressing ${filepath}"
-            xz -9e -c "${filepath}" > "${outdir}/archive.xz"
-            echo "${outdir}/archive.xz"
-        fi
 
     # compress multiple files as tar.xz
     else
-        pushd "${indir}" &> /dev/null || return 1
         run tar -I "xz -9e" -chf "${outdir}/archive.tar.xz" .
-        popd &> /dev/null || return 1
-
         echo "${outdir}/archive.tar.xz"
     fi
 
-    delete "${indir}"
+    popd &> /dev/null || return 1
 }
 
 function rename() {
@@ -85,59 +46,69 @@ function rename() {
     local os="$4"
     local arch="$5"
 
-    local tmpdir
-    tmpdir=$(mktemp -d)
-
     local filename
-    local final
     filename=$(basename "${filepath}")
+
+    local final
     if [[ "${filename}" == *.* ]]; then
         fileext="${filename##*.}"
 
         if [[ "${fileext,,}" == "appimage" ]]; then
             # AppImage is only supported on Linux
-            final="${tmpdir}/${name}_${version}_${arch}.${fileext}"
+            final="$(mktemp -d)/${name}_${version}_${arch}.${fileext}"
         else
-            final="${tmpdir}/${name}_${version}_${os}_${arch}.${fileext}"
+            final="$(mktemp -d)/${name}_${version}_${os}_${arch}.${fileext}"
         fi
     else
-        final="${tmpdir}/${name}_${version}_${os}_${arch}"
+        final="$(mktemp -d)/${name}_${version}_${os}_${arch}"
     fi
 
     cp -R "${filepath}" "${final}"
-
     echo "${final}"
 
     delete "${filepath}"
 }
 
+function is_static() {
+    local file="$1"
+
+    # Check if the file is a binary (executable)
+    encoding=$(file -b --mime-encoding "${file}" 2> /dev/null || echo "")
+    if [[ "${encoding}" != "binary" ]]; then
+        return 1
+    fi
+
+    # Check if the binary is dynamically linked
+    info=$(file "${file}" 2> /dev/null || echo "")
+    if [[ "${info}" == *"dynamically linked"* ]]; then
+        return 1
+    fi
+}
+
 function all_static() {
     local path="$1"
 
+    if [[ -f "${path}" ]]; then
+        is_static "${path}"
+        return $?
+    fi
+
     if [[ ! -d "${path}/bin" ]]; then
-        return
+        return 1
     fi
 
     for file in "${path}"/bin/**; do
-        # Check if it is a regular file (skip directories)
+        # Skip directories
         if [[ ! -f "$file" ]]; then
             continue
         fi
 
-        # Check if the file is a binary (executable) and not a script
-        encoding=$(file -b --mime-encoding "${file}" 2> /dev/null || echo "")
-        if [[ "${encoding}" != "binary" ]]; then
-            return
-        fi
-
-        # Check if the binary is dynamically linked
-        info=$(file "${file}" 2> /dev/null || echo "")
-        if [[ "${info}" == *"dynamically linked"* ]]; then
-            return
+        # Check if the file is statically linked
+        if ! is_static "${file}"; then
+            echo "File ${file} is not a statically linked binary."
+            return 1
         fi
     done
-
-    echo "true"
 }
 
 function delete() {

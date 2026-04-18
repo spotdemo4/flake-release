@@ -66,46 +66,21 @@ function nix_pkg_version() {
     echo "${version}"
 }
 
-function nix_pkg_homepage() {
+function nix_pkg_platform() {
     local package="$1"
 
-    local homepage
-    homepage=$(nix eval --raw ".#${package}.meta.homepage" 2> /dev/null || echo "")
+    local platform
+    platform=$(nix eval --json ".#${package}.stdenv.hostPlatform.go" 2> /dev/null || echo "")
 
-    if [[ -n "$homepage" ]]; then
-        info "$(dim "homepage: ${homepage}")"
+    if [[ -n "${platform}" ]]; then
+        info "$(dim "os: $(echo "${platform}" | jq -r '.GOOS')")"
+        info "$(dim "arch: $(echo "${platform}" | jq -r '.GOARCH')")"
     fi
 
-    echo "${homepage}"
+    echo "${platform}"
 }
 
-function nix_pkg_description() {
-    local package="$1"
-
-    local description
-    description=$(nix eval --raw ".#${package}.meta.description" 2> /dev/null || echo "")
-
-    if [[ -n "$description" ]]; then
-        info "$(dim "description: ${description}")"
-    fi
-
-    echo "${description}"
-}
-
-function nix_pkg_license() {
-    local package="$1"
-
-    local license
-    license=$(nix eval --raw ".#${package}.meta.license.spdxId" 2> /dev/null || echo "")
-
-    if [[ -n "$license" ]]; then
-        info "$(dim "license: ${license}")"
-    fi
-
-    echo "${license}"
-}
-
-function nix_pkg_image_name() {
+function nix_image_name() {
     local package="$1"
 
     local image_name
@@ -118,7 +93,7 @@ function nix_pkg_image_name() {
     echo "${image_name}"
 }
 
-function nix_pkg_image_tag() {
+function nix_image_tag() {
     local package="$1"
 
     local image_tag
@@ -131,19 +106,6 @@ function nix_pkg_image_tag() {
     echo "${image_tag}"
 }
 
-function nix_pkg_exe() {
-    local package="$1"
-
-    local exe
-    exe=$(nix eval --raw --impure ".#${package}" --apply "(import <nixpkgs> {}).lib.meta.getExe" 2> /dev/null || echo "")
-
-    if [[ -n "$exe" ]]; then
-        info "$(dim "exe: ${exe}")"
-    fi
-
-    echo "${exe}"
-}
-
 function nix_build() {
     local package="$1"
 
@@ -154,43 +116,16 @@ function nix_build() {
     return ${code}
 }
 
-function nix_bundle() {
+function nix_bundle_appimage() {
     local package="$1"
-    local bundle="$2"
 
     local tmplink
     tmplink=$(mktemp -u)
     
-    case "${bundle,,}" in
-        "appimage")
-            info "creating AppImage bundle"
-            if ! run nix bundle --bundler github:ralismark/nix-appimage ".#${package}" -o "${tmplink}"; then
-                warn "AppImage bundle failed"
-                return 1
-            fi
-            ;;
-
-        "arx")
-            info "creating arx bundle"
-            if ! run nix bundle --bundler github:nix-community/nix-bundle ".#${package}" -o "${tmplink}"; then
-                warn "arx bundle failed"
-                return 1
-            fi
-            ;;
-
-        "portable")
-            info "creating portable bundle"
-            if ! run nix bundle --bundler github:DavHau/nix-portable#zstd-max ".#${package}" -o "${tmplink}"; then
-                warn "portable bundle failed"
-                return 1
-            fi
-            ;;
-
-        *)
-            warn "unknown bundle type: ${bundle}"
-            return 1
-            ;;
-    esac
+    if ! run nix bundle --bundler github:spotdemo4/nur#appimage ".#${package}" -o "${tmplink}"; then
+        warn "AppImage bundle failed"
+        return 1
+    fi
 
     find "$(readlink "${tmplink}")" -type f
 }
