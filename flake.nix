@@ -57,8 +57,6 @@
 
               # util
               bumper
-              flake-release
-              renovate
             ];
           };
 
@@ -94,25 +92,25 @@
         checks = pkgs.mkChecks {
           shellcheck = {
             root = ./.;
-            fileset = pkgs.lib.fileset.unions [
-              (pkgs.lib.fileset.fileFilter (file: file.hasExt "sh") ./.)
-              ./.shellcheckrc
-            ];
-            deps = with pkgs; [
+            filter = file: file.hasExt "sh";
+            include = ./.shellcheckrc;
+            packages = with pkgs; [
               shellcheck
             ];
             forEach = ''
-              shellcheck "$file"
+              if [[ "$file" == *.sh ]]; then
+                shellcheck "$file"
+              fi
             '';
           };
 
           actions = {
             root = ./.;
-            fileset = pkgs.lib.fileset.unions [
+            files = [
               ./action.yaml
               ./.github/workflows
             ];
-            deps = with pkgs; [
+            packages = with pkgs; [
               action-validator
               octoscan
             ];
@@ -124,8 +122,8 @@
 
           renovate = {
             root = ./.github;
-            fileset = ./.github/renovate.json;
-            deps = with pkgs; [
+            files = ./.github/renovate.json;
+            packages = with pkgs; [
               renovate
             ];
             script = ''
@@ -136,7 +134,7 @@
           nix = {
             root = ./.;
             filter = file: file.hasExt "nix";
-            deps = with pkgs; [
+            packages = with pkgs; [
               nixfmt
             ];
             forEach = ''
@@ -147,7 +145,7 @@
           prettier = {
             root = ./.;
             filter = file: file.hasExt "yaml" || file.hasExt "json" || file.hasExt "md";
-            deps = with pkgs; [
+            packages = with pkgs; [
               prettier
             ];
             forEach = ''
@@ -171,7 +169,6 @@
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
-              shellcheck
             ];
 
             runtimeInputs = with pkgs; [
