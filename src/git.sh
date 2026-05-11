@@ -44,7 +44,12 @@ function git_changelog() {
         last_tag=$(git rev-list --max-parents=0 HEAD)
     fi
 
-    git log --pretty=format:"* %s (%H)" "${last_tag}..${tag}" > "${file}"
+    git log --pretty=format:"* %s (%H)" "${last_tag}..${tag}" | awk '
+        /^\* feat(\(.*\))?!?:/ { feat = feat $0 "\n"; next }
+        /^\* fix(\(.*\))?!?:/  { fix  = fix  $0 "\n"; next }
+        { other = other $0 "\n" }
+        END { printf "%s%s%s", feat, fix, other }
+    ' > "${file}"
 
     echo "${file}"
 }
