@@ -38,7 +38,7 @@ flake-release [packages...]
 
 ```yaml
 - name: Release
-  uses: spotdemo4/flake-release@v0.15.0
+  uses: spotdemo4/flake-release@v0.16.0
   with:
     packages: # default: all
     github_repository: # default: ${{ github.repository }}
@@ -89,12 +89,12 @@ docker run -it \
   -e REGISTRY=... \
   -e REGISTRY_USERNAME=... \
   -e REGISTRY_PASSWORD=... \
-  ghcr.io/spotdemo4/flake-release:0.15.0
+  ghcr.io/spotdemo4/flake-release:0.16.0
 ```
 
 ### Downloads
 
-#### [flake-release.sh](https://github.com/spotdemo4/flake-release/releases/download/v0.15.0/flake-release.sh) - bash script
+#### [flake-release.sh](https://github.com/spotdemo4/flake-release/releases/download/v0.16.0/flake-release.sh) - bash script
 
 requires [jq](https://jqlang.org/), [skopeo](https://github.com/containers/skopeo/), [manifest-tool](https://github.com/estesp/manifest-tool), [gh](https://cli.github.com/) (github), [tea](https://gitea.com/gitea/tea) (gitea), [fj](https://codeberg.org/forgejo-contrib/forgejo-cli) (forgejo)
 
