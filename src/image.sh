@@ -32,6 +32,7 @@ function image_upload() {
     info "uploading to ${image}"
     run skopeo --insecure-policy copy \
         --dest-creds "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" \
+        --preserve-digests \
         "docker-archive:${path}" "${image}"
 
     delete "${path}"
