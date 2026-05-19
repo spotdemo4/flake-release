@@ -34,12 +34,10 @@ function image_upload() {
         --dest-creds "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" \
         --preserve-digests \
         "docker-archive:${path}" "${image}"
-
-    delete "${path}"
 }
 
 function image_os() {
-    local path="$1"]
+    local path="$1"
 
     local os
     os=$(skopeo --insecure-policy inspect --format "{{.Os}}" "docker-archive:${path}")
