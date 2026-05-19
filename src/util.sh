@@ -67,8 +67,6 @@ function rename() {
     info "$(dim "rename: ${filename} -> ${final}")"
     cp -R "${filepath}" "${final}"
     echo "${final}"
-
-    delete "${filepath}"
 }
 
 function is_static() {
