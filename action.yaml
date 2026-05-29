@@ -46,6 +46,11 @@ inputs:
     required: false
     default: ${{ github.token }}
 
+  delete_old_release_artifacts:
+    description: delete release assets and image tags from previous releases after creating a new release
+    required: false
+    default: "false"
+
 runs:
   using: docker
   image: docker://ghcr.io/spotdemo4/nix-flake-release:0.16.3
@@ -59,3 +64,4 @@ runs:
     REGISTRY: ${{ inputs.registry }}
     REGISTRY_USERNAME: ${{ inputs.registry_username }}
     REGISTRY_PASSWORD: ${{ inputs.registry_password }}
+    DELETE_OLD_RELEASE_ARTIFACTS: ${{ inputs.delete_old_release_artifacts }}

@@ -28,6 +28,17 @@ function release_asset() {
     fi
 }
 
+function release_cleanup_assets() {
+    local type="$1"
+    local tag="$2"
+
+    if [[ "${type}" == "forgejo" || "${type}" == "gitea" ]]; then
+        gitea_api_release_cleanup_assets "${type}" "${tag}"
+    elif [[ "${type}" == "github" ]]; then
+        github_release_cleanup_assets "${tag}"
+    fi
+}
+
 function release_type() {
     local origin="$1"
 

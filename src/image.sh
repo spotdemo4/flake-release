@@ -100,6 +100,80 @@ function image_exists() {
     return 1
 }
 
+function image_cleanup_old() {
+    local current_tag="$1"
+
+    if [[ -z "${REGISTRY-}" ]]; then
+        warn "REGISTRY is not set, cannot delete old container images"
+        return 1
+    fi
+
+    if [[ -z "${GITHUB_REPOSITORY-}" ]]; then
+        warn "GITHUB_REPOSITORY is not set, cannot delete old container images"
+        return 1
+    fi
+
+    if [[ -z "${REGISTRY_USERNAME-}" ]]; then
+        warn "REGISTRY_USERNAME is not set, cannot delete old container images"
+        return 1
+    fi
+
+    if [[ -z "${REGISTRY_PASSWORD-}" ]]; then
+        warn "REGISTRY_PASSWORD is not set, cannot delete old container images"
+        return 1
+    fi
+
+    local list_tags
+    if ! list_tags=$(skopeo --insecure-policy list-tags --creds "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" "docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}"); then
+        warn "failed to fetch image tags"
+        return 1
+    fi
+
+    local remote_tags
+    readarray -t remote_tags < <(echo "${list_tags}" | jq -r '.Tags[]?')
+
+    local current_found=false
+    local remote_tag
+
+    for remote_tag in "${remote_tags[@]}"; do
+        if [[ "${remote_tag}" == "${current_tag}" || "${remote_tag}" == "${current_tag}-"* ]]; then
+            current_found=true
+            break
+        fi
+    done
+
+    if [[ "${current_found}" != "true" ]]; then
+        warn "no remote images found for current tag '${current_tag}', skipping old image cleanup"
+        return 0
+    fi
+
+    local failed=false
+
+    info "deleting old container image tags at ${REGISTRY,,}/${GITHUB_REPOSITORY,,}"
+
+    for remote_tag in "${remote_tags[@]}"; do
+        if
+            [[ "${remote_tag}" == "latest" ]] ||
+            [[ "${remote_tag}" == "${current_tag}" ]] ||
+            [[ "${remote_tag}" == "${current_tag}-"* ]];
+        then
+            continue
+        fi
+
+        info "deleting image tag ${remote_tag}"
+        if ! run skopeo --insecure-policy delete \
+            --creds "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" \
+            "docker://${REGISTRY,,}/${GITHUB_REPOSITORY,,}:${remote_tag}"; then
+            warn "failed to delete image tag ${remote_tag}"
+            failed=true
+        fi
+    done
+
+    if [[ "${failed}" == "true" ]]; then
+        return 1
+    fi
+}
+
 function manifest_update() {
     local tag="$1"
 

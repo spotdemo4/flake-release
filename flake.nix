@@ -35,6 +35,7 @@
               # deps
               file
               findutils
+              curl
               forgejo-cli
               gh
               git

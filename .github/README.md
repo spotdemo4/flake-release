@@ -21,16 +21,17 @@ flake-release [packages...]
 
 ### Environment
 
-| Variable          | Description                     | Example                        |
-| ----------------- | ------------------------------- | ------------------------------ |
-| GIT_TYPE          | Host type for release           | `github` / `gitea` / `forgejo` |
-| GITHUB_REPOSITORY | Repository to push releases     | `spotdemo4/flake-release`      |
-| GITHUB_SERVER_URL | Server to push releases         | `https://github.com`           |
-| GITHUB_ACTOR      | User for Gitea & Forgejo        | `github-actions[bot]`          |
-| GITHUB_TOKEN      | Token used to push releases     |                                |
-| REGISTRY          | Container registry              | `ghcr.io`                      |
-| REGISTRY_USERNAME | Username for container registry | `github-actions[bot]`          |
-| REGISTRY_PASSWORD | Password for container registry |                                |
+| Variable                     | Description                                                                            | Example                        |
+| ---------------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
+| GIT_TYPE                     | Host type for release                                                                  | `github` / `gitea` / `forgejo` |
+| GITHUB_REPOSITORY            | Repository to push releases                                                            | `spotdemo4/flake-release`      |
+| GITHUB_SERVER_URL            | Server to push releases                                                                | `https://github.com`           |
+| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                               | `github-actions[bot]`          |
+| GITHUB_TOKEN                 | Token used to push releases                                                            |                                |
+| REGISTRY                     | Container registry                                                                     | `ghcr.io`                      |
+| REGISTRY_USERNAME            | Username for container registry                                                        | `github-actions[bot]`          |
+| REGISTRY_PASSWORD            | Password for container registry                                                        |                                |
+| DELETE_OLD_RELEASE_ARTIFACTS | Delete release assets and image tags from previous releases after a new release exists | `true`                         |
 
 ## Install
 
@@ -48,6 +49,7 @@ flake-release [packages...]
     registry: # default: ghcr.io
     registry_username: # default: ${{ github.actor }}
     registry_password: # default: ${{ github.token }}
+    delete_old_release_artifacts: # default: false
 ```
 
 ### Nix
@@ -96,7 +98,7 @@ docker run -it \
 
 #### [flake-release.sh](https://github.com/spotdemo4/flake-release/releases/download/v0.16.3/flake-release.sh) - bash script
 
-requires [jq](https://jqlang.org/), [skopeo](https://github.com/containers/skopeo/), [manifest-tool](https://github.com/estesp/manifest-tool), [gh](https://cli.github.com/) (github), [tea](https://gitea.com/gitea/tea) (gitea), [fj](https://codeberg.org/forgejo-contrib/forgejo-cli) (forgejo)
+requires [jq](https://jqlang.org/), [curl](https://curl.se/), [skopeo](https://github.com/containers/skopeo/), [manifest-tool](https://github.com/estesp/manifest-tool), [gh](https://cli.github.com/) (github), [tea](https://gitea.com/gitea/tea) (gitea), [fj](https://codeberg.org/forgejo-contrib/forgejo-cli) (forgejo)
 
 ```sh
 chmod +x flake-release.sh &&

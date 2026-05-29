@@ -19,6 +19,7 @@ source "$DIR/nix.sh"
 
 # settings
 DRY_RUN="${DRY_RUN:-false}"
+DELETE_OLD_RELEASE_ARTIFACTS="${DELETE_OLD_RELEASE_ARTIFACTS:-false}"
 
 PKGS=()
 # get packages from args
@@ -87,10 +88,13 @@ fi
 CHANGELOG=$(git_changelog "${TAG}")
 
 # release
+RELEASE_CREATED=false
 if [[ "${DRY_RUN}" == "true" ]]; then
     info "dry run: skipping release creation"
 else
-    if ! release "${TYPE}" "${TAG}" "${CHANGELOG}"; then
+    if release "${TYPE}" "${TAG}" "${CHANGELOG}"; then
+        RELEASE_CREATED=true
+    else
         warn "could not create release ${TAG}"
     fi
 fi
@@ -237,6 +241,25 @@ if [[ "${IMAGES-}" == "true" ]]; then
     else
         info "updating image manifest for tag $(bold "${TAG#v}")"
         manifest_update "${TAG#v}"
+    fi
+fi
+
+# delete old release assets and images
+if truthy "${DELETE_OLD_RELEASE_ARTIFACTS}"; then
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        info "dry run: skipping old release artifact cleanup"
+    elif [[ "${RELEASE_CREATED}" != "true" ]]; then
+        info "old release artifact cleanup requested, but no new release was created"
+    else
+        if ! release_cleanup_assets "${TYPE}" "${TAG}"; then
+            warn "old release asset cleanup failed"
+        fi
+
+        if [[ "${IMAGES-}" == "true" ]]; then
+            if ! image_cleanup_old "${TAG#v}"; then
+                warn "old image cleanup failed"
+            fi
+        fi
     fi
 fi
 

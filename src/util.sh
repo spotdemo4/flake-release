@@ -114,6 +114,18 @@ function delete() {
     rm -rf "${1}" &> /dev/null || true
 }
 
+function truthy() {
+    local value="${1-}"
+
+    case "${value,,}" in
+        true|1|yes|on)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 function array() {
     local string="$1"
     local new_array=()
