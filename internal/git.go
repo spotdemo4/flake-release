@@ -3,7 +3,9 @@ package flakerelease
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,14 +70,106 @@ func gitUser() (string, error) {
 	}
 	defer closeGitRepository(repo)
 
-	cfg, err := repo.ConfigScoped(gitconfig.SystemScope)
+	cfg, err := repo.Config()
 	if err != nil {
-		cfg, err = repo.Config()
+		return "", err
 	}
+	if cfg.User.Name != "" {
+		return cfg.User.Name, nil
+	}
+
+	for _, path := range gitGlobalConfigPaths() {
+		name, err := gitConfigUserName(path)
+		if err != nil {
+			warn("could not read global git config %q: %v", path, err)
+			continue
+		}
+		if name != "" {
+			return name, nil
+		}
+	}
+
+	for _, path := range gitSystemConfigPaths() {
+		name, err := gitConfigUserName(path)
+		if err != nil {
+			warn("could not read system git config %q: %v", path, err)
+			continue
+		}
+		if name != "" {
+			return name, nil
+		}
+	}
+
+	warn("git user.name is not set in local, global, or system git config")
+	return "", nil
+}
+
+func gitConfigUserName(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer file.Close()
+
+	cfg, err := gitconfig.ReadConfig(file)
 	if err != nil {
 		return "", err
 	}
 	return cfg.User.Name, nil
+}
+
+func gitGlobalConfigPaths() []string {
+	if path, ok := os.LookupEnv("GIT_CONFIG_GLOBAL"); ok {
+		if path == "" {
+			return nil
+		}
+		return []string{path}
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	paths := []string{filepath.Join(home, ".gitconfig")}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		paths = append(paths, filepath.Join(xdg, "git", "config"))
+	} else {
+		paths = append(paths, filepath.Join(home, ".config", "git", "config"))
+	}
+	return paths
+}
+
+func gitSystemConfigPaths() []string {
+	if gitConfigNoSystem() {
+		return nil
+	}
+	if path, ok := os.LookupEnv("GIT_CONFIG_SYSTEM"); ok {
+		if path == "" {
+			return nil
+		}
+		return []string{path}
+	}
+
+	if runtime.GOOS == "windows" {
+		if path := os.Getenv("PROGRAMFILES"); path != "" {
+			return []string{filepath.Join(path, "Git", "etc", "gitconfig")}
+		}
+		return nil
+	}
+	return []string{"/etc/gitconfig"}
+}
+
+func gitConfigNoSystem() bool {
+	switch strings.ToLower(os.Getenv("GIT_CONFIG_NOSYSTEM")) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 func gitOrigin() (string, error) {
