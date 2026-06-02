@@ -100,6 +100,7 @@
 
               # actions
               octoscan
+              zizmor
             ];
           };
         };
@@ -116,7 +117,7 @@
             '';
           };
 
-          actions = {
+          actions-gh = {
             root = ./.;
             files = [
               ./action.yaml
@@ -132,9 +133,31 @@
             '';
           };
 
-          renovate = {
+          actions-fj = {
+            root = ./.forgejo/workflows;
+            filter = file: file.hasExt "yaml";
+            packages = with pkgs; [
+              zizmor
+            ];
+            forEach = ''
+              zizmor --offline "$file"
+            '';
+          };
+
+          renovate-gh = {
             root = ./.github;
             files = ./.github/renovate.json;
+            packages = with pkgs; [
+              renovate
+            ];
+            script = ''
+              renovate-config-validator renovate.json
+            '';
+          };
+
+          renovate-fj = {
+            root = ./.forgejo;
+            files = ./.forgejo/renovate.json;
             packages = with pkgs; [
               renovate
             ];
