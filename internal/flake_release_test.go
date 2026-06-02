@@ -2,9 +2,11 @@ package flakerelease
 
 import (
 	"archive/zip"
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -154,6 +156,33 @@ func TestZipDirectory(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Fatalf("zip entry count = %d; want %d (%v)", len(got), len(want), got)
+	}
+}
+
+func TestTarXzDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "archive.tar.xz")
+	if err := tarXzDirectory(root, out); err != nil {
+		if strings.Contains(err.Error(), "requires cgo") {
+			t.Skip(err)
+		}
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xzMagic := []byte{0xfd, '7', 'z', 'X', 'Z', 0x00}
+	if len(data) < len(xzMagic) {
+		t.Fatalf("archive length = %d; want at least %d", len(data), len(xzMagic))
+	}
+	if !bytes.HasPrefix(data, xzMagic) {
+		t.Fatalf("archive prefix = %x; want xz magic %x", data[:len(xzMagic)], xzMagic)
 	}
 }
 

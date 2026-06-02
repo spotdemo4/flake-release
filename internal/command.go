@@ -15,10 +15,6 @@ func (runner) run(name string, args ...string) error {
 	return runCommand("", true, name, args...)
 }
 
-func (runner) runDir(dir string, name string, args ...string) error {
-	return runCommand(dir, true, name, args...)
-}
-
 func (runner) capture(name string, args ...string) (string, error) {
 	return captureCommand("", name, args...)
 }

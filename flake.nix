@@ -32,6 +32,13 @@
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
             GOFLAGS = "-tags=containers_image_openpgp";
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+            ];
+            buildInputs = with pkgs; [
+              xz.dev
+              xz.out
+            ];
             packages = with pkgs; [
               # go
               go
@@ -46,13 +53,11 @@
               forgejo-cli
               gh
               git
-              gnutar
               gnused
               jq
               mktemp
               ncurses
               tea
-              xz
 
               # lint
               go-tools
@@ -210,9 +215,14 @@
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
+              pkg-config
             ];
             nativeCheckInputs = with pkgs; [
               go-tools
+            ];
+            buildInputs = with pkgs; [
+              xz.dev
+              xz.out
             ];
 
             runtimeInputs = with pkgs; [
@@ -222,13 +232,11 @@
               findutils
               forgejo-cli
               gh
-              gnutar
               gnused
               jq
               mktemp
               ncurses
               tea
-              xz
             ];
 
             checkPhase = ''

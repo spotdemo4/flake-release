@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"compress/flate"
 	"errors"
@@ -11,7 +12,7 @@ import (
 	"strings"
 )
 
-func archive(run runner, path string, osName string) (string, error) {
+func archive(path string, osName string) (string, error) {
 	stat, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -54,10 +55,94 @@ func archive(run runner, path string, osName string) (string, error) {
 	}
 
 	out := filepath.Join(outdir, "archive.tar.xz")
-	if err := run.runDir(workdir, "tar", "-I", "xz -9e", "-chf", out, "."); err != nil {
+	if err := tarXzDirectory(workdir, out); err != nil {
 		return "", err
 	}
 	return out, nil
+}
+
+func tarXzDirectory(root string, out string) error {
+	file, err := os.Create(out)
+	if err != nil {
+		return err
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = file.Close()
+		}
+	}()
+
+	xzWriter, err := newLZMAWriter(file)
+	if err != nil {
+		return err
+	}
+	tarWriter := tar.NewWriter(xzWriter)
+
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+
+		name, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		name = filepath.ToSlash(name)
+
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = name
+		if info.IsDir() {
+			header.Name += "/"
+		}
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+
+		_, copyErr := io.Copy(tarWriter, src)
+		closeErr := src.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	}); err != nil {
+		_ = tarWriter.Close()
+		_ = xzWriter.Close()
+		return err
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		_ = xzWriter.Close()
+		return err
+	}
+	if err := xzWriter.Close(); err != nil {
+		return err
+	}
+	closed = true
+	return file.Close()
 }
 
 func zipDirectory(root string, out string) error {

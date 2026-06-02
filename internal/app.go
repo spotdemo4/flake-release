@@ -266,7 +266,7 @@ func releaseImage(run runner, cfg config, storePath string, imageName string, im
 }
 
 func releaseStaticAsset(run runner, cfg config, provider releaseProvider, tag string, storePath string, pname string, version string, osName string, archName string) error {
-	archivePath, err := archive(run, storePath, osName)
+	archivePath, err := archive(storePath, osName)
 	if err != nil {
 		warn("archiving failed")
 		return nil
