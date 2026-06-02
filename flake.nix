@@ -26,12 +26,16 @@
       trev,
       ...
     }:
+    let
+      goTags = [ "containers_image_openpgp" ];
+      goFlags = "-tags=${builtins.concatStringsSep "," goTags}";
+    in
     trev.libs.mkFlake (
       system: pkgs: {
         devShells = {
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
-            GOFLAGS = "-tags=containers_image_openpgp";
+            GOFLAGS = goFlags;
             nativeBuildInputs = with pkgs; [
               pkg-config
             ];
@@ -197,9 +201,7 @@
             goSum = ./go.sum;
             proxyVendor = true;
             vendorHash = "sha256-A+GiSXAOwQXg2+FwcG7pz4EKrB7JNHRbZtJ17vL6OtQ=";
-            tags = [
-              "containers_image_openpgp"
-            ];
+            tags = goTags;
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
@@ -215,9 +217,10 @@
             ];
             checkPhase = ''
               export HOME="$TMPDIR"
-              go test -tags containers_image_openpgp ./...
-              go vet -tags containers_image_openpgp ./...
-              staticcheck -tags containers_image_openpgp ./...
+              export GOFLAGS="${goFlags}"
+              go test ./...
+              go vet ./...
+              staticcheck ./...
             '';
 
             meta = {
