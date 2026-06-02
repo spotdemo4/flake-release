@@ -90,6 +90,13 @@
 
           vulnerable = pkgs.mkShell {
             GOFLAGS = goFlags;
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+            ];
+            buildInputs = with pkgs; [
+              xz.dev
+              xz.out
+            ];
             packages = with pkgs; [
               # go
               go
