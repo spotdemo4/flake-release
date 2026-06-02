@@ -26,38 +26,42 @@
       trev,
       ...
     }:
+    let
+      goTags = [ "containers_image_openpgp" ];
+      goFlags = "-tags=${builtins.concatStringsSep "," goTags}";
+    in
     trev.libs.mkFlake (
       system: pkgs: {
         devShells = {
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
+            GOFLAGS = goFlags;
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+            ];
+            buildInputs = with pkgs; [
+              xz.dev
+              xz.out
+            ];
             packages = with pkgs; [
-              # deps
-              file
-              findutils
-              curl
-              forgejo-cli
-              gh
-              git
-              gnused
-              jq
-              manifest-tool
-              mktemp
-              ncurses
-              skopeo
-              tea
-              xz
-              zip
+              # go
+              go
+              gopls
+              gotools
 
               # lint
-              shellcheck
+              go-tools
+              nixd
+              nil
 
               # format
               nixfmt
-              prettier
+              oxfmt
+              treefmt
 
               # util
               bumper
+              fix-hash
             ];
           };
 
@@ -75,37 +79,40 @@
 
           update = pkgs.mkShell {
             packages = with pkgs; [
+              fix-hash
+              go
               renovate
             ];
           };
 
           vulnerable = pkgs.mkShell {
             packages = with pkgs; [
+              # go
+              govulncheck
+
               # nix
               flake-checker
 
               # actions
               octoscan
+              zizmor
             ];
           };
         };
 
+        apps = pkgs.mkApps {
+          dev = "go run .";
+        };
+
         checks = pkgs.mkChecks {
-          shellcheck = {
-            root = ./.;
-            filter = file: file.hasExt "sh";
-            include = ./.shellcheckrc;
-            packages = with pkgs; [
-              shellcheck
-            ];
-            forEach = ''
-              if [[ "$file" == *.sh ]]; then
-                shellcheck "$file"
-              fi
+          go = self.packages.${system}.default.overrideAttrs {
+            dontBuild = true;
+            installPhase = ''
+              touch $out
             '';
           };
 
-          actions = {
+          actions-gh = {
             root = ./.;
             files = [
               ./action.yaml
@@ -121,9 +128,31 @@
             '';
           };
 
-          renovate = {
+          actions-fj = {
+            root = ./.forgejo/workflows;
+            filter = file: file.hasExt "yaml";
+            packages = with pkgs; [
+              zizmor
+            ];
+            forEach = ''
+              zizmor --offline "$file"
+            '';
+          };
+
+          renovate-gh = {
             root = ./.github;
             files = ./.github/renovate.json;
+            packages = with pkgs; [
+              renovate
+            ];
+            script = ''
+              renovate-config-validator renovate.json
+            '';
+          };
+
+          renovate-fj = {
+            root = ./.forgejo;
+            files = ./.forgejo/renovate.json;
             packages = with pkgs; [
               renovate
             ];
@@ -143,19 +172,20 @@
             '';
           };
 
-          prettier = {
+          config = {
             root = ./.;
-            filter = file: file.hasExt "yaml" || file.hasExt "json" || file.hasExt "md";
+            filter = file: file.hasExt "json" || file.hasExt "yaml" || file.hasExt "toml" || file.hasExt "md";
+            ignore = ./.vscode;
             packages = with pkgs; [
-              prettier
+              oxfmt
             ];
             forEach = ''
-              prettier --check "$file"
+              oxfmt --check "$file"
             '';
           };
         };
 
-        packages.default = pkgs.stdenv.mkDerivation (
+        packages.default = pkgs.buildGoModule (
           final: with pkgs.lib; {
             pname = "flake-release";
             version = "0.17.0";
@@ -163,53 +193,35 @@
             src = fileset.toSource {
               root = ./.;
               fileset = fileset.unions [
-                ./.shellcheckrc
-                (fileset.fileFilter (file: file.hasExt "sh") ./.)
+                ./go.mod
+                ./go.sum
+                (fileset.fileFilter (file: file.hasExt "go") ./.)
               ];
             };
+            goSum = ./go.sum;
+            proxyVendor = true;
+            vendorHash = "sha256-6oWI7uMhRyNeJLta87RmUdyVsACRG3Vfmlat3gS14JY=";
+            tags = goTags;
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
+              pkg-config
+            ];
+            buildInputs = with pkgs; [
+              xz.dev
+              xz.out
             ];
 
-            runtimeInputs = with pkgs; [
-              file
-              findutils
-              forgejo-cli
-              gh
-              git
-              gnused
-              jq
-              manifest-tool
-              mktemp
-              ncurses
-              skopeo
-              tea
-              xz
-              zip
+            nativeCheckInputs = with pkgs; [
+              go-tools
             ];
-
-            unpackPhase = ''
-              cp -a "$src/." .
+            checkPhase = ''
+              export HOME="$TMPDIR"
+              export GOFLAGS="${goFlags}"
+              go test ./...
+              go vet ./...
+              staticcheck ./...
             '';
-
-            dontBuild = true;
-
-            configurePhase = ''
-              chmod +w src
-              sed -i '1c\#!${pkgs.runtimeShell}' src/flake-release.sh
-              sed -i '2i\export PATH="${makeBinPath final.runtimeInputs}:$PATH"' src/flake-release.sh
-            '';
-
-            installPhase = ''
-              mkdir -p $out/lib/flake-release
-              cp -R src/*.sh $out/lib/flake-release
-
-              mkdir -p $out/bin
-              makeWrapper "$out/lib/flake-release/flake-release.sh" "$out/bin/flake-release"
-            '';
-
-            dontFixup = true;
 
             meta = {
               mainProgram = "flake-release";
@@ -233,8 +245,14 @@
           src = self.packages.${system}.default;
         };
 
-        formatter = pkgs.nixfmt-tree;
-        schemas = trev.schemas;
+        formatter = pkgs.treefmt.withConfig {
+          configFile = ./treefmt.toml;
+          runtimeInputs = with pkgs; [
+            go
+            nixfmt
+            oxfmt
+          ];
+        };
       }
     );
 }

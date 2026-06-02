@@ -1,0 +1,14 @@
+#:schema https://www.schemastore.org/treefmt.json
+
+[formatter.gofmt]
+command = "gofmt"
+includes = ["*.go"]
+
+[formatter.nixfmt]
+command = "nixfmt"
+includes = ["*.nix"]
+
+[formatter.oxfmt]
+command = "oxfmt"
+options = ["--write"]
+includes = ["*.json", "*.yaml", "*.toml", "*.md"]
