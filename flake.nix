@@ -31,6 +31,7 @@
         devShells = {
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
+            GOFLAGS = "-tags=containers_image_openpgp";
             packages = with pkgs; [
               # go
               go
@@ -51,7 +52,6 @@
               manifest-tool
               mktemp
               ncurses
-              skopeo
               tea
               xz
               zip
@@ -205,7 +205,10 @@
             };
             goSum = ./go.sum;
             proxyVendor = true;
-            vendorHash = "sha256-OndnmObDNdZwz6PH0nxDuHqyK3M8zJy/1sstQEcTDLQ=";
+            vendorHash = "sha256-r9fY3wNDituKhrfseaUGrZBGAPSc123dO18ArrvF/iI=";
+            tags = [
+              "containers_image_openpgp"
+            ];
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
@@ -227,7 +230,6 @@
               manifest-tool
               mktemp
               ncurses
-              skopeo
               tea
               xz
               zip
@@ -235,9 +237,9 @@
 
             checkPhase = ''
               export HOME=$(mktemp -d)
-              go test ./...
-              go vet ./...
-              staticcheck ./...
+              go test -tags containers_image_openpgp ./...
+              go vet -tags containers_image_openpgp ./...
+              staticcheck -tags containers_image_openpgp ./...
             '';
 
             postInstall = ''

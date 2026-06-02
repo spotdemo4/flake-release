@@ -2,15 +2,23 @@ package flakerelease
 
 import (
 	"compress/gzip"
-	"encoding/json"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+
+	"go.podman.io/image/v5/copy"
+	"go.podman.io/image/v5/docker"
+	dockerarchive "go.podman.io/image/v5/docker/archive"
+	containerimage "go.podman.io/image/v5/image"
+	"go.podman.io/image/v5/signature"
+	"go.podman.io/image/v5/types"
+	skopeoversion "go.podman.io/skopeo/version"
 )
 
-func imageUpload(run runner, cfg config, path string, tag string, arch string) error {
+func imageUpload(cfg config, path string, tag string, arch string) error {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot upload image to container registry")
 		return fmt.Errorf("REGISTRY is not set")
@@ -28,13 +36,43 @@ func imageUpload(run runner, cfg config, path string, tag string, arch string) e
 		return fmt.Errorf("REGISTRY_PASSWORD is not set")
 	}
 
-	image := fmt.Sprintf("docker://%s/%s:%s-%s", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository), tag, arch)
-	info("uploading to %s", image)
-	return run.run("skopeo", "--insecure-policy", "copy", "--dest-creds", cfg.registryUsername+":"+cfg.registryPassword, "--preserve-digests", "docker-archive:"+path, image)
+	srcRef, err := dockerarchive.ParseReference(path)
+	if err != nil {
+		return err
+	}
+	destRef, err := dockerImageReference(cfg.registry, cfg.githubRepository, tag+"-"+arch)
+	if err != nil {
+		return err
+	}
+	policyCtx, err := insecureImagePolicyContext()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := policyCtx.Destroy(); err != nil {
+			warn("failed to destroy image policy context")
+		}
+	}()
+
+	info("uploading to %s", transportsImageName(destRef))
+	_, err = copy.Image(context.Background(), policyCtx, destRef, srcRef, &copy.Options{
+		SourceCtx:       imageSystemContext(config{}),
+		DestinationCtx:  imageSystemContext(cfg),
+		PreserveDigests: true,
+	})
+	return err
 }
 
-func imageArch(run runner, path string) (string, error) {
-	return run.capture("skopeo", "--insecure-policy", "inspect", "--format", "{{.Architecture}}", "docker-archive:"+path)
+func imageArch(path string) (string, error) {
+	ref, err := dockerarchive.ParseReference(path)
+	if err != nil {
+		return "", err
+	}
+	inspect, err := inspectImageReference(ref, imageSystemContext(config{}))
+	if err != nil {
+		return "", err
+	}
+	return inspect.Architecture, nil
 }
 
 func imageGzip(path string) (string, error) {
@@ -76,7 +114,7 @@ func imageGzip(path string) (string, error) {
 	return out.Name(), nil
 }
 
-func imageExists(run runner, cfg config, tag string, arch string) bool {
+func imageExists(cfg config, tag string, arch string) bool {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot inspect container registry")
 		return false
@@ -94,12 +132,11 @@ func imageExists(run runner, cfg config, tag string, arch string) bool {
 		return false
 	}
 
-	image := fmt.Sprintf("docker://%s/%s:%s-%s", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository), tag, arch)
-	err := runCommand("", false, "skopeo", "--insecure-policy", "inspect", "--creds", cfg.registryUsername+":"+cfg.registryPassword, image)
+	_, err := inspectImage(cfg, tag+"-"+arch)
 	return err == nil
 }
 
-func imageCleanupOld(run runner, cfg config, currentTag string) error {
+func imageCleanupOld(cfg config, currentTag string) error {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot delete old container images")
 		return fmt.Errorf("REGISTRY is not set")
@@ -117,7 +154,7 @@ func imageCleanupOld(run runner, cfg config, currentTag string) error {
 		return fmt.Errorf("REGISTRY_PASSWORD is not set")
 	}
 
-	tags, err := listImageTags(run, cfg)
+	tags, err := listImageTags(cfg)
 	if err != nil {
 		warn("failed to fetch image tags")
 		return err
@@ -143,8 +180,13 @@ func imageCleanupOld(run runner, cfg config, currentTag string) error {
 		}
 
 		info("deleting image tag %s", remoteTag)
-		image := fmt.Sprintf("docker://%s/%s:%s", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository), remoteTag)
-		if err := run.run("skopeo", "--insecure-policy", "delete", "--creds", cfg.registryUsername+":"+cfg.registryPassword, image); err != nil {
+		ref, err := dockerImageReference(cfg.registry, cfg.githubRepository, remoteTag)
+		if err != nil {
+			warn("failed to parse image tag %s", remoteTag)
+			failed = true
+			continue
+		}
+		if err := ref.DeleteImage(context.Background(), imageSystemContext(cfg)); err != nil {
 			warn("failed to delete image tag %s", remoteTag)
 			failed = true
 		}
@@ -174,7 +216,7 @@ func manifestUpdate(run runner, cfg config, tag string) error {
 		return fmt.Errorf("REGISTRY_PASSWORD is not set")
 	}
 
-	remoteTags, err := listImageTags(run, cfg)
+	remoteTags, err := listImageTags(cfg)
 	if err != nil {
 		warn("failed to fetch image tags")
 		return nil
@@ -194,7 +236,7 @@ func manifestUpdate(run runner, cfg config, tag string) error {
 	var platforms []string
 	var annotations []string
 	for i, remoteTag := range matchingTags {
-		inspect, err := inspectImage(run, cfg, remoteTag)
+		inspect, err := inspectImage(cfg, remoteTag)
 		if err != nil {
 			return err
 		}
@@ -228,43 +270,81 @@ func manifestUpdate(run runner, cfg config, tag string) error {
 	return run.run("manifest-tool", args...)
 }
 
-type tagList struct {
-	Tags []string `json:"Tags"`
+type imageInspect struct {
+	OS           string
+	Architecture string
+	Labels       map[string]string
 }
 
-type skopeoInspect struct {
-	OS           string            `json:"Os"`
-	Architecture string            `json:"Architecture"`
-	Labels       map[string]string `json:"Labels"`
-}
-
-func listImageTags(run runner, cfg config) ([]string, error) {
-	out, err := run.capture("skopeo", "--insecure-policy", "list-tags", "--creds", cfg.registryUsername+":"+cfg.registryPassword, "docker://"+strings.ToLower(cfg.registry)+"/"+strings.ToLower(cfg.githubRepository))
+func listImageTags(cfg config) ([]string, error) {
+	ref, err := dockerImageReference(cfg.registry, cfg.githubRepository, "latest")
 	if err != nil {
 		return nil, err
 	}
-
-	var tags tagList
-	if err := json.Unmarshal([]byte(out), &tags); err != nil {
-		return nil, err
-	}
-	return tags.Tags, nil
+	return docker.GetRepositoryTags(context.Background(), imageSystemContext(cfg), ref)
 }
 
-func inspectImage(run runner, cfg config, tag string) (skopeoInspect, error) {
-	out, err := run.capture("skopeo", "--insecure-policy", "inspect", "--creds", cfg.registryUsername+":"+cfg.registryPassword, "docker://"+strings.ToLower(cfg.registry)+"/"+strings.ToLower(cfg.githubRepository)+":"+tag)
+func inspectImage(cfg config, tag string) (imageInspect, error) {
+	ref, err := dockerImageReference(cfg.registry, cfg.githubRepository, tag)
 	if err != nil {
-		return skopeoInspect{}, err
+		return imageInspect{}, err
+	}
+	return inspectImageReference(ref, imageSystemContext(cfg))
+}
+
+func inspectImageReference(ref types.ImageReference, sys *types.SystemContext) (imageInspect, error) {
+	src, err := ref.NewImageSource(context.Background(), sys)
+	if err != nil {
+		return imageInspect{}, err
+	}
+	defer src.Close()
+
+	img, err := containerimage.FromUnparsedImage(context.Background(), sys, containerimage.UnparsedInstance(src, nil))
+	if err != nil {
+		return imageInspect{}, err
+	}
+	inspect, err := img.Inspect(context.Background())
+	if err != nil {
+		return imageInspect{}, err
 	}
 
-	var inspect skopeoInspect
-	if err := json.Unmarshal([]byte(out), &inspect); err != nil {
-		return skopeoInspect{}, err
-	}
 	if inspect.Labels == nil {
 		inspect.Labels = map[string]string{}
 	}
-	return inspect, nil
+	return imageInspect{
+		OS:           inspect.Os,
+		Architecture: inspect.Architecture,
+		Labels:       inspect.Labels,
+	}, nil
+}
+
+func insecureImagePolicyContext() (*signature.PolicyContext, error) {
+	return signature.NewPolicyContext(&signature.Policy{
+		Default: signature.PolicyRequirements{
+			signature.NewPRInsecureAcceptAnything(),
+		},
+	})
+}
+
+func imageSystemContext(cfg config) *types.SystemContext {
+	sys := &types.SystemContext{
+		DockerRegistryUserAgent: "skopeo/" + skopeoversion.Version + " flake-release",
+	}
+	if cfg.registryUsername != "" || cfg.registryPassword != "" {
+		sys.DockerAuthConfig = &types.DockerAuthConfig{
+			Username: cfg.registryUsername,
+			Password: cfg.registryPassword,
+		}
+	}
+	return sys
+}
+
+func dockerImageReference(registry string, repository string, tag string) (types.ImageReference, error) {
+	return docker.ParseReference("//" + strings.ToLower(registry) + "/" + strings.ToLower(repository) + ":" + tag)
+}
+
+func transportsImageName(ref types.ImageReference) string {
+	return ref.Transport().Name() + ":" + ref.StringWithinTransport()
 }
 
 func executable(path string) bool {

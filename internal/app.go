@@ -159,7 +159,7 @@ func Run(args []string) error {
 				warn("old release asset cleanup failed")
 			}
 			if images {
-				if err := imageCleanupOld(run, cfg, tagVersion(tag)); err != nil {
+				if err := imageCleanupOld(cfg, tagVersion(tag)); err != nil {
 					warn("old image cleanup failed")
 				}
 			}
@@ -241,13 +241,13 @@ func releaseImage(run runner, cfg config, storePath string, imageName string, im
 		return nil
 	}
 
-	arch, err := imageArch(run, imagePath)
+	arch, err := imageArch(imagePath)
 	if err != nil {
 		return err
 	}
 	info("image arch: %s", arch)
 
-	if imageExists(run, cfg, imageTag, arch) {
+	if imageExists(cfg, imageTag, arch) {
 		warn("image already exists, skipping upload")
 		return nil
 	}
@@ -256,7 +256,7 @@ func releaseImage(run runner, cfg config, storePath string, imageName string, im
 		info("dry run: skipping image upload")
 		return nil
 	}
-	if err := imageUpload(run, cfg, imagePath, imageTag, arch); err != nil {
+	if err := imageUpload(cfg, imagePath, imageTag, arch); err != nil {
 		warn("upload failed")
 		return nil
 	}
