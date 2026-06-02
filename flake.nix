@@ -79,9 +79,9 @@
 
           update = pkgs.mkShell {
             packages = with pkgs; [
+              renovate
               fix-hash
               go
-              renovate
             ];
           };
 
