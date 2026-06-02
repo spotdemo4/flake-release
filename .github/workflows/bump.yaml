@@ -39,6 +39,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.init.outputs.token }}
           FORCE: ${{ inputs.force }}
-          PATHS: |-
-            action.yaml
-            .github/README.md
+          PATHS: action.yaml

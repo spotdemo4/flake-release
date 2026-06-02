@@ -1,0 +1,99 @@
+package flakerelease
+
+import (
+	"os"
+	"testing"
+)
+
+func TestSplitPackages(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "spaces", input: "a b  c", want: []string{"a", "b", "c"}},
+		{name: "newlines", input: "a\nb\n\nc\n", want: []string{"a", "b", "c"}},
+		{name: "empty", input: "", want: nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := splitPackages(test.input)
+			if len(got) != len(test.want) {
+				t.Fatalf("splitPackages(%q) length = %d; want %d (%v)", test.input, len(got), len(test.want), got)
+			}
+			for i := range got {
+				if got[i] != test.want[i] {
+					t.Fatalf("splitPackages(%q)[%d] = %q; want %q", test.input, i, got[i], test.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestTruthy(t *testing.T) {
+	for _, value := range []string{"true", "TRUE", "1", "yes", "on"} {
+		if !truthy(value) {
+			t.Fatalf("truthy(%q) = false; want true", value)
+		}
+	}
+	for _, value := range []string{"", "false", "0", "no", "off"} {
+		if truthy(value) {
+			t.Fatalf("truthy(%q) = true; want false", value)
+		}
+	}
+}
+
+func TestReleaseType(t *testing.T) {
+	t.Setenv("GIT_TYPE", "")
+	t.Setenv("FORGEJO_ACTIONS", "")
+	t.Setenv("GITEA_ACTIONS", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+
+	tests := []struct {
+		origin string
+		want   releaseProvider
+	}{
+		{origin: "git@github.com:spotdemo4/flake-release.git", want: releaseGitHub},
+		{origin: "https://git.example/gitea/project", want: releaseGitea},
+		{origin: "https://git.example/forgejo/project", want: releaseForgejo},
+	}
+
+	for _, test := range tests {
+		got, err := releaseType(test.origin)
+		if err != nil {
+			t.Fatalf("releaseType(%q) returned error: %v", test.origin, err)
+		}
+		if got != test.want {
+			t.Fatalf("releaseType(%q) = %q; want %q", test.origin, got, test.want)
+		}
+	}
+}
+
+func TestReleaseTypeEnvOverride(t *testing.T) {
+	t.Setenv("GIT_TYPE", "forgejo")
+	t.Setenv("FORGEJO_ACTIONS", "")
+	t.Setenv("GITEA_ACTIONS", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+
+	got, err := releaseType("git@github.com:spotdemo4/flake-release.git")
+	if err != nil {
+		t.Fatalf("releaseType returned error: %v", err)
+	}
+	if got != releaseForgejo {
+		t.Fatalf("releaseType with override = %q; want %q", got, releaseForgejo)
+	}
+}
+
+func TestSortChangelog(t *testing.T) {
+	input := "* chore: one (1)\n* fix: two (2)\n* feat(ui): three (3)\n"
+	want := "* feat(ui): three (3)\n* fix: two (2)\n* chore: one (1)\n"
+
+	if got := sortChangelog(input); got != want {
+		t.Fatalf("sortChangelog() = %q; want %q", got, want)
+	}
+}
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}

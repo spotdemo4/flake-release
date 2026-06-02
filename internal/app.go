@@ -1,0 +1,304 @@
+package flakerelease
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type config struct {
+	dryRun                    bool
+	deleteOldReleaseArtifacts string
+	githubRepository          string
+	githubServerURL           string
+	githubActor               string
+	githubToken               string
+	registry                  string
+	registryUsername          string
+	registryPassword          string
+}
+
+func Run(args []string) error {
+	setupNixConfig()
+
+	run := runner{}
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if err := gitCheckSafe(run, wd); err != nil {
+		return err
+	}
+
+	cfg := config{
+		dryRun:                    os.Getenv("DRY_RUN") == "true",
+		deleteOldReleaseArtifacts: os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
+		githubRepository:          os.Getenv("GITHUB_REPOSITORY"),
+		githubServerURL:           os.Getenv("GITHUB_SERVER_URL"),
+		githubActor:               os.Getenv("GITHUB_ACTOR"),
+		githubToken:               os.Getenv("GITHUB_TOKEN"),
+		registry:                  os.Getenv("REGISTRY"),
+		registryUsername:          os.Getenv("REGISTRY_USERNAME"),
+		registryPassword:          os.Getenv("REGISTRY_PASSWORD"),
+	}
+
+	var packages []string
+	for _, arg := range args {
+		switch arg {
+		case "--help":
+			info("Usage: flake-release [packages...] [--dry-run]")
+			info("")
+			info("If no packages are provided as arguments, the command will attempt to get packages from the nix flake for the current system.")
+			return nil
+		case "--dry-run":
+			cfg.dryRun = true
+		default:
+			packages = append(packages, arg)
+		}
+	}
+	packages = append(packages, splitPackages(os.Getenv("PACKAGES"))...)
+
+	origin, err := gitOrigin(run)
+	if err != nil {
+		return err
+	}
+	provider, err := releaseType(origin)
+	if err != nil {
+		return err
+	}
+	info("git type: %s", provider)
+
+	tag := os.Getenv("TAG")
+	if tag == "" {
+		tag, err = gitLatestTag(run)
+		if err != nil {
+			return err
+		}
+	}
+	info("git tag: %s", tag)
+
+	if cfg.githubActor == "" {
+		cfg.githubActor, err = gitUser(run)
+		if err != nil {
+			return err
+		}
+		_ = os.Setenv("GITHUB_ACTOR", cfg.githubActor)
+	}
+	info("git user: %s", cfg.githubActor)
+
+	if cfg.registryUsername == "" {
+		cfg.registryUsername, err = gitUser(run)
+		if err != nil {
+			return err
+		}
+		_ = os.Setenv("REGISTRY_USERNAME", cfg.registryUsername)
+	}
+	info("registry user: %s", cfg.registryUsername)
+
+	if cfg.registryPassword == "" && cfg.githubToken != "" {
+		cfg.registryPassword = cfg.githubToken
+		_ = os.Setenv("REGISTRY_PASSWORD", cfg.registryPassword)
+	}
+
+	if cfg.registry == "" && provider == releaseGitHub {
+		cfg.registry = "ghcr.io"
+		_ = os.Setenv("REGISTRY", cfg.registry)
+	}
+	info("registry: %s", firstNonEmpty(cfg.registry, "<none>"))
+
+	if err := login(run, provider, cfg); err != nil {
+		return err
+	}
+	defer logout(run, provider, cfg)
+	defer deleteTeaConfig()
+
+	changelog, err := gitChangelog(run, tag)
+	if err != nil {
+		return err
+	}
+	defer deletePath(changelog)
+
+	releaseCreated := false
+	if cfg.dryRun {
+		info("dry run: skipping release creation")
+	} else if err := createRelease(run, provider, cfg, tag, changelog); err != nil {
+		warn("could not create release %s", tag)
+	} else {
+		releaseCreated = true
+	}
+
+	if len(packages) == 0 {
+		system, err := nixSystem(run)
+		if err != nil {
+			return err
+		}
+		packages = append(packages, "packages."+system+".default")
+	}
+
+	images := false
+	storePaths := map[string]bool{}
+	for _, pkg := range packages {
+		if err := releasePackage(run, cfg, provider, tag, pkg, storePaths, &images); err != nil {
+			warn("%v", err)
+		}
+	}
+
+	info("")
+	if images {
+		if cfg.dryRun {
+			info("dry run: skipping manifest update")
+		} else {
+			info("updating image manifest for tag %s", bold(tagVersion(tag)))
+			if err := manifestUpdate(run, cfg, tagVersion(tag)); err != nil {
+				warn("%v", err)
+			}
+		}
+	}
+
+	if truthy(cfg.deleteOldReleaseArtifacts) {
+		switch {
+		case cfg.dryRun:
+			info("dry run: skipping old release artifact cleanup")
+		case !releaseCreated:
+			info("old release artifact cleanup requested, but no new release was created")
+		default:
+			if err := cleanupReleaseAssets(run, provider, cfg, tag); err != nil {
+				warn("old release asset cleanup failed")
+			}
+			if images {
+				if err := imageCleanupOld(run, cfg, tagVersion(tag)); err != nil {
+					warn("old image cleanup failed")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func releasePackage(run runner, cfg config, provider releaseProvider, tag string, pkg string, storePaths map[string]bool, images *bool) error {
+	info("")
+	info("evaluating %s", bold(pkg))
+
+	storePath, err := nixPkgPath(run, pkg)
+	if err != nil {
+		return err
+	}
+	if storePaths[storePath] {
+		info("%s: already built, skipping", pkg)
+		return nil
+	}
+	storePaths[storePath] = true
+
+	if err := nixBuild(run, pkg); err != nil {
+		warn("build failed")
+		return nil
+	}
+
+	pname := nixPkgPname(run, pkg)
+	version := nixPkgVersion(run, pkg)
+	p := nixPkgPlatform(run, pkg)
+	imageName := nixImageName(run, pkg)
+	imageTag := nixImageTag(run, pkg)
+
+	if version != tagVersion(tag) && imageTag != tagVersion(tag) {
+		warn("package version '%s' does not match git tag '%s'", firstNonEmpty(version, imageTag), tagVersion(tag))
+		return nil
+	}
+
+	if imageName != "" && imageTag != "" && isFile(storePath) && p.OS == "linux" {
+		return releaseImage(run, cfg, storePath, imageName, imageTag, p.OS, images)
+	}
+
+	if pname != "" && version != "" && allStatic(run, storePath) {
+		info("detected as static executable(s)")
+		return releaseStaticAsset(run, cfg, provider, tag, storePath, pname, version, p.OS, p.Arch)
+	}
+
+	if pname != "" && version != "" && p.OS == "linux" {
+		info("bundling as AppImage")
+		archivePath, err := nixBundleAppImage(run, pkg)
+		if err != nil {
+			warn("bundling failed")
+			return nil
+		}
+		return uploadArchive(run, cfg, provider, tag, archivePath, pname, version, p.OS, p.Arch)
+	}
+
+	warn("unknown package type")
+	return nil
+}
+
+func releaseImage(run runner, cfg config, storePath string, imageName string, imageTag string, osName string, images *bool) error {
+	info("detected as image %s", bold(imageName+":"+imageTag))
+	*images = true
+
+	imagePath := storePath
+	if strings.HasSuffix(storePath, ".tar.gz") {
+		info("image type: buildLayeredImage")
+	} else if executable(storePath) {
+		info("image type: streamLayeredImage, zipping")
+		var err error
+		imagePath, err = imageGzip(storePath)
+		if err != nil {
+			return err
+		}
+	} else {
+		warn("could not determine image type")
+		return nil
+	}
+
+	arch, err := imageArch(run, imagePath)
+	if err != nil {
+		return err
+	}
+	info("image arch: %s", arch)
+
+	if imageExists(run, cfg, imageTag, arch) {
+		warn("image already exists, skipping upload")
+		return nil
+	}
+
+	if cfg.dryRun {
+		info("dry run: skipping image upload")
+		return nil
+	}
+	if err := imageUpload(run, cfg, imagePath, imageTag, arch); err != nil {
+		warn("upload failed")
+		return nil
+	}
+
+	_ = osName
+	return nil
+}
+
+func releaseStaticAsset(run runner, cfg config, provider releaseProvider, tag string, storePath string, pname string, version string, osName string, archName string) error {
+	archivePath, err := archive(run, storePath, osName)
+	if err != nil {
+		warn("archiving failed")
+		return nil
+	}
+	return uploadArchive(run, cfg, provider, tag, archivePath, pname, version, osName, archName)
+}
+
+func uploadArchive(run runner, cfg config, provider releaseProvider, tag string, archivePath string, pname string, version string, osName string, archName string) error {
+	asset, err := renameAsset(run, archivePath, pname, version, osName, archName)
+	if err != nil {
+		return err
+	}
+	defer deletePath(asset)
+
+	if cfg.dryRun {
+		info("dry run: skipping upload")
+		return nil
+	}
+	if err := uploadReleaseAsset(run, provider, cfg, tag, asset); err != nil {
+		warn("uploading failed")
+	}
+	return nil
+}
+
+func isFile(path string) bool {
+	stat, err := os.Stat(filepath.Clean(path))
+	return err == nil && stat.Mode().IsRegular()
+}

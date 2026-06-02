@@ -32,13 +32,20 @@
           default = pkgs.mkShell {
             shellHook = pkgs.shellhook.ref;
             packages = with pkgs; [
+              # go
+              go
+              gopls
+              gotools
+
               # deps
+              coreutils
+              curl
               file
               findutils
-              curl
               forgejo-cli
               gh
               git
+              gnutar
               gnused
               jq
               manifest-tool
@@ -50,14 +57,16 @@
               zip
 
               # lint
-              shellcheck
+              go-tools
 
               # format
               nixfmt
-              prettier
+              oxfmt
+              treefmt
 
               # util
               bumper
+              fix-hash
             ];
           };
 
@@ -75,12 +84,17 @@
 
           update = pkgs.mkShell {
             packages = with pkgs; [
+              fix-hash
+              go
               renovate
             ];
           };
 
           vulnerable = pkgs.mkShell {
             packages = with pkgs; [
+              # go
+              govulncheck
+
               # nix
               flake-checker
 
@@ -90,18 +104,15 @@
           };
         };
 
+        apps = pkgs.mkApps {
+          dev = "go run .";
+        };
+
         checks = pkgs.mkChecks {
-          shellcheck = {
-            root = ./.;
-            filter = file: file.hasExt "sh";
-            include = ./.shellcheckrc;
-            packages = with pkgs; [
-              shellcheck
-            ];
-            forEach = ''
-              if [[ "$file" == *.sh ]]; then
-                shellcheck "$file"
-              fi
+          go = self.packages.${system}.default.overrideAttrs {
+            dontBuild = true;
+            installPhase = ''
+              touch $out
             '';
           };
 
@@ -143,19 +154,20 @@
             '';
           };
 
-          prettier = {
+          config = {
             root = ./.;
-            filter = file: file.hasExt "yaml" || file.hasExt "json" || file.hasExt "md";
+            filter = file: file.hasExt "json" || file.hasExt "yaml" || file.hasExt "toml" || file.hasExt "md";
+            ignore = ./.vscode;
             packages = with pkgs; [
-              prettier
+              oxfmt
             ];
             forEach = ''
-              prettier --check "$file"
+              oxfmt --check "$file"
             '';
           };
         };
 
-        packages.default = pkgs.stdenv.mkDerivation (
+        packages.default = pkgs.buildGoModule (
           final: with pkgs.lib; {
             pname = "flake-release";
             version = "0.17.0";
@@ -163,21 +175,31 @@
             src = fileset.toSource {
               root = ./.;
               fileset = fileset.unions [
-                ./.shellcheckrc
-                (fileset.fileFilter (file: file.hasExt "sh") ./.)
+                ./go.mod
+                ./go.sum
+                (fileset.fileFilter (file: file.hasExt "go") ./.)
               ];
             };
+            goSum = ./go.sum;
+            proxyVendor = true;
+            vendorHash = null;
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
             ];
+            nativeCheckInputs = with pkgs; [
+              go-tools
+            ];
 
             runtimeInputs = with pkgs; [
+              coreutils
+              curl
               file
               findutils
               forgejo-cli
               gh
               git
+              gnutar
               gnused
               jq
               manifest-tool
@@ -189,27 +211,17 @@
               zip
             ];
 
-            unpackPhase = ''
-              cp -a "$src/." .
+            checkPhase = ''
+              export HOME=$(mktemp -d)
+              go test ./...
+              go vet ./...
+              staticcheck ./...
             '';
 
-            dontBuild = true;
-
-            configurePhase = ''
-              chmod +w src
-              sed -i '1c\#!${pkgs.runtimeShell}' src/flake-release.sh
-              sed -i '2i\export PATH="${makeBinPath final.runtimeInputs}:$PATH"' src/flake-release.sh
+            postInstall = ''
+              wrapProgram "$out/bin/flake-release" \
+                --prefix PATH : "${makeBinPath final.runtimeInputs}"
             '';
-
-            installPhase = ''
-              mkdir -p $out/lib/flake-release
-              cp -R src/*.sh $out/lib/flake-release
-
-              mkdir -p $out/bin
-              makeWrapper "$out/lib/flake-release/flake-release.sh" "$out/bin/flake-release"
-            '';
-
-            dontFixup = true;
 
             meta = {
               mainProgram = "flake-release";
@@ -233,8 +245,14 @@
           src = self.packages.${system}.default;
         };
 
-        formatter = pkgs.nixfmt-tree;
-        schemas = trev.schemas;
+        formatter = pkgs.treefmt.withConfig {
+          configFile = ./treefmt.toml;
+          runtimeInputs = with pkgs; [
+            go
+            nixfmt
+            oxfmt
+          ];
+        };
       }
     );
 }
