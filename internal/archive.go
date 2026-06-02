@@ -232,7 +232,7 @@ func zipDirectory(root string, out string) error {
 	return file.Close()
 }
 
-func renameAsset(run runner, filepathName string, name string, version string, osName string, arch string) (string, error) {
+func renameAsset(filepathName string, name string, version string, osName string, arch string) (string, error) {
 	filename := filepath.Base(filepathName)
 	ext := strings.TrimPrefix(filepath.Ext(filename), ".")
 
@@ -253,10 +253,67 @@ func renameAsset(run runner, filepathName string, name string, version string, o
 	}
 
 	info(dim("rename: %s -> %s"), filename, final)
-	if err := runCommand("", false, "cp", "-R", filepathName, final); err != nil {
+	if err := copyPath(filepathName, final); err != nil {
 		return "", err
 	}
 	return final, nil
+}
+
+func copyPath(src string, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, dst)
+	case info.IsDir():
+		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if err := copyPath(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+				return err
+			}
+		}
+		return os.Chmod(dst, info.Mode().Perm())
+	case info.Mode().IsRegular():
+		return copyFile(src, dst, info)
+	default:
+		return errors.New("unsupported file type: " + src)
+	}
+}
+
+func copyFile(src string, dst string, info fs.FileInfo) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+
+	_, copyErr := io.Copy(dstFile, srcFile)
+	closeErr := dstFile.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chmod(dst, info.Mode().Perm())
 }
 
 func isStatic(run runner, file string) bool {

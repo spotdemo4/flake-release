@@ -275,7 +275,7 @@ func releaseStaticAsset(run runner, cfg config, provider releaseProvider, tag st
 }
 
 func uploadArchive(run runner, cfg config, provider releaseProvider, tag string, archivePath string, pname string, version string, osName string, archName string) error {
-	asset, err := renameAsset(run, archivePath, pname, version, osName, archName)
+	asset, err := renameAsset(archivePath, pname, version, osName, archName)
 	if err != nil {
 		return err
 	}

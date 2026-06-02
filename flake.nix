@@ -46,16 +46,10 @@
               gotools
 
               # deps
-              coreutils
-              curl
               file
-              findutils
               forgejo-cli
               gh
               git
-              gnused
-              jq
-              mktemp
               ncurses
               tea
 
@@ -228,21 +222,15 @@
             ];
 
             runtimeInputs = with pkgs; [
-              coreutils
-              curl
               file
-              findutils
               forgejo-cli
               gh
-              gnused
-              jq
-              mktemp
               ncurses
               tea
             ];
 
             checkPhase = ''
-              export HOME=$(mktemp -d)
+              export HOME="$TMPDIR"
               go test -tags containers_image_openpgp ./...
               go vet -tags containers_image_openpgp ./...
               staticcheck -tags containers_image_openpgp ./...

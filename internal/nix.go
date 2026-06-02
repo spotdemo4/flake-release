@@ -2,8 +2,11 @@ package flakerelease
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
-	"os/exec"
+	"os/user"
+	"path/filepath"
+	"strconv"
 )
 
 type platform struct {
@@ -13,10 +16,10 @@ type platform struct {
 
 func setupNixConfig() {
 	if os.Getenv("DOCKER") == "true" && os.Getenv("CI") != "" {
-		user := os.Getenv("USER")
+		userName := os.Getenv("USER")
 		home := os.Getenv("HOME")
-		if user != "" && home != "" {
-			_ = exec.Command("chown", "-R", user+":"+user, home).Run()
+		if userName != "" && home != "" {
+			chownRecursive(userName, home)
 		}
 	}
 
@@ -31,6 +34,49 @@ func setupNixConfig() {
 	}
 
 	_ = os.Setenv("NIX_CONFIG", config)
+}
+
+func chownRecursive(userName string, path string) {
+	uid, gid, err := userAndGroupIDs(userName)
+	if err != nil {
+		return
+	}
+
+	_ = filepath.WalkDir(path, func(path string, _ fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		_ = os.Lchown(path, uid, gid)
+		return nil
+	})
+}
+
+func userAndGroupIDs(userName string) (int, int, error) {
+	account, err := user.Lookup(userName)
+	if err != nil {
+		account, err = user.LookupId(userName)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+
+	uid, err := strconv.Atoi(account.Uid)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	gidValue := account.Gid
+	if group, err := user.LookupGroup(userName); err == nil {
+		gidValue = group.Gid
+	} else if group, err := user.LookupGroupId(userName); err == nil {
+		gidValue = group.Gid
+	}
+
+	gid, err := strconv.Atoi(gidValue)
+	if err != nil {
+		return 0, 0, err
+	}
+	return uid, gid, nil
 }
 
 func nixSystem(run runner) (string, error) {

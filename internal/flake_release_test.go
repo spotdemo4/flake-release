@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,6 +185,70 @@ func TestTarXzDirectory(t *testing.T) {
 	}
 	if !bytes.HasPrefix(data, xzMagic) {
 		t.Fatalf("archive prefix = %x; want xz magic %x", data[:len(xzMagic)], xzMagic)
+	}
+}
+
+func TestCopyPath(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(filepath.Join(src, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "nested", "one.txt"), []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := copyPath(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dst, "nested", "one.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "one" {
+		t.Fatalf("copied file = %q; want %q", got, "one")
+	}
+}
+
+func TestHTTPRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "token test-token" {
+			http.Error(w, "bad authorization", http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("Accept") != "application/json" {
+			http.Error(w, "bad accept", http.StatusBadRequest)
+			return
+		}
+
+		switch r.URL.Path {
+		case "/fail":
+			http.Error(w, "nope", http.StatusTeapot)
+		default:
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer server.Close()
+
+	body, err := httpRequest(http.MethodGet, "test-token", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Fatalf("body = %q; want JSON", body)
+	}
+
+	body, err = httpRequest(http.MethodDelete, "test-token", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != nil {
+		t.Fatalf("DELETE body = %q; want nil", body)
+	}
+
+	if _, err := httpRequest(http.MethodGet, "test-token", server.URL+"/fail"); err == nil {
+		t.Fatal("httpRequest returned nil error for non-2xx response")
 	}
 }
 

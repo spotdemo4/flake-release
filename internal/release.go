@@ -3,8 +3,9 @@ package flakerelease
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -147,40 +148,59 @@ func githubReleaseCleanupAssets(run runner, cfg config, currentTag string) error
 		return fmt.Errorf("GITHUB_TOKEN is not set")
 	}
 
-	releases, err := run.capture("gh", "release", "list", "--repo", cfg.githubRepository, "--limit", "1000", "--json", "tagName", "--jq", ".[].tagName")
+	releasesOut, err := run.capture("gh", "release", "list", "--repo", cfg.githubRepository, "--limit", "1000", "--json", "tagName")
 	if err != nil {
 		warn("failed to fetch GitHub releases")
 		return err
 	}
 
 	info("deleting old GitHub release assets at %s", cfg.githubRepository)
-	if releases == "" {
+	if releasesOut == "" {
 		return nil
 	}
 
+	var releases []struct {
+		TagName string `json:"tagName"`
+	}
+	if err := json.Unmarshal([]byte(releasesOut), &releases); err != nil {
+		return err
+	}
+
 	failed := false
-	for _, releaseTag := range splitLines(releases) {
+	for _, release := range releases {
+		releaseTag := release.TagName
 		if releaseTag == "" || releaseTag == currentTag {
 			continue
 		}
 
-		assets, err := run.capture("gh", "release", "view", releaseTag, "--repo", cfg.githubRepository, "--json", "assets", "--jq", ".assets[].name")
+		assetsOut, err := run.capture("gh", "release", "view", releaseTag, "--repo", cfg.githubRepository, "--json", "assets")
 		if err != nil {
 			warn("failed to fetch GitHub release assets for %s", releaseTag)
 			failed = true
 			continue
 		}
-		if assets == "" {
+		if assetsOut == "" {
 			continue
 		}
 
-		for _, asset := range splitLines(assets) {
-			if asset == "" {
+		var releaseView struct {
+			Assets []struct {
+				Name string `json:"name"`
+			} `json:"assets"`
+		}
+		if err := json.Unmarshal([]byte(assetsOut), &releaseView); err != nil {
+			warn("failed to parse GitHub release assets for %s", releaseTag)
+			failed = true
+			continue
+		}
+
+		for _, asset := range releaseView.Assets {
+			if asset.Name == "" {
 				continue
 			}
-			info("deleting asset %s from release %s", asset, releaseTag)
-			if err := run.run("gh", "release", "delete-asset", "--repo", cfg.githubRepository, releaseTag, asset, "--yes"); err != nil {
-				warn("failed to delete asset %s from release %s", asset, releaseTag)
+			info("deleting asset %s from release %s", asset.Name, releaseTag)
+			if err := run.run("gh", "release", "delete-asset", "--repo", cfg.githubRepository, releaseTag, asset.Name, "--yes"); err != nil {
+				warn("failed to delete asset %s from release %s", asset.Name, releaseTag)
 				failed = true
 			}
 		}
@@ -339,7 +359,7 @@ func giteaAPIReleaseCleanupAssets(run runner, provider releaseProvider, cfg conf
 	info("deleting old %s release assets at %s", name, cfg.githubRepository)
 	for {
 		url := fmt.Sprintf("%s/api/v1/repos/%s/releases?page=%d&limit=%d", server, cfg.githubRepository, page, limit)
-		body, err := curl(run, "GET", cfg.githubToken, url)
+		body, err := httpRequest("GET", cfg.githubToken, url)
 		if err != nil {
 			warn("failed to fetch %s releases", name)
 			return err
@@ -366,7 +386,7 @@ func giteaAPIReleaseCleanupAssets(run runner, provider releaseProvider, cfg conf
 				}
 				info("deleting asset %s from release %s", asset.Name, releaseTag)
 				url := fmt.Sprintf("%s/api/v1/repos/%s/releases/%d/assets/%d", server, cfg.githubRepository, release.ID, asset.ID)
-				if _, err := curl(run, "DELETE", cfg.githubToken, url); err != nil {
+				if _, err := httpRequest("DELETE", cfg.githubToken, url); err != nil {
 					warn("failed to delete asset %s from release %s", asset.Name, releaseTag)
 					failed = true
 				}
@@ -385,13 +405,33 @@ func giteaAPIReleaseCleanupAssets(run runner, provider releaseProvider, cfg conf
 	return nil
 }
 
-func curl(_ runner, method string, token string, url string) ([]byte, error) {
-	args := []string{"--fail", "--silent", "--show-error"}
-	if method == "DELETE" {
-		args = append(args, "--request", "DELETE", "--output", "/dev/null")
+func httpRequest(method string, token string, url string) ([]byte, error) {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
 	}
-	args = append(args, "--header", "Authorization: token "+token, "--header", "Accept: application/json", url)
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/json")
 
-	cmd := exec.Command("curl", args...)
-	return cmd.Output()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message := strings.TrimSpace(string(body))
+		if message != "" {
+			return nil, fmt.Errorf("%s %s failed: %s: %s", method, url, resp.Status, message)
+		}
+		return nil, fmt.Errorf("%s %s failed: %s", method, url, resp.Status)
+	}
+	if method == "DELETE" {
+		return nil, nil
+	}
+	return body, nil
 }
