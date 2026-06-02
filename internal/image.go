@@ -9,6 +9,10 @@ import (
 	"os/exec"
 	"strings"
 
+	manifestregistry "github.com/estesp/manifest-tool/v2/pkg/registry"
+	manifesttypes "github.com/estesp/manifest-tool/v2/pkg/types"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 	"go.podman.io/image/v5/copy"
 	"go.podman.io/image/v5/docker"
 	dockerarchive "go.podman.io/image/v5/docker/archive"
@@ -198,7 +202,7 @@ func imageCleanupOld(cfg config, currentTag string) error {
 	return nil
 }
 
-func manifestUpdate(run runner, cfg config, tag string) error {
+func manifestUpdate(cfg config, tag string) error {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot list container registry tags")
 		return fmt.Errorf("REGISTRY is not set")
@@ -233,8 +237,8 @@ func manifestUpdate(run runner, cfg config, tag string) error {
 		return nil
 	}
 
-	var platforms []string
-	var annotations []string
+	var manifests []manifesttypes.ManifestEntry
+	annotations := map[string]string{}
 	for i, remoteTag := range matchingTags {
 		inspect, err := inspectImage(cfg, remoteTag)
 		if err != nil {
@@ -242,32 +246,41 @@ func manifestUpdate(run runner, cfg config, tag string) error {
 		}
 
 		if inspect.OS != "" && inspect.Architecture != "" {
-			platforms = append(platforms, inspect.OS+"/"+inspect.Architecture)
+			manifests = append(manifests, manifesttypes.ManifestEntry{
+				Image: dockerImageName(cfg.registry, cfg.githubRepository, remoteTag),
+				Platform: ocispec.Platform{
+					OS:           inspect.OS,
+					Architecture: inspect.Architecture,
+				},
+			})
 		}
 
 		if i == 0 {
 			for key, value := range inspect.Labels {
-				annotations = append(annotations, "--annotations", key+"="+value)
+				annotations[key] = value
 			}
 		}
 	}
-
-	template := fmt.Sprintf("%s/%s:%s-ARCH", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository), tag)
-	target := fmt.Sprintf("%s/%s:%s", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository), tag)
-	args := []string{
-		"--username", cfg.registryUsername,
-		"--password", cfg.registryPassword,
-		"push",
-		"--type", "oci",
-		"from-args",
-		"--platforms", strings.Join(platforms, ","),
-		"--template", template,
-		"--target", target,
-		"--tags", "latest",
+	if len(manifests) == 0 {
+		return fmt.Errorf("no platform metadata found for tag '%s'", tag)
 	}
-	args = append(args, annotations...)
 
-	return run.run("manifest-tool", args...)
+	previousLevel := logrus.GetLevel()
+	logrus.SetLevel(logrus.WarnLevel)
+	defer logrus.SetLevel(previousLevel)
+
+	digest, length, err := manifestregistry.PushManifestList(cfg.registryUsername, cfg.registryPassword, manifesttypes.YAMLInput{
+		Image:       dockerImageName(cfg.registry, cfg.githubRepository, tag),
+		Tags:        []string{"latest"},
+		Manifests:   manifests,
+		Annotations: annotations,
+	}, false, false, false, manifesttypes.OCI, "")
+	if err != nil {
+		return err
+	}
+
+	info("manifest digest: %s %d", digest, length)
+	return nil
 }
 
 type imageInspect struct {
@@ -340,7 +353,11 @@ func imageSystemContext(cfg config) *types.SystemContext {
 }
 
 func dockerImageReference(registry string, repository string, tag string) (types.ImageReference, error) {
-	return docker.ParseReference("//" + strings.ToLower(registry) + "/" + strings.ToLower(repository) + ":" + tag)
+	return docker.ParseReference("//" + dockerImageName(registry, repository, tag))
+}
+
+func dockerImageName(registry string, repository string, tag string) string {
+	return strings.ToLower(registry) + "/" + strings.ToLower(repository) + ":" + tag
 }
 
 func transportsImageName(ref types.ImageReference) string {

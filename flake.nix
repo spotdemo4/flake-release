@@ -49,7 +49,6 @@
               gnutar
               gnused
               jq
-              manifest-tool
               mktemp
               ncurses
               tea
@@ -205,7 +204,7 @@
             };
             goSum = ./go.sum;
             proxyVendor = true;
-            vendorHash = "sha256-r9fY3wNDituKhrfseaUGrZBGAPSc123dO18ArrvF/iI=";
+            vendorHash = "sha256-A+GiSXAOwQXg2+FwcG7pz4EKrB7JNHRbZtJ17vL6OtQ=";
             tags = [
               "containers_image_openpgp"
             ];
@@ -227,7 +226,6 @@
               gnutar
               gnused
               jq
-              manifest-tool
               mktemp
               ncurses
               tea

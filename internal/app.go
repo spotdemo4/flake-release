@@ -142,7 +142,7 @@ func Run(args []string) error {
 			info("dry run: skipping manifest update")
 		} else {
 			info("updating image manifest for tag %s", bold(tagVersion(tag)))
-			if err := manifestUpdate(run, cfg, tagVersion(tag)); err != nil {
+			if err := manifestUpdate(cfg, tagVersion(tag)); err != nil {
 				warn("%v", err)
 			}
 		}
