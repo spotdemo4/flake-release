@@ -89,17 +89,14 @@
           };
 
           vulnerable = pkgs.mkShell {
+            GOFLAGS = goFlags;
             packages = with pkgs; [
               # go
               go
               govulncheck
 
-              # nix
-              flake-checker
-
-              # actions
-              octoscan
-              zizmor
+              flake-checker # nix
+              zizmor # actions
             ];
           };
         };
