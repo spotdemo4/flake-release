@@ -265,7 +265,7 @@ func releaseImage(cfg config, storePath string, imageName string, imageTag strin
 		return nil
 	}
 	if err := imageUpload(cfg, imagePath, imageTag, arch); err != nil {
-		warn("upload failed")
+		warn("upload failed: %v", err)
 		return nil
 	}
 	return nil

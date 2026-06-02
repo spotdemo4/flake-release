@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	manifestregistry "github.com/estesp/manifest-tool/v2/pkg/registry"
 	manifesttypes "github.com/estesp/manifest-tool/v2/pkg/types"
@@ -21,6 +22,12 @@ import (
 	"go.podman.io/image/v5/signature"
 	"go.podman.io/image/v5/types"
 	skopeoversion "go.podman.io/skopeo/version"
+)
+
+var (
+	imageSystemContextOnce          sync.Once
+	imageSystemContextRegistriesDir string
+	imageSystemContextRegistriesErr error
 )
 
 func imageUpload(cfg config, path string, tag string, arch string) error {
@@ -58,11 +65,19 @@ func imageUpload(cfg config, path string, tag string, arch string) error {
 			warn("failed to destroy image policy context")
 		}
 	}()
+	sourceCtx, err := imageSystemContext(config{})
+	if err != nil {
+		return err
+	}
+	destinationCtx, err := imageSystemContext(cfg)
+	if err != nil {
+		return err
+	}
 
 	info("uploading to %s", transportsImageName(destRef))
 	_, err = copy.Image(context.Background(), policyCtx, destRef, srcRef, &copy.Options{
-		SourceCtx:       imageSystemContext(config{}),
-		DestinationCtx:  imageSystemContext(cfg),
+		SourceCtx:       sourceCtx,
+		DestinationCtx:  destinationCtx,
 		PreserveDigests: true,
 	})
 	return err
@@ -73,7 +88,11 @@ func imageArch(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	inspect, err := inspectImageReference(ref, imageSystemContext(config{}))
+	sys, err := imageSystemContext(config{})
+	if err != nil {
+		return "", err
+	}
+	inspect, err := inspectImageReference(ref, sys)
 	if err != nil {
 		return "", err
 	}
@@ -176,6 +195,10 @@ func imageCleanupOld(cfg config, currentTag string) error {
 		warn("no remote images found for current tag '%s', skipping old image cleanup", currentTag)
 		return nil
 	}
+	sys, err := imageSystemContext(cfg)
+	if err != nil {
+		return err
+	}
 
 	failed := false
 	info("deleting old container image tags at %s/%s", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository))
@@ -191,7 +214,7 @@ func imageCleanupOld(cfg config, currentTag string) error {
 			failed = true
 			continue
 		}
-		if err := ref.DeleteImage(context.Background(), imageSystemContext(cfg)); err != nil {
+		if err := ref.DeleteImage(context.Background(), sys); err != nil {
 			warn("failed to delete image tag %s", remoteTag)
 			failed = true
 		}
@@ -293,7 +316,11 @@ func listImageTags(cfg config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return docker.GetRepositoryTags(context.Background(), imageSystemContext(cfg), ref)
+	sys, err := imageSystemContext(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return docker.GetRepositoryTags(context.Background(), sys, ref)
 }
 
 func inspectImage(cfg config, tag string) (imageInspect, error) {
@@ -301,7 +328,11 @@ func inspectImage(cfg config, tag string) (imageInspect, error) {
 	if err != nil {
 		return imageInspect{}, err
 	}
-	return inspectImageReference(ref, imageSystemContext(cfg))
+	sys, err := imageSystemContext(cfg)
+	if err != nil {
+		return imageInspect{}, err
+	}
+	return inspectImageReference(ref, sys)
 }
 
 func inspectImageReference(ref types.ImageReference, sys *types.SystemContext) (imageInspect, error) {
@@ -338,9 +369,15 @@ func insecureImagePolicyContext() (*signature.PolicyContext, error) {
 	})
 }
 
-func imageSystemContext(cfg config) *types.SystemContext {
+func imageSystemContext(cfg config) (*types.SystemContext, error) {
+	registriesConfDir, err := imageSystemContextRegistriesConfDir()
+	if err != nil {
+		return nil, err
+	}
 	sys := &types.SystemContext{
-		DockerRegistryUserAgent: "skopeo/" + skopeoversion.Version + " flake-release",
+		DockerRegistryUserAgent:     "skopeo/" + skopeoversion.Version + " flake-release",
+		SystemRegistriesConfPath:    os.DevNull,
+		SystemRegistriesConfDirPath: registriesConfDir,
 	}
 	if cfg.registryUsername != "" || cfg.registryPassword != "" {
 		sys.DockerAuthConfig = &types.DockerAuthConfig{
@@ -348,7 +385,14 @@ func imageSystemContext(cfg config) *types.SystemContext {
 			Password: cfg.registryPassword,
 		}
 	}
-	return sys
+	return sys, nil
+}
+
+func imageSystemContextRegistriesConfDir() (string, error) {
+	imageSystemContextOnce.Do(func() {
+		imageSystemContextRegistriesDir, imageSystemContextRegistriesErr = os.MkdirTemp("", "flake-release-registries.conf.d-")
+	})
+	return imageSystemContextRegistriesDir, imageSystemContextRegistriesErr
 }
 
 func dockerImageReference(registry string, repository string, tag string) (types.ImageReference, error) {
