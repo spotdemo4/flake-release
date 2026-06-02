@@ -1,4 +1,4 @@
-module github.com/spotdemo4/flake-release
+module trev.zip/llc/flake-release
 
 go 1.26.2
 

@@ -116,6 +116,8 @@ func releaseType(origin string) (releaseProvider, error) {
 	switch {
 	case strings.Contains(origin, "forgejo"):
 		return releaseForgejo, nil
+	case strings.Contains(origin, "trev.zip"):
+		return releaseForgejo, nil
 	case strings.Contains(origin, "gitea"):
 		return releaseGitea, nil
 	case strings.Contains(origin, "github"):

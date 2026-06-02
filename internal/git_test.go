@@ -85,8 +85,8 @@ func TestGitRepositoryFromOrigin(t *testing.T) {
 		origin string
 		want   string
 	}{
-		{origin: "git@github.com:spotdemo4/flake-release.git", want: "spotdemo4/flake-release"},
-		{origin: "https://github.com/spotdemo4/flake-release.git", want: "spotdemo4/flake-release"},
+		{origin: "git@trev.zip:llc/flake-release.git", want: "llc/flake-release"},
+		{origin: "https://trev.zip/llc/flake-release.git", want: "llc/flake-release"},
 		{origin: "ssh://git@git.example/owner/project.git", want: "owner/project"},
 		{origin: "https://git.example/scm/owner/project.git/", want: "owner/project"},
 		{origin: "https://git.example/owner", want: ""},
@@ -106,8 +106,8 @@ func TestGitServerURLFromOrigin(t *testing.T) {
 		origin string
 		want   string
 	}{
-		{origin: "git@github.com:spotdemo4/flake-release.git", want: "https://github.com"},
-		{origin: "https://github.com/spotdemo4/flake-release.git", want: "https://github.com"},
+		{origin: "git@trev.zip:llc/flake-release.git", want: "https://trev.zip"},
+		{origin: "https://trev.zip/llc/flake-release.git", want: "https://trev.zip"},
 		{origin: "http://git.example:3000/owner/project.git", want: "http://git.example:3000"},
 		{origin: "ssh://git@git.example:2222/owner/project.git", want: "https://git.example"},
 		{origin: "file:///home/owner/project.git", want: ""},

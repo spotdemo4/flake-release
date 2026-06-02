@@ -221,8 +221,8 @@
               description = "Flake package releaser";
               license = licenses.mit;
               platforms = platforms.unix;
-              homepage = "https://github.com/spotdemo4/flake-release";
-              changelog = "https://github.com/spotdemo4/flake-release/releases/tag/v${final.version}";
+              homepage = "https://trev.zip/llc/flake-release";
+              changelog = "https://trev.zip/llc/flake-release/releases/tag/v${final.version}";
             };
           }
         );

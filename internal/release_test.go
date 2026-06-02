@@ -16,7 +16,8 @@ func TestReleaseType(t *testing.T) {
 		origin string
 		want   releaseProvider
 	}{
-		{origin: "git@github.com:spotdemo4/flake-release.git", want: releaseGitHub},
+		{origin: "git@github.com:owner/project.git", want: releaseGitHub},
+		{origin: "https://trev.zip/llc/flake-release.git", want: releaseForgejo},
 		{origin: "https://git.example/gitea/project", want: releaseGitea},
 		{origin: "https://git.example/forgejo/project", want: releaseForgejo},
 	}
@@ -38,7 +39,7 @@ func TestReleaseTypeEnvOverride(t *testing.T) {
 	t.Setenv("GITEA_ACTIONS", "")
 	t.Setenv("GITHUB_ACTIONS", "")
 
-	got, err := releaseType("git@github.com:spotdemo4/flake-release.git")
+	got, err := releaseType("https://trev.zip/llc/flake-release.git")
 	if err != nil {
 		t.Fatalf("releaseType returned error: %v", err)
 	}

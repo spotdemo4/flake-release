@@ -1,9 +1,7 @@
 # <img src="https://brand.nixos.org/internals/nixos-logomark-default-gradient-none.svg" alt="NixOS" width="24"> flake release
 
-[![check](https://img.shields.io/github/actions/workflow/status/spotdemo4/flake-release/check.yaml?branch=main&logo=github&logoColor=%23bac2de&label=check&labelColor=%23313244)](https://github.com/spotdemo4/flake-release/actions/workflows/check.yaml)
-[![vulnerable](https://img.shields.io/github/actions/workflow/status/spotdemo4/flake-release/vulnerable.yaml?branch=main&logo=github&logoColor=%23bac2de&label=vulnerable&labelColor=%23313244)](https://github.com/spotdemo4/flake-release/actions/workflows/vulnerable.yaml)
-[![nix](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fspotdemo4%2Fflake-release%2Frefs%2Fheads%2Fmain%2Fflake.lock&query=%24.nodes.nixpkgs.original.ref&logo=nixos&logoColor=%23bac2de&label=channel&labelColor=%23313244&color=%234d6fb7)](https://nixos.org/)
-[![flakehub](https://img.shields.io/endpoint?url=https://flakehub.com/f/spotdemo4/flake-release/badge&labelColor=%23313244)](https://flakehub.com/flake/spotdemo4/flake-release)
+[![check](https://trev.zip/llc/flake-release/actions/workflows/check.yaml/badge.svg?branch=main&logo=forgejo&logoColor=%23bac2de&label=check&labelColor=%23313244)](https://trev.zip/llc/flake-release/actions?workflow=check.yaml)
+[![vulnerable](https://trev.zip/llc/flake-release/actions/workflows/vulnerable.yaml/badge.svg?branch=main&logo=forgejo&logoColor=%23bac2de&label=vulnerable&labelColor=%23313244)](https://trev.zip/llc/flake-release/actions?workflow=vulnerable.yaml)
 
 Generates release artifacts for packages in a nix flake:
 

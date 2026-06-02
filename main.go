@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	flakerelease "github.com/spotdemo4/flake-release/internal"
+	flakerelease "trev.zip/llc/flake-release/internal"
 )
 
 func main() {
