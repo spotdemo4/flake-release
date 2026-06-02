@@ -168,12 +168,11 @@
           config = {
             root = ./.;
             filter = file: file.hasExt "json" || file.hasExt "yaml" || file.hasExt "toml" || file.hasExt "md";
-            ignore = ./.vscode;
             packages = with pkgs; [
               oxfmt
             ];
-            forEach = ''
-              oxfmt --check "$file"
+            script = ''
+              oxfmt --check
             '';
           };
         };
