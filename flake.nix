@@ -53,7 +53,6 @@
               ncurses
               tea
               xz
-              zip
 
               # lint
               go-tools
@@ -230,7 +229,6 @@
               ncurses
               tea
               xz
-              zip
             ];
 
             checkPhase = ''

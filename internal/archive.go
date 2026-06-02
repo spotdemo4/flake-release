@@ -1,7 +1,10 @@
 package flakerelease
 
 import (
+	"archive/zip"
+	"compress/flate"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -44,7 +47,7 @@ func archive(run runner, path string, osName string) (string, error) {
 
 	if osName == "windows" {
 		out := filepath.Join(outdir, "archive.zip")
-		if err := run.runDir(workdir, "zip", "-9r", out, "."); err != nil {
+		if err := zipDirectory(workdir, out); err != nil {
 			return "", err
 		}
 		return out, nil
@@ -55,6 +58,93 @@ func archive(run runner, path string, osName string) (string, error) {
 		return "", err
 	}
 	return out, nil
+}
+
+func zipDirectory(root string, out string) error {
+	file, err := os.Create(out)
+	if err != nil {
+		return err
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = file.Close()
+		}
+	}()
+
+	writer := zip.NewWriter(file)
+	writer.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(out, flate.BestCompression)
+	})
+
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+
+		name, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		name = filepath.ToSlash(name)
+
+		if info.IsDir() {
+			header, err := zip.FileInfoHeader(info)
+			if err != nil {
+				return err
+			}
+			header.Name = name + "/"
+			_, err = writer.CreateHeader(header)
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = name
+		header.Method = zip.Deflate
+
+		dst, err := writer.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+
+		_, copyErr := io.Copy(dst, src)
+		closeErr := src.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	}); err != nil {
+		_ = writer.Close()
+		return err
+	}
+
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	closed = true
+	return file.Close()
 }
 
 func renameAsset(run runner, filepathName string, name string, version string, osName string, arch string) (string, error) {
