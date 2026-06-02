@@ -45,12 +45,6 @@
               gopls
               gotools
 
-              # deps
-              forgejo-cli
-              gh
-              git
-              tea
-
               # lint
               go-tools
               nixd
@@ -211,30 +205,19 @@
               makeWrapper
               pkg-config
             ];
-            nativeCheckInputs = with pkgs; [
-              go-tools
-            ];
             buildInputs = with pkgs; [
               xz.dev
               xz.out
             ];
 
-            runtimeInputs = with pkgs; [
-              forgejo-cli
-              gh
-              tea
+            nativeCheckInputs = with pkgs; [
+              go-tools
             ];
-
             checkPhase = ''
               export HOME="$TMPDIR"
               go test -tags containers_image_openpgp ./...
               go vet -tags containers_image_openpgp ./...
               staticcheck -tags containers_image_openpgp ./...
-            '';
-
-            postInstall = ''
-              wrapProgram "$out/bin/flake-release" \
-                --prefix PATH : "${makeBinPath final.runtimeInputs}"
             '';
 
             meta = {

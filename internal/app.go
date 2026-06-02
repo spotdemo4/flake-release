@@ -103,7 +103,6 @@ func Run(args []string) error {
 		return err
 	}
 	defer logout(run, provider, cfg)
-	defer deleteTeaConfig()
 
 	changelog, err := gitChangelog(tag)
 	if err != nil {

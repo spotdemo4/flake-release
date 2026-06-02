@@ -2,7 +2,6 @@ package flakerelease
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -40,14 +39,6 @@ func truthy(value string) bool {
 
 func deletePath(path string) {
 	_ = os.RemoveAll(path)
-}
-
-func deleteTeaConfig() {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return
-	}
-	deletePath(filepath.Join(home, ".config", "tea"))
 }
 
 func tagVersion(tag string) string {

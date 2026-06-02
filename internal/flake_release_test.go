@@ -231,7 +231,13 @@ func TestHTTPRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	body, err := httpRequest(http.MethodGet, "test-token", server.URL)
+	body, err := httpRequest(httpRequestOptions{
+		method:     http.MethodGet,
+		url:        server.URL,
+		token:      "test-token",
+		authScheme: tokenAuthScheme,
+		accept:     jsonAccept,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +245,13 @@ func TestHTTPRequest(t *testing.T) {
 		t.Fatalf("body = %q; want JSON", body)
 	}
 
-	body, err = httpRequest(http.MethodDelete, "test-token", server.URL)
+	body, err = httpRequest(httpRequestOptions{
+		method:     http.MethodDelete,
+		url:        server.URL,
+		token:      "test-token",
+		authScheme: tokenAuthScheme,
+		accept:     jsonAccept,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,8 +259,39 @@ func TestHTTPRequest(t *testing.T) {
 		t.Fatalf("DELETE body = %q; want nil", body)
 	}
 
-	if _, err := httpRequest(http.MethodGet, "test-token", server.URL+"/fail"); err == nil {
+	if _, err := httpRequest(httpRequestOptions{
+		method:     http.MethodGet,
+		url:        server.URL + "/fail",
+		token:      "test-token",
+		authScheme: tokenAuthScheme,
+		accept:     jsonAccept,
+	}); err == nil {
 		t.Fatal("httpRequest returned nil error for non-2xx response")
+	}
+}
+
+func TestParseRepository(t *testing.T) {
+	repo, err := parseRepository("owner/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.owner != "owner" || repo.name != "project" {
+		t.Fatalf("parseRepository returned %#v", repo)
+	}
+
+	if _, err := parseRepository("owner/nested/project"); err == nil {
+		t.Fatal("parseRepository returned nil error for nested repository path")
+	}
+}
+
+func TestReleaseAssetUploadURL(t *testing.T) {
+	got, err := releaseAssetUploadURL("https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}", "asset name.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://uploads.github.com/repos/o/r/releases/1/assets?name=asset+name.zip"
+	if got != want {
+		t.Fatalf("releaseAssetUploadURL = %q; want %q", got, want)
 	}
 }
 
