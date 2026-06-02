@@ -107,10 +107,7 @@ func (w *lzmaWriter) Write(p []byte) (int, error) {
 
 	written := 0
 	for len(p) > 0 {
-		chunk := len(p)
-		if chunk > lzmaBufferSize {
-			chunk = lzmaBufferSize
-		}
+		chunk := min(len(p), lzmaBufferSize)
 
 		C.memcpy(w.inBuf, unsafe.Pointer(&p[0]), C.size_t(chunk))
 		C.lzma_set_in(w.stream, (*C.uint8_t)(w.inBuf), C.size_t(chunk))

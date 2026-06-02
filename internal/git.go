@@ -461,12 +461,9 @@ func sortVersionTags(tags []string) {
 func versionLess(left string, right string) bool {
 	leftParts := versionParts(left)
 	rightParts := versionParts(right)
-	limit := len(leftParts)
-	if len(rightParts) > limit {
-		limit = len(rightParts)
-	}
+	limit := max(len(rightParts), len(leftParts))
 
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if i >= len(leftParts) {
 			return true
 		}

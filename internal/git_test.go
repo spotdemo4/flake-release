@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	git "github.com/go-git/go-git/v6"
@@ -90,13 +91,7 @@ func TestGitChangelogForCurrentRepositoryTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasTag := false
-	for _, tag := range tags {
-		if tag == "v0.17.0" {
-			hasTag = true
-			break
-		}
-	}
+	hasTag := slices.Contains(tags, "v0.17.0")
 	if !hasTag {
 		t.Skip("v0.17.0 tag is not available")
 	}

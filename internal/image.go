@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"strings"
@@ -256,9 +257,7 @@ func manifestUpdate(cfg config, tag string) error {
 		}
 
 		if i == 0 {
-			for key, value := range inspect.Labels {
-				annotations[key] = value
-			}
+			maps.Copy(annotations, inspect.Labels)
 		}
 	}
 	if len(manifests) == 0 {

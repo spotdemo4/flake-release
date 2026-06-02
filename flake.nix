@@ -203,6 +203,7 @@
 
             nativeCheckInputs = with pkgs; [
               go-tools
+              gotools
             ];
             checkPhase = ''
               export HOME="$TMPDIR"
@@ -210,6 +211,7 @@
               go test ./...
               go vet ./...
               staticcheck ./...
+              modernize -any=false ./...
             '';
 
             meta = {

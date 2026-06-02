@@ -12,7 +12,7 @@ func splitPackages(value string) []string {
 
 	var fields []string
 	if strings.Contains(value, "\n") {
-		for _, line := range strings.Split(value, "\n") {
+		for line := range strings.SplitSeq(value, "\n") {
 			fields = append(fields, strings.TrimRight(line, "\r"))
 		}
 	} else {
