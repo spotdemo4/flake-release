@@ -196,7 +196,6 @@
             tags = goTags;
 
             nativeBuildInputs = with pkgs; [
-              makeWrapper
               pkg-config
             ];
             buildInputs = with pkgs; [
