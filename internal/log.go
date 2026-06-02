@@ -2,21 +2,28 @@ package flakerelease
 
 import (
 	"fmt"
-	"os"
+
+	"github.com/fatih/color"
+)
+
+var (
+	warnColor = color.New(color.FgYellow)
+	boldColor = color.New(color.Bold)
+	dimColor  = color.New(color.Faint)
 )
 
 func info(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	fmt.Fprintf(color.Error, format+"\n", args...)
 }
 
 func warn(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	warnColor.Fprintf(color.Error, format+"\n", args...)
 }
 
 func bold(value string) string {
-	return value
+	return boldColor.Sprint(value)
 }
 
 func dim(value string) string {
-	return value
+	return dimColor.Sprint(value)
 }

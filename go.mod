@@ -6,6 +6,7 @@ toolchain go1.26.3
 
 require (
 	github.com/estesp/manifest-tool/v2 v2.2.2
+	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-alpha.4
 	github.com/opencontainers/image-spec v1.1.2-0.20260226102121-a4c6ade7bb82
 	github.com/sirupsen/logrus v1.9.4
@@ -55,6 +56,8 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/mattn/go-sqlite3 v1.14.44 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect
