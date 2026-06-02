@@ -50,7 +50,6 @@
               forgejo-cli
               gh
               git
-              ncurses
               tea
 
               # lint
@@ -225,7 +224,6 @@
               file
               forgejo-cli
               gh
-              ncurses
               tea
             ];
 
