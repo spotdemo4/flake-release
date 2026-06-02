@@ -6,7 +6,7 @@
   "requireConfig": "ignored",
   "platform": "forgejo",
   "endpoint": "https://trev.zip/api/v1",
-  "repositories": ["spotdemo4/flake-release"],
+  "repositories": ["llc/flake-release"],
   "allowedCommands": ["fix-hash .#default"],
 
   // repository
