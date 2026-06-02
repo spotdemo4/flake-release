@@ -79,6 +79,35 @@ func TestGitUserUsesScopedGitConfigPrecedence(t *testing.T) {
 	}
 }
 
+func TestGitChangelogForCurrentRepositoryTags(t *testing.T) {
+	repo, err := openGitRepository()
+	if err != nil {
+		t.Skip("current directory is not a git repository")
+	}
+	defer closeGitRepository(repo)
+
+	tags, err := tagNames(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasTag := false
+	for _, tag := range tags {
+		if tag == "v0.17.0" {
+			hasTag = true
+			break
+		}
+	}
+	if !hasTag {
+		t.Skip("v0.17.0 tag is not available")
+	}
+
+	changelog, err := gitChangelog("v0.17.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(changelog)
+}
+
 func writeGitConfig(t *testing.T, userName string) string {
 	t.Helper()
 

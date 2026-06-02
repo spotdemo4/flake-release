@@ -274,24 +274,13 @@ func changelog(repo *git.Repository, from string, to string) (string, error) {
 		return "", err
 	}
 
-	commits, err := repo.Log(&git.LogOptions{
-		From:  toHash,
-		Order: git.LogOrderCommitterTime,
-	})
+	commits, err := commitHistory(repo, toHash)
 	if err != nil {
 		return "", err
 	}
-	defer commits.Close()
 
 	var lines []string
-	for {
-		commit, err := commits.Next()
-		if errors.Is(err, storer.ErrStop) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
+	for _, commit := range commits {
 		if excluded[commit.Hash] {
 			continue
 		}
@@ -304,27 +293,48 @@ func changelog(repo *git.Repository, from string, to string) (string, error) {
 }
 
 func reachableCommits(repo *git.Repository, from plumbing.Hash) (map[plumbing.Hash]bool, error) {
-	commits, err := repo.Log(&git.LogOptions{
-		From:  from,
-		Order: git.LogOrderCommitterTime,
-	})
+	commits, err := commitHistory(repo, from)
 	if err != nil {
 		return nil, err
 	}
-	defer commits.Close()
 
 	hashes := map[plumbing.Hash]bool{}
-	for {
-		commit, err := commits.Next()
-		if errors.Is(err, storer.ErrStop) {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
+	for _, commit := range commits {
 		hashes[commit.Hash] = true
 	}
 	return hashes, nil
+}
+
+func commitHistory(repo *git.Repository, from plumbing.Hash) ([]*object.Commit, error) {
+	pending := []plumbing.Hash{from}
+	seen := map[plumbing.Hash]bool{}
+	var commits []*object.Commit
+
+	for len(pending) > 0 {
+		hash := pending[0]
+		pending = pending[1:]
+		if seen[hash] {
+			continue
+		}
+		seen[hash] = true
+
+		commit, err := repo.CommitObject(hash)
+		if err != nil {
+			return nil, err
+		}
+		commits = append(commits, commit)
+		pending = append(pending, commit.ParentHashes...)
+	}
+
+	sort.SliceStable(commits, func(i, j int) bool {
+		left := commits[i]
+		right := commits[j]
+		if left.Committer.When.Equal(right.Committer.When) {
+			return left.Hash.String() < right.Hash.String()
+		}
+		return left.Committer.When.After(right.Committer.When)
+	})
+	return commits, nil
 }
 
 func rootCommit(repo *git.Repository) (plumbing.Hash, error) {
