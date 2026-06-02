@@ -53,6 +53,14 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if cfg.githubRepository == "" {
+		if repository := gitRepositoryFromOrigin(origin); repository != "" {
+			cfg.githubRepository = repository
+			_ = os.Setenv("GITHUB_REPOSITORY", cfg.githubRepository)
+		}
+	}
+	info("git repository: %s", firstNonEmpty(cfg.githubRepository, "<none>"))
+
 	provider, err := releaseType(origin)
 	if err != nil {
 		return err

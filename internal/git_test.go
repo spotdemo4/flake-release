@@ -80,6 +80,27 @@ func TestGitUserUsesScopedGitConfigPrecedence(t *testing.T) {
 	}
 }
 
+func TestGitRepositoryFromOrigin(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   string
+	}{
+		{origin: "git@github.com:spotdemo4/flake-release.git", want: "spotdemo4/flake-release"},
+		{origin: "https://github.com/spotdemo4/flake-release.git", want: "spotdemo4/flake-release"},
+		{origin: "ssh://git@git.example/owner/project.git", want: "owner/project"},
+		{origin: "https://git.example/scm/owner/project.git/", want: "owner/project"},
+		{origin: "https://git.example/owner", want: ""},
+		{origin: "file:///home/owner/project.git", want: ""},
+		{origin: "/home/owner/project.git", want: ""},
+	}
+
+	for _, test := range tests {
+		if got := gitRepositoryFromOrigin(test.origin); got != test.want {
+			t.Fatalf("gitRepositoryFromOrigin(%q) = %q; want %q", test.origin, got, test.want)
+		}
+	}
+}
+
 func TestGitChangelogForCurrentRepositoryTags(t *testing.T) {
 	repo, err := openGitRepository()
 	if err != nil {

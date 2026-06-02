@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -189,6 +190,41 @@ func gitOrigin() (string, error) {
 		return "", errors.New("origin remote has no URLs")
 	}
 	return urls[0], nil
+}
+
+func gitRepositoryFromOrigin(origin string) string {
+	path := gitOriginPath(origin)
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	path = strings.TrimSuffix(path, ".git")
+	if path == "" {
+		return ""
+	}
+
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	repository := parts[len(parts)-2] + "/" + parts[len(parts)-1]
+	if _, err := parseRepository(repository); err != nil {
+		return ""
+	}
+	return repository
+}
+
+func gitOriginPath(origin string) string {
+	if parsed, err := url.Parse(origin); err == nil && parsed.Scheme != "" {
+		if parsed.Scheme == "file" || parsed.Host == "" {
+			return ""
+		}
+		return parsed.Path
+	}
+
+	prefix, path, ok := strings.Cut(origin, ":")
+	if ok && !strings.Contains(prefix, "/") {
+		return path
+	}
+	return ""
 }
 
 func gitChangelog(tag string) (string, error) {
