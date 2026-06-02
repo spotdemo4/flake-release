@@ -73,6 +73,27 @@ type httpRequestOptions struct {
 	contentLength int64
 }
 
+type releaseClient interface {
+	createRelease(tag string, changelog string) error
+	uploadAsset(tag string, asset string) error
+	cleanupAssets(currentTag string) error
+}
+
+type noopReleaseClient struct{}
+
+type githubReleaseClient struct {
+	cfg config
+}
+
+type giteaReleaseClient struct {
+	cfg  config
+	name string
+}
+
+type forgejoReleaseClient struct {
+	giteaReleaseClient
+}
+
 func releaseType(origin string) (releaseProvider, error) {
 	switch os.Getenv("GIT_TYPE") {
 	case string(releaseForgejo):
@@ -105,51 +126,47 @@ func releaseType(origin string) (releaseProvider, error) {
 	}
 }
 
-func login(_ runner, _ releaseProvider, _ config) error {
+func newReleaseClient(provider releaseProvider, cfg config) releaseClient {
+	switch provider {
+	case releaseGitHub:
+		return githubReleaseClient{cfg: cfg}
+	case releaseGitea:
+		return newGiteaReleaseClient(cfg, releaseGitea)
+	case releaseForgejo:
+		return forgejoReleaseClient{
+			giteaReleaseClient: newGiteaReleaseClient(cfg, releaseForgejo),
+		}
+	default:
+		return noopReleaseClient{}
+	}
+}
+
+func newGiteaReleaseClient(cfg config, provider releaseProvider) giteaReleaseClient {
+	return giteaReleaseClient{
+		cfg:  cfg,
+		name: releaseProviderName(provider),
+	}
+}
+
+func (noopReleaseClient) createRelease(_ string, _ string) error {
 	return nil
 }
 
-func logout(_ runner, _ releaseProvider, _ config) {}
-
-func createRelease(_ runner, provider releaseProvider, cfg config, tag string, changelog string) error {
-	switch provider {
-	case releaseForgejo, releaseGitea:
-		return giteaRelease(provider, cfg, tag, changelog)
-	case releaseGitHub:
-		return githubRelease(cfg, tag, changelog)
-	default:
-		return nil
-	}
+func (noopReleaseClient) uploadAsset(_ string, _ string) error {
+	return nil
 }
 
-func uploadReleaseAsset(_ runner, provider releaseProvider, cfg config, tag string, asset string) error {
-	switch provider {
-	case releaseForgejo, releaseGitea:
-		return giteaReleaseAsset(provider, cfg, tag, asset)
-	case releaseGitHub:
-		return githubReleaseAsset(cfg, tag, asset)
-	default:
-		return nil
-	}
+func (noopReleaseClient) cleanupAssets(_ string) error {
+	return nil
 }
 
-func cleanupReleaseAssets(_ runner, provider releaseProvider, cfg config, tag string) error {
-	switch provider {
-	case releaseForgejo, releaseGitea:
-		return giteaAPIReleaseCleanupAssets(provider, cfg, tag)
-	case releaseGitHub:
-		return githubReleaseCleanupAssets(cfg, tag)
-	default:
-		return nil
-	}
-}
-
-func githubRelease(cfg config, tag string, changelog string) error {
-	repo, err := releaseRepository(cfg, "create GitHub release")
+func (c githubReleaseClient) createRelease(tag string, changelog string) error {
+	action := "create GitHub release"
+	repo, err := c.repository(action)
 	if err != nil {
 		return err
 	}
-	if err := requireToken(cfg, "create GitHub release"); err != nil {
+	if err := c.requireToken(action); err != nil {
 		return err
 	}
 
@@ -158,9 +175,9 @@ func githubRelease(cfg config, tag string, changelog string) error {
 		return err
 	}
 
-	info("creating release %s at %s", tag, cfg.githubRepository)
-	endpoint := fmt.Sprintf("%s/repos/%s/releases", githubAPIBase(cfg), repo.path())
-	_, err = jsonRequest(http.MethodPost, githubAuthScheme, cfg.githubToken, githubAccept, endpoint, createReleaseRequest{
+	info("creating release %s at %s", tag, c.cfg.githubRepository)
+	endpoint := fmt.Sprintf("%s/repos/%s/releases", c.apiBase(), repo.path())
+	_, err = c.jsonRequest(http.MethodPost, endpoint, createReleaseRequest{
 		TagName: tag,
 		Name:    tag,
 		Body:    string(body),
@@ -168,16 +185,17 @@ func githubRelease(cfg config, tag string, changelog string) error {
 	return err
 }
 
-func githubReleaseAsset(cfg config, tag string, asset string) error {
-	repo, err := releaseRepository(cfg, "upload asset to GitHub")
+func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
+	action := "upload asset to GitHub"
+	repo, err := c.repository(action)
 	if err != nil {
 		return err
 	}
-	if err := requireToken(cfg, "upload asset to GitHub"); err != nil {
+	if err := c.requireToken(action); err != nil {
 		return err
 	}
 
-	release, err := githubReleaseByTag(cfg, repo, tag)
+	release, err := c.releaseByTag(repo, tag)
 	if err != nil {
 		return err
 	}
@@ -201,13 +219,10 @@ func githubReleaseAsset(cfg config, tag string, asset string) error {
 		contentType = "application/octet-stream"
 	}
 
-	info("uploading asset to release %s at %s", tag, cfg.githubRepository)
-	_, err = httpRequest(httpRequestOptions{
+	info("uploading asset to release %s at %s", tag, c.cfg.githubRepository)
+	_, err = c.httpRequest(httpRequestOptions{
 		method:        http.MethodPost,
 		url:           uploadURL,
-		token:         cfg.githubToken,
-		authScheme:    githubAuthScheme,
-		accept:        githubAccept,
 		contentType:   contentType,
 		body:          file,
 		contentLength: stat.Size(),
@@ -215,29 +230,30 @@ func githubReleaseAsset(cfg config, tag string, asset string) error {
 	return err
 }
 
-func githubReleaseCleanupAssets(cfg config, currentTag string) error {
-	repo, err := releaseRepository(cfg, "delete old GitHub release assets")
+func (c githubReleaseClient) cleanupAssets(currentTag string) error {
+	action := "delete old GitHub release assets"
+	repo, err := c.repository(action)
 	if err != nil {
 		return err
 	}
-	if err := requireToken(cfg, "delete old GitHub release assets"); err != nil {
+	if err := c.requireToken(action); err != nil {
 		return err
 	}
 
-	releases, err := githubListReleases(cfg, repo)
+	releases, err := c.listReleases(repo)
 	if err != nil {
 		warn("failed to fetch GitHub releases")
 		return err
 	}
 
-	info("deleting old GitHub release assets at %s", cfg.githubRepository)
+	info("deleting old GitHub release assets at %s", c.cfg.githubRepository)
 	failed := false
 	for _, release := range releases {
 		if release.TagName == "" || release.TagName == currentTag || release.ID == 0 {
 			continue
 		}
 
-		assets, err := githubListReleaseAssets(cfg, repo, release.ID)
+		assets, err := c.listReleaseAssets(repo, release.ID)
 		if err != nil {
 			warn("failed to fetch GitHub release assets for %s", release.TagName)
 			failed = true
@@ -249,13 +265,10 @@ func githubReleaseCleanupAssets(cfg config, currentTag string) error {
 				continue
 			}
 			info("deleting asset %s from release %s", asset.Name, release.TagName)
-			endpoint := fmt.Sprintf("%s/repos/%s/releases/assets/%d", githubAPIBase(cfg), repo.path(), asset.ID)
-			if _, err := httpRequest(httpRequestOptions{
-				method:     http.MethodDelete,
-				url:        endpoint,
-				token:      cfg.githubToken,
-				authScheme: githubAuthScheme,
-				accept:     githubAccept,
+			endpoint := fmt.Sprintf("%s/repos/%s/releases/assets/%d", c.apiBase(), repo.path(), asset.ID)
+			if _, err := c.httpRequest(httpRequestOptions{
+				method: http.MethodDelete,
+				url:    endpoint,
 			}); err != nil {
 				warn("failed to delete asset %s from release %s", asset.Name, release.TagName)
 				failed = true
@@ -269,154 +282,12 @@ func githubReleaseCleanupAssets(cfg config, currentTag string) error {
 	return nil
 }
 
-func giteaRelease(provider releaseProvider, cfg config, tag string, changelog string) error {
-	name := releaseProviderName(provider)
-	repo, err := releaseRepository(cfg, "create "+name+" release")
-	if err != nil {
-		return err
-	}
-	if err := requireServerURL(cfg, "create "+name+" release"); err != nil {
-		return err
-	}
-	if err := requireToken(cfg, "create "+name+" release"); err != nil {
-		return err
-	}
-
-	body, err := os.ReadFile(changelog)
-	if err != nil {
-		return err
-	}
-
-	info("creating release %s at %s", tag, cfg.githubRepository)
-	endpoint := fmt.Sprintf("%s/repos/%s/releases", giteaAPIBase(cfg), repo.path())
-	_, err = jsonRequest(http.MethodPost, tokenAuthScheme, cfg.githubToken, jsonAccept, endpoint, createReleaseRequest{
-		TagName: tag,
-		Name:    tag,
-		Body:    string(body),
-	})
-	return err
-}
-
-func giteaReleaseAsset(provider releaseProvider, cfg config, tag string, asset string) error {
-	name := releaseProviderName(provider)
-	repo, err := releaseRepository(cfg, "upload asset to "+name)
-	if err != nil {
-		return err
-	}
-	if err := requireServerURL(cfg, "upload asset to "+name); err != nil {
-		return err
-	}
-	if err := requireToken(cfg, "upload asset to "+name); err != nil {
-		return err
-	}
-
-	release, err := giteaReleaseByTag(cfg, repo, tag)
-	if err != nil {
-		return err
-	}
-	if release.ID == 0 {
-		return fmt.Errorf("%s release %s has no id", name, tag)
-	}
-
-	body, contentType, err := multipartFileBody("attachment", asset)
-	if err != nil {
-		return err
-	}
-	defer body.Close()
-
-	endpoint, err := releaseAssetUploadURL(
-		fmt.Sprintf("%s/repos/%s/releases/%d/assets", giteaAPIBase(cfg), repo.path(), release.ID),
-		filepath.Base(asset),
-	)
-	if err != nil {
-		return err
-	}
-
-	info("uploading asset to release %s at %s", tag, cfg.githubRepository)
-	_, err = httpRequest(httpRequestOptions{
-		method:      http.MethodPost,
-		url:         endpoint,
-		token:       cfg.githubToken,
-		authScheme:  tokenAuthScheme,
-		accept:      jsonAccept,
-		contentType: contentType,
-		body:        body,
-	})
-	return err
-}
-
-func (r giteaReleaseResponse) tagName() string {
-	return firstNonEmpty(r.TagName, r.TagNameAlt, r.Tag)
-}
-
-func giteaAPIReleaseCleanupAssets(provider releaseProvider, cfg config, currentTag string) error {
-	name := releaseProviderName(provider)
-	repo, err := releaseRepository(cfg, "delete old "+name+" release assets")
-	if err != nil {
-		return err
-	}
-	if err := requireServerURL(cfg, "delete old "+name+" release assets"); err != nil {
-		return err
-	}
-	if err := requireToken(cfg, "delete old "+name+" release assets"); err != nil {
-		return err
-	}
-
-	releases, err := giteaListReleases(cfg, repo)
-	if err != nil {
-		warn("failed to fetch %s releases", name)
-		return err
-	}
-
-	failed := false
-	info("deleting old %s release assets at %s", name, cfg.githubRepository)
-	for _, release := range releases {
-		releaseTag := release.tagName()
-		if releaseTag == currentTag || release.ID == 0 {
-			continue
-		}
-
-		assets, err := giteaListReleaseAssets(cfg, repo, release.ID)
-		if err != nil {
-			warn("failed to fetch %s release assets for %s", name, releaseTag)
-			failed = true
-			continue
-		}
-
-		for _, asset := range assets {
-			if asset.ID == 0 {
-				continue
-			}
-			info("deleting asset %s from release %s", asset.Name, releaseTag)
-			endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets/%d", giteaAPIBase(cfg), repo.path(), release.ID, asset.ID)
-			if _, err := httpRequest(httpRequestOptions{
-				method:     http.MethodDelete,
-				url:        endpoint,
-				token:      cfg.githubToken,
-				authScheme: tokenAuthScheme,
-				accept:     jsonAccept,
-			}); err != nil {
-				warn("failed to delete asset %s from release %s", asset.Name, releaseTag)
-				failed = true
-			}
-		}
-	}
-
-	if failed {
-		return fmt.Errorf("failed to delete some %s release assets", name)
-	}
-	return nil
-}
-
-func githubReleaseByTag(cfg config, repo repository, tag string) (githubReleaseResponse, error) {
+func (c githubReleaseClient) releaseByTag(repo repository, tag string) (githubReleaseResponse, error) {
 	var release githubReleaseResponse
-	endpoint := fmt.Sprintf("%s/repos/%s/releases/tags/%s", githubAPIBase(cfg), repo.path(), url.PathEscape(tag))
-	body, err := httpRequest(httpRequestOptions{
-		method:     http.MethodGet,
-		url:        endpoint,
-		token:      cfg.githubToken,
-		authScheme: githubAuthScheme,
-		accept:     githubAccept,
+	endpoint := fmt.Sprintf("%s/repos/%s/releases/tags/%s", c.apiBase(), repo.path(), url.PathEscape(tag))
+	body, err := c.httpRequest(httpRequestOptions{
+		method: http.MethodGet,
+		url:    endpoint,
 	})
 	if err != nil {
 		return release, err
@@ -424,18 +295,15 @@ func githubReleaseByTag(cfg config, repo repository, tag string) (githubReleaseR
 	return release, json.Unmarshal(body, &release)
 }
 
-func githubListReleases(cfg config, repo repository) ([]githubReleaseResponse, error) {
+func (c githubReleaseClient) listReleases(repo repository) ([]githubReleaseResponse, error) {
 	const limit = 100
 	var releases []githubReleaseResponse
 	for page := 1; ; page++ {
-		endpoint := fmt.Sprintf("%s/repos/%s/releases?per_page=%d&page=%d", githubAPIBase(cfg), repo.path(), limit, page)
+		endpoint := fmt.Sprintf("%s/repos/%s/releases?per_page=%d&page=%d", c.apiBase(), repo.path(), limit, page)
 		var pageReleases []githubReleaseResponse
-		body, err := httpRequest(httpRequestOptions{
-			method:     http.MethodGet,
-			url:        endpoint,
-			token:      cfg.githubToken,
-			authScheme: githubAuthScheme,
-			accept:     githubAccept,
+		body, err := c.httpRequest(httpRequestOptions{
+			method: http.MethodGet,
+			url:    endpoint,
 		})
 		if err != nil {
 			return nil, err
@@ -451,18 +319,15 @@ func githubListReleases(cfg config, repo repository) ([]githubReleaseResponse, e
 	return releases, nil
 }
 
-func githubListReleaseAssets(cfg config, repo repository, releaseID int64) ([]releaseAsset, error) {
+func (c githubReleaseClient) listReleaseAssets(repo repository, releaseID int64) ([]releaseAsset, error) {
 	const limit = 100
 	var assets []releaseAsset
 	for page := 1; ; page++ {
-		endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets?per_page=%d&page=%d", githubAPIBase(cfg), repo.path(), releaseID, limit, page)
+		endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets?per_page=%d&page=%d", c.apiBase(), repo.path(), releaseID, limit, page)
 		var pageAssets []releaseAsset
-		body, err := httpRequest(httpRequestOptions{
-			method:     http.MethodGet,
-			url:        endpoint,
-			token:      cfg.githubToken,
-			authScheme: githubAuthScheme,
-			accept:     githubAccept,
+		body, err := c.httpRequest(httpRequestOptions{
+			method: http.MethodGet,
+			url:    endpoint,
 		})
 		if err != nil {
 			return nil, err
@@ -478,15 +343,147 @@ func githubListReleaseAssets(cfg config, repo repository, releaseID int64) ([]re
 	return assets, nil
 }
 
-func giteaReleaseByTag(cfg config, repo repository, tag string) (giteaReleaseResponse, error) {
+func (c githubReleaseClient) repository(action string) (repository, error) {
+	return releaseRepository(c.cfg, action)
+}
+
+func (c githubReleaseClient) requireToken(action string) error {
+	return requireToken(c.cfg, action)
+}
+
+func (c githubReleaseClient) apiBase() string {
+	return githubAPIBase(c.cfg)
+}
+
+func (c githubReleaseClient) jsonRequest(method string, endpoint string, payload any) ([]byte, error) {
+	return jsonRequest(method, githubAuthScheme, c.cfg.githubToken, githubAccept, endpoint, payload)
+}
+
+func (c githubReleaseClient) httpRequest(options httpRequestOptions) ([]byte, error) {
+	options.token = c.cfg.githubToken
+	options.authScheme = githubAuthScheme
+	options.accept = githubAccept
+	return httpRequest(options)
+}
+
+func (c giteaReleaseClient) createRelease(tag string, changelog string) error {
+	repo, err := c.repository("create " + c.name + " release")
+	if err != nil {
+		return err
+	}
+
+	body, err := os.ReadFile(changelog)
+	if err != nil {
+		return err
+	}
+
+	info("creating release %s at %s", tag, c.cfg.githubRepository)
+	endpoint := fmt.Sprintf("%s/repos/%s/releases", c.apiBase(), repo.path())
+	_, err = c.jsonRequest(http.MethodPost, endpoint, createReleaseRequest{
+		TagName: tag,
+		Name:    tag,
+		Body:    string(body),
+	})
+	return err
+}
+
+func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
+	repo, err := c.repository("upload asset to " + c.name)
+	if err != nil {
+		return err
+	}
+
+	release, err := c.releaseByTag(repo, tag)
+	if err != nil {
+		return err
+	}
+	if release.ID == 0 {
+		return fmt.Errorf("%s release %s has no id", c.name, tag)
+	}
+
+	body, contentType, err := multipartFileBody("attachment", asset)
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+
+	endpoint, err := releaseAssetUploadURL(
+		fmt.Sprintf("%s/repos/%s/releases/%d/assets", c.apiBase(), repo.path(), release.ID),
+		filepath.Base(asset),
+	)
+	if err != nil {
+		return err
+	}
+
+	info("uploading asset to release %s at %s", tag, c.cfg.githubRepository)
+	_, err = c.httpRequest(httpRequestOptions{
+		method:      http.MethodPost,
+		url:         endpoint,
+		contentType: contentType,
+		body:        body,
+	})
+	return err
+}
+
+func (r giteaReleaseResponse) tagName() string {
+	return firstNonEmpty(r.TagName, r.TagNameAlt, r.Tag)
+}
+
+func (c giteaReleaseClient) cleanupAssets(currentTag string) error {
+	repo, err := c.repository("delete old " + c.name + " release assets")
+	if err != nil {
+		return err
+	}
+
+	releases, err := c.listReleases(repo)
+	if err != nil {
+		warn("failed to fetch %s releases", c.name)
+		return err
+	}
+
+	failed := false
+	info("deleting old %s release assets at %s", c.name, c.cfg.githubRepository)
+	for _, release := range releases {
+		releaseTag := release.tagName()
+		if releaseTag == currentTag || release.ID == 0 {
+			continue
+		}
+
+		assets, err := c.listReleaseAssets(repo, release.ID)
+		if err != nil {
+			warn("failed to fetch %s release assets for %s", c.name, releaseTag)
+			failed = true
+			continue
+		}
+
+		for _, asset := range assets {
+			if asset.ID == 0 {
+				continue
+			}
+			info("deleting asset %s from release %s", asset.Name, releaseTag)
+			endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets/%d", c.apiBase(), repo.path(), release.ID, asset.ID)
+			if _, err := c.httpRequest(httpRequestOptions{
+				method: http.MethodDelete,
+				url:    endpoint,
+			}); err != nil {
+				warn("failed to delete asset %s from release %s", asset.Name, releaseTag)
+				failed = true
+			}
+		}
+	}
+
+	if failed {
+		return fmt.Errorf("failed to delete some %s release assets", c.name)
+	}
+	return nil
+}
+
+func (c giteaReleaseClient) releaseByTag(repo repository, tag string) (giteaReleaseResponse, error) {
 	var release giteaReleaseResponse
-	endpoint := fmt.Sprintf("%s/repos/%s/releases/tags/%s", giteaAPIBase(cfg), repo.path(), url.PathEscape(tag))
-	body, err := httpRequest(httpRequestOptions{
-		method:     http.MethodGet,
-		url:        endpoint,
-		token:      cfg.githubToken,
-		authScheme: tokenAuthScheme,
-		accept:     jsonAccept,
+	endpoint := fmt.Sprintf("%s/repos/%s/releases/tags/%s", c.apiBase(), repo.path(), url.PathEscape(tag))
+	body, err := c.httpRequest(httpRequestOptions{
+		method: http.MethodGet,
+		url:    endpoint,
 	})
 	if err != nil {
 		return release, err
@@ -494,18 +491,15 @@ func giteaReleaseByTag(cfg config, repo repository, tag string) (giteaReleaseRes
 	return release, json.Unmarshal(body, &release)
 }
 
-func giteaListReleases(cfg config, repo repository) ([]giteaReleaseResponse, error) {
+func (c giteaReleaseClient) listReleases(repo repository) ([]giteaReleaseResponse, error) {
 	const limit = 100
 	var releases []giteaReleaseResponse
 	for page := 1; ; page++ {
-		endpoint := fmt.Sprintf("%s/repos/%s/releases?page=%d&limit=%d", giteaAPIBase(cfg), repo.path(), page, limit)
+		endpoint := fmt.Sprintf("%s/repos/%s/releases?page=%d&limit=%d", c.apiBase(), repo.path(), page, limit)
 		var pageReleases []giteaReleaseResponse
-		body, err := httpRequest(httpRequestOptions{
-			method:     http.MethodGet,
-			url:        endpoint,
-			token:      cfg.githubToken,
-			authScheme: tokenAuthScheme,
-			accept:     jsonAccept,
+		body, err := c.httpRequest(httpRequestOptions{
+			method: http.MethodGet,
+			url:    endpoint,
 		})
 		if err != nil {
 			return nil, err
@@ -521,20 +515,46 @@ func giteaListReleases(cfg config, repo repository) ([]giteaReleaseResponse, err
 	return releases, nil
 }
 
-func giteaListReleaseAssets(cfg config, repo repository, releaseID int64) ([]releaseAsset, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets", giteaAPIBase(cfg), repo.path(), releaseID)
+func (c giteaReleaseClient) listReleaseAssets(repo repository, releaseID int64) ([]releaseAsset, error) {
+	endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets", c.apiBase(), repo.path(), releaseID)
 	var assets []releaseAsset
-	body, err := httpRequest(httpRequestOptions{
-		method:     http.MethodGet,
-		url:        endpoint,
-		token:      cfg.githubToken,
-		authScheme: tokenAuthScheme,
-		accept:     jsonAccept,
+	body, err := c.httpRequest(httpRequestOptions{
+		method: http.MethodGet,
+		url:    endpoint,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return assets, json.Unmarshal(body, &assets)
+}
+
+func (c giteaReleaseClient) repository(action string) (repository, error) {
+	repo, err := releaseRepository(c.cfg, action)
+	if err != nil {
+		return repository{}, err
+	}
+	if err := requireServerURL(c.cfg, action); err != nil {
+		return repository{}, err
+	}
+	if err := requireToken(c.cfg, action); err != nil {
+		return repository{}, err
+	}
+	return repo, nil
+}
+
+func (c giteaReleaseClient) apiBase() string {
+	return giteaAPIBase(c.cfg)
+}
+
+func (c giteaReleaseClient) jsonRequest(method string, endpoint string, payload any) ([]byte, error) {
+	return jsonRequest(method, tokenAuthScheme, c.cfg.githubToken, jsonAccept, endpoint, payload)
+}
+
+func (c giteaReleaseClient) httpRequest(options httpRequestOptions) ([]byte, error) {
+	options.token = c.cfg.githubToken
+	options.authScheme = tokenAuthScheme
+	options.accept = jsonAccept
+	return httpRequest(options)
 }
 
 func releaseRepository(cfg config, action string) (repository, error) {

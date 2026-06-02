@@ -98,11 +98,7 @@ func Run(args []string) error {
 		_ = os.Setenv("REGISTRY", cfg.registry)
 	}
 	info("registry: %s", firstNonEmpty(cfg.registry, "<none>"))
-
-	if err := login(run, provider, cfg); err != nil {
-		return err
-	}
-	defer logout(run, provider, cfg)
+	release := newReleaseClient(provider, cfg)
 
 	changelog, err := gitChangelog(tag)
 	if err != nil {
@@ -113,7 +109,7 @@ func Run(args []string) error {
 	releaseCreated := false
 	if cfg.dryRun {
 		info("dry run: skipping release creation")
-	} else if err := createRelease(run, provider, cfg, tag, changelog); err != nil {
+	} else if err := release.createRelease(tag, changelog); err != nil {
 		warn("could not create release %s", tag)
 	} else {
 		releaseCreated = true
@@ -130,7 +126,7 @@ func Run(args []string) error {
 	images := false
 	storePaths := map[string]bool{}
 	for _, pkg := range packages {
-		if err := releasePackage(run, cfg, provider, tag, pkg, storePaths, &images); err != nil {
+		if err := releasePackage(run, cfg, release, tag, pkg, storePaths, &images); err != nil {
 			warn("%v", err)
 		}
 	}
@@ -154,7 +150,7 @@ func Run(args []string) error {
 		case !releaseCreated:
 			info("old release artifact cleanup requested, but no new release was created")
 		default:
-			if err := cleanupReleaseAssets(run, provider, cfg, tag); err != nil {
+			if err := release.cleanupAssets(tag); err != nil {
 				warn("old release asset cleanup failed")
 			}
 			if images {
@@ -168,7 +164,7 @@ func Run(args []string) error {
 	return nil
 }
 
-func releasePackage(run runner, cfg config, provider releaseProvider, tag string, pkg string, storePaths map[string]bool, images *bool) error {
+func releasePackage(run runner, cfg config, release releaseClient, tag string, pkg string, storePaths map[string]bool, images *bool) error {
 	info("")
 	info("evaluating %s", bold(pkg))
 
@@ -204,7 +200,7 @@ func releasePackage(run runner, cfg config, provider releaseProvider, tag string
 
 	if pname != "" && version != "" && allStatic(storePath) {
 		info("detected as static executable(s)")
-		return releaseStaticAsset(run, cfg, provider, tag, storePath, pname, version, p.OS, p.Arch)
+		return releaseStaticAsset(cfg, release, tag, storePath, pname, version, p.OS, p.Arch)
 	}
 
 	if pname != "" && version != "" && p.OS == "linux" {
@@ -214,7 +210,7 @@ func releasePackage(run runner, cfg config, provider releaseProvider, tag string
 			warn("bundling failed")
 			return nil
 		}
-		return uploadArchive(run, cfg, provider, tag, archivePath, pname, version, p.OS, p.Arch)
+		return uploadArchive(cfg, release, tag, archivePath, pname, version, p.OS, p.Arch)
 	}
 
 	warn("unknown package type")
@@ -264,16 +260,16 @@ func releaseImage(run runner, cfg config, storePath string, imageName string, im
 	return nil
 }
 
-func releaseStaticAsset(run runner, cfg config, provider releaseProvider, tag string, storePath string, pname string, version string, osName string, archName string) error {
+func releaseStaticAsset(cfg config, release releaseClient, tag string, storePath string, pname string, version string, osName string, archName string) error {
 	archivePath, err := archive(storePath, osName)
 	if err != nil {
 		warn("archiving failed")
 		return nil
 	}
-	return uploadArchive(run, cfg, provider, tag, archivePath, pname, version, osName, archName)
+	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)
 }
 
-func uploadArchive(run runner, cfg config, provider releaseProvider, tag string, archivePath string, pname string, version string, osName string, archName string) error {
+func uploadArchive(cfg config, release releaseClient, tag string, archivePath string, pname string, version string, osName string, archName string) error {
 	asset, err := renameAsset(archivePath, pname, version, osName, archName)
 	if err != nil {
 		return err
@@ -284,7 +280,7 @@ func uploadArchive(run runner, cfg config, provider releaseProvider, tag string,
 		info("dry run: skipping upload")
 		return nil
 	}
-	if err := uploadReleaseAsset(run, provider, cfg, tag, asset); err != nil {
+	if err := release.uploadAsset(tag, asset); err != nil {
 		warn("uploading failed")
 	}
 	return nil

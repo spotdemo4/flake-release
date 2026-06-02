@@ -47,6 +47,40 @@ func TestReleaseTypeEnvOverride(t *testing.T) {
 	}
 }
 
+func TestNewReleaseClient(t *testing.T) {
+	cfg := config{
+		githubRepository: "owner/repo",
+		githubServerURL:  "https://git.example",
+		githubToken:      "test-token",
+	}
+
+	githubClient := newReleaseClient(releaseGitHub, cfg)
+	if client, ok := githubClient.(githubReleaseClient); !ok {
+		t.Fatalf("GitHub client type = %T; want githubReleaseClient", githubClient)
+	} else if client.cfg != cfg {
+		t.Fatal("GitHub client did not keep config")
+	}
+
+	giteaClient := newReleaseClient(releaseGitea, cfg)
+	if client, ok := giteaClient.(giteaReleaseClient); !ok {
+		t.Fatalf("Gitea client type = %T; want giteaReleaseClient", giteaClient)
+	} else if client.name != "Gitea" {
+		t.Fatalf("Gitea client name = %q; want Gitea", client.name)
+	}
+
+	forgejoClient := newReleaseClient(releaseForgejo, cfg)
+	if client, ok := forgejoClient.(forgejoReleaseClient); !ok {
+		t.Fatalf("Forgejo client type = %T; want forgejoReleaseClient", forgejoClient)
+	} else if client.name != "Forgejo" {
+		t.Fatalf("Forgejo client name = %q; want Forgejo", client.name)
+	}
+
+	unknownClient := newReleaseClient("", cfg)
+	if _, ok := unknownClient.(noopReleaseClient); !ok {
+		t.Fatalf("unknown client type = %T; want noopReleaseClient", unknownClient)
+	}
+}
+
 func TestHTTPRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "token test-token" {
