@@ -22,13 +22,6 @@ func Run(args []string) error {
 	setupNixConfig()
 
 	run := runner{}
-	wd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	if err := gitCheckSafe(run, wd); err != nil {
-		return err
-	}
 
 	cfg := config{
 		dryRun:                    os.Getenv("DRY_RUN") == "true",
@@ -58,7 +51,7 @@ func Run(args []string) error {
 	}
 	packages = append(packages, splitPackages(os.Getenv("PACKAGES"))...)
 
-	origin, err := gitOrigin(run)
+	origin, err := gitOrigin()
 	if err != nil {
 		return err
 	}
@@ -70,7 +63,7 @@ func Run(args []string) error {
 
 	tag := os.Getenv("TAG")
 	if tag == "" {
-		tag, err = gitLatestTag(run)
+		tag, err = gitLatestTag()
 		if err != nil {
 			return err
 		}
@@ -78,7 +71,7 @@ func Run(args []string) error {
 	info("git tag: %s", tag)
 
 	if cfg.githubActor == "" {
-		cfg.githubActor, err = gitUser(run)
+		cfg.githubActor, err = gitUser()
 		if err != nil {
 			return err
 		}
@@ -87,7 +80,7 @@ func Run(args []string) error {
 	info("git user: %s", cfg.githubActor)
 
 	if cfg.registryUsername == "" {
-		cfg.registryUsername, err = gitUser(run)
+		cfg.registryUsername, err = gitUser()
 		if err != nil {
 			return err
 		}
@@ -112,7 +105,7 @@ func Run(args []string) error {
 	defer logout(run, provider, cfg)
 	defer deleteTeaConfig()
 
-	changelog, err := gitChangelog(run, tag)
+	changelog, err := gitChangelog(tag)
 	if err != nil {
 		return err
 	}

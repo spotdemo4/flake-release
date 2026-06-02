@@ -205,7 +205,7 @@
             };
             goSum = ./go.sum;
             proxyVendor = true;
-            vendorHash = null;
+            vendorHash = "sha256-OndnmObDNdZwz6PH0nxDuHqyK3M8zJy/1sstQEcTDLQ=";
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
@@ -221,7 +221,6 @@
               findutils
               forgejo-cli
               gh
-              git
               gnutar
               gnused
               jq

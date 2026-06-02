@@ -1,73 +1,121 @@
 package flakerelease
 
 import (
-	"fmt"
+	"errors"
 	"os"
-	"os/user"
-	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
-	"syscall"
+
+	git "github.com/go-git/go-git/v6"
+	gitconfig "github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/storer"
 )
 
-func gitCheckSafe(run runner, dir string) error {
-	current, err := user.Current()
-	if err == nil {
-		if stat, statErr := os.Stat(dir); statErr == nil {
-			if sys, ok := stat.Sys().(*syscall.Stat_t); ok && current.Uid == fmt.Sprint(sys.Uid) {
-				return nil
-			}
-		}
-	}
-
-	safeDirs, _ := run.capture("git", "config", "--global", "--get-all", "safe.directory")
-	realDir, err := filepath.EvalSymlinks(dir)
+func gitLatestTag() (string, error) {
+	repo, err := openGitRepository()
 	if err != nil {
-		realDir, _ = filepath.Abs(dir)
+		return "", err
+	}
+	defer closeGitRepository(repo)
+
+	head, err := repo.Head()
+	if err != nil {
+		return "", err
 	}
 
-	for _, safeDir := range strings.Split(safeDirs, "\n") {
-		if safeDir == "" {
+	taggedCommits, err := tagNamesByCommit(repo)
+	if err != nil {
+		return "", err
+	}
+
+	commits, err := repo.Log(&git.LogOptions{
+		From:  head.Hash(),
+		Order: git.LogOrderCommitterTime,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer commits.Close()
+
+	for {
+		commit, err := commits.Next()
+		if errors.Is(err, storer.ErrStop) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+
+		names := taggedCommits[commit.Hash]
+		if len(names) == 0 {
 			continue
 		}
-		realSafeDir, err := filepath.EvalSymlinks(safeDir)
-		if err != nil {
-			realSafeDir, _ = filepath.Abs(safeDir)
-		}
-		if realDir == realSafeDir {
-			return nil
-		}
+		sortVersionTags(names)
+		return names[len(names)-1], nil
 	}
 
-	info("adding '%s' to git safe directories", dir)
-	return run.run("git", "config", "--global", "--add", "safe.directory", dir)
+	return "", errors.New("no tags found")
 }
 
-func gitLatestTag(run runner) (string, error) {
-	return run.capture("git", "describe", "--tags", "--abbrev=0")
+func gitUser() (string, error) {
+	repo, err := openGitRepository()
+	if err != nil {
+		return "", err
+	}
+	defer closeGitRepository(repo)
+
+	cfg, err := repo.ConfigScoped(gitconfig.GlobalScope)
+	if err != nil {
+		cfg, err = repo.Config()
+	}
+	if err != nil {
+		return "", err
+	}
+	return cfg.User.Name, nil
 }
 
-func gitUser(run runner) (string, error) {
-	return run.capture("git", "config", "user.name")
+func gitOrigin() (string, error) {
+	repo, err := openGitRepository()
+	if err != nil {
+		return "", err
+	}
+	defer closeGitRepository(repo)
+
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		return "", err
+	}
+
+	urls := remote.Config().URLs
+	if len(urls) == 0 {
+		return "", errors.New("origin remote has no URLs")
+	}
+	return urls[0], nil
 }
 
-func gitOrigin(run runner) (string, error) {
-	return run.capture("git", "remote", "get-url", "origin")
-}
+func gitChangelog(tag string) (string, error) {
+	repo, err := openGitRepository()
+	if err != nil {
+		return "", err
+	}
+	defer closeGitRepository(repo)
 
-func gitChangelog(run runner, tag string) (string, error) {
 	file, err := os.CreateTemp("", "flake-release-changelog-*")
 	if err != nil {
 		return "", err
 	}
 	_ = file.Close()
 
-	lastTag, err := previousTag(run, tag)
+	lastTag, err := previousTag(repo, tag)
 	if err != nil {
 		return "", err
 	}
 
-	log, err := run.capture("git", "log", "--pretty=format:* %s (%H)", lastTag+".."+tag)
+	log, err := changelog(repo, lastTag, tag)
 	if err != nil {
 		return "", err
 	}
@@ -79,13 +127,23 @@ func gitChangelog(run runner, tag string) (string, error) {
 	return file.Name(), nil
 }
 
-func previousTag(run runner, tag string) (string, error) {
-	tagsOut, err := run.capture("git", "tag", "--sort=v:refname")
+func openGitRepository() (*git.Repository, error) {
+	return git.PlainOpenWithOptions(".", &git.PlainOpenOptions{
+		DetectDotGit: true,
+	})
+}
+
+func closeGitRepository(repo *git.Repository) {
+	_ = repo.Close()
+}
+
+func previousTag(repo *git.Repository, tag string) (string, error) {
+	tags, err := tagNames(repo)
 	if err != nil {
 		return "", err
 	}
+	sortVersionTags(tags)
 
-	tags := splitLines(tagsOut)
 	for i, candidate := range tags {
 		if candidate != tag {
 			continue
@@ -96,7 +154,269 @@ func previousTag(run runner, tag string) (string, error) {
 		return candidate, nil
 	}
 
-	return run.capture("git", "rev-list", "--max-parents=0", "HEAD")
+	root, err := rootCommit(repo)
+	if err != nil {
+		return "", err
+	}
+	return root.String(), nil
+}
+
+func changelog(repo *git.Repository, from string, to string) (string, error) {
+	fromHash, err := revisionCommitHash(repo, from)
+	if err != nil {
+		return "", err
+	}
+	toHash, err := revisionCommitHash(repo, to)
+	if err != nil {
+		return "", err
+	}
+
+	if fromHash == toHash {
+		return "", nil
+	}
+
+	excluded, err := reachableCommits(repo, fromHash)
+	if err != nil {
+		return "", err
+	}
+
+	commits, err := repo.Log(&git.LogOptions{
+		From:  toHash,
+		Order: git.LogOrderCommitterTime,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer commits.Close()
+
+	var lines []string
+	for {
+		commit, err := commits.Next()
+		if errors.Is(err, storer.ErrStop) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if excluded[commit.Hash] {
+			continue
+		}
+
+		subject := strings.SplitN(commit.Message, "\n", 2)[0]
+		lines = append(lines, "* "+subject+" ("+commit.Hash.String()+")")
+	}
+
+	return strings.Join(lines, "\n"), nil
+}
+
+func reachableCommits(repo *git.Repository, from plumbing.Hash) (map[plumbing.Hash]bool, error) {
+	commits, err := repo.Log(&git.LogOptions{
+		From:  from,
+		Order: git.LogOrderCommitterTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer commits.Close()
+
+	hashes := map[plumbing.Hash]bool{}
+	for {
+		commit, err := commits.Next()
+		if errors.Is(err, storer.ErrStop) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		hashes[commit.Hash] = true
+	}
+	return hashes, nil
+}
+
+func rootCommit(repo *git.Repository) (plumbing.Hash, error) {
+	head, err := repo.Head()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	commits, err := repo.Log(&git.LogOptions{
+		From:  head.Hash(),
+		Order: git.LogOrderCommitterTime,
+	})
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	defer commits.Close()
+
+	var root plumbing.Hash
+	for {
+		commit, err := commits.Next()
+		if errors.Is(err, storer.ErrStop) {
+			break
+		}
+		if err != nil {
+			return plumbing.ZeroHash, err
+		}
+		if commit.NumParents() == 0 {
+			root = commit.Hash
+		}
+	}
+	if root == plumbing.ZeroHash {
+		return plumbing.ZeroHash, errors.New("no root commit found")
+	}
+	return root, nil
+}
+
+func tagNames(repo *git.Repository) ([]string, error) {
+	tags, err := repo.Tags()
+	if err != nil {
+		return nil, err
+	}
+	defer tags.Close()
+
+	var names []string
+	if err := tags.ForEach(func(ref *plumbing.Reference) error {
+		names = append(names, ref.Name().Short())
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+func tagNamesByCommit(repo *git.Repository) (map[plumbing.Hash][]string, error) {
+	tags, err := repo.Tags()
+	if err != nil {
+		return nil, err
+	}
+	defer tags.Close()
+
+	tagged := map[plumbing.Hash][]string{}
+	if err := tags.ForEach(func(ref *plumbing.Reference) error {
+		hash, err := tagCommitHash(repo, ref)
+		if err != nil {
+			return err
+		}
+		tagged[hash] = append(tagged[hash], ref.Name().Short())
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return tagged, nil
+}
+
+func revisionCommitHash(repo *git.Repository, revision string) (plumbing.Hash, error) {
+	if hash := plumbing.NewHash(revision); !hash.IsZero() {
+		if _, err := repo.CommitObject(hash); err == nil {
+			return hash, nil
+		}
+	}
+
+	hash, err := repo.ResolveRevision(plumbing.Revision(revision))
+	if err == nil {
+		return objectCommitHash(repo, *hash)
+	}
+
+	ref, refErr := repo.Tag(revision)
+	if refErr != nil {
+		return plumbing.ZeroHash, err
+	}
+	return tagCommitHash(repo, ref)
+}
+
+func tagCommitHash(repo *git.Repository, ref *plumbing.Reference) (plumbing.Hash, error) {
+	return objectCommitHash(repo, ref.Hash())
+}
+
+func objectCommitHash(repo *git.Repository, hash plumbing.Hash) (plumbing.Hash, error) {
+	obj, err := repo.Object(plumbing.AnyObject, hash)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	switch obj := obj.(type) {
+	case *object.Commit:
+		return obj.Hash, nil
+	case *object.Tag:
+		commit, err := obj.Commit()
+		if err != nil {
+			return plumbing.ZeroHash, err
+		}
+		return commit.Hash, nil
+	default:
+		return plumbing.ZeroHash, errors.New("revision does not point to a commit")
+	}
+}
+
+func sortVersionTags(tags []string) {
+	sort.Slice(tags, func(i, j int) bool {
+		return versionLess(tags[i], tags[j])
+	})
+}
+
+func versionLess(left string, right string) bool {
+	leftParts := versionParts(left)
+	rightParts := versionParts(right)
+	limit := len(leftParts)
+	if len(rightParts) > limit {
+		limit = len(rightParts)
+	}
+
+	for i := 0; i < limit; i++ {
+		if i >= len(leftParts) {
+			return true
+		}
+		if i >= len(rightParts) {
+			return false
+		}
+
+		leftPart := leftParts[i]
+		rightPart := rightParts[i]
+		leftNum, leftErr := strconv.Atoi(leftPart)
+		rightNum, rightErr := strconv.Atoi(rightPart)
+		if leftErr == nil && rightErr == nil {
+			if leftNum != rightNum {
+				return leftNum < rightNum
+			}
+			continue
+		}
+		if leftPart != rightPart {
+			return leftPart < rightPart
+		}
+	}
+
+	return false
+}
+
+func versionParts(value string) []string {
+	value = strings.TrimPrefix(value, "refs/tags/")
+	value = strings.TrimPrefix(value, "v")
+
+	var parts []string
+	var current strings.Builder
+	var currentDigit bool
+	for i, r := range value {
+		digit := r >= '0' && r <= '9'
+		if i > 0 && (digit != currentDigit || (!digit && (r == '.' || r == '-' || r == '_' || r == '/'))) {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+			currentDigit = digit
+			if !digit && (r == '.' || r == '-' || r == '_' || r == '/') {
+				continue
+			}
+		}
+		currentDigit = digit
+		if !digit && (r == '.' || r == '-' || r == '_' || r == '/') {
+			continue
+		}
+		current.WriteRune(r)
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	return parts
 }
 
 func sortChangelog(log string) string {
