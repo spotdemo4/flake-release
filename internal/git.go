@@ -68,7 +68,7 @@ func gitUser() (string, error) {
 	}
 	defer closeGitRepository(repo)
 
-	cfg, err := repo.ConfigScoped(gitconfig.GlobalScope)
+	cfg, err := repo.ConfigScoped(gitconfig.SystemScope)
 	if err != nil {
 		cfg, err = repo.Config()
 	}
