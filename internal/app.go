@@ -21,8 +21,6 @@ type config struct {
 func Run(args []string) error {
 	setupNixConfig()
 
-	run := runner{}
-
 	cfg := config{
 		dryRun:                    os.Getenv("DRY_RUN") == "true",
 		deleteOldReleaseArtifacts: os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
@@ -116,7 +114,7 @@ func Run(args []string) error {
 	}
 
 	if len(packages) == 0 {
-		system, err := nixSystem(run)
+		system, err := nixSystem()
 		if err != nil {
 			return err
 		}
@@ -126,7 +124,7 @@ func Run(args []string) error {
 	images := false
 	storePaths := map[string]bool{}
 	for _, pkg := range packages {
-		if err := releasePackage(run, cfg, release, tag, pkg, storePaths, &images); err != nil {
+		if err := releasePackage(cfg, release, tag, pkg, storePaths, &images); err != nil {
 			warn("%v", err)
 		}
 	}
@@ -164,11 +162,11 @@ func Run(args []string) error {
 	return nil
 }
 
-func releasePackage(run runner, cfg config, release releaseClient, tag string, pkg string, storePaths map[string]bool, images *bool) error {
+func releasePackage(cfg config, release releaseClient, tag string, pkg string, storePaths map[string]bool, images *bool) error {
 	info("")
 	info("evaluating %s", bold(pkg))
 
-	storePath, err := nixPkgPath(run, pkg)
+	storePath, err := nixPkgPath(pkg)
 	if err != nil {
 		return err
 	}
@@ -178,16 +176,16 @@ func releasePackage(run runner, cfg config, release releaseClient, tag string, p
 	}
 	storePaths[storePath] = true
 
-	if err := nixBuild(run, pkg); err != nil {
+	if err := nixBuild(pkg); err != nil {
 		warn("build failed")
 		return nil
 	}
 
-	pname := nixPkgPname(run, pkg)
-	version := nixPkgVersion(run, pkg)
-	p := nixPkgPlatform(run, pkg)
-	imageName := nixImageName(run, pkg)
-	imageTag := nixImageTag(run, pkg)
+	pname := nixPkgPname(pkg)
+	version := nixPkgVersion(pkg)
+	p := nixPkgPlatform(pkg)
+	imageName := nixImageName(pkg)
+	imageTag := nixImageTag(pkg)
 
 	if version != tagVersion(tag) && imageTag != tagVersion(tag) {
 		warn("package version '%s' does not match git tag '%s'", firstNonEmpty(version, imageTag), tagVersion(tag))
@@ -195,7 +193,7 @@ func releasePackage(run runner, cfg config, release releaseClient, tag string, p
 	}
 
 	if imageName != "" && imageTag != "" && isFile(storePath) && p.OS == "linux" {
-		return releaseImage(run, cfg, storePath, imageName, imageTag, p.OS, images)
+		return releaseImage(cfg, storePath, imageName, imageTag, images)
 	}
 
 	if pname != "" && version != "" && allStatic(storePath) {
@@ -205,7 +203,7 @@ func releasePackage(run runner, cfg config, release releaseClient, tag string, p
 
 	if pname != "" && version != "" && p.OS == "linux" {
 		info("bundling as AppImage")
-		archivePath, err := nixBundleAppImage(run, pkg)
+		archivePath, err := nixBundleAppImage(pkg)
 		if err != nil {
 			warn("bundling failed")
 			return nil
@@ -217,7 +215,7 @@ func releasePackage(run runner, cfg config, release releaseClient, tag string, p
 	return nil
 }
 
-func releaseImage(run runner, cfg config, storePath string, imageName string, imageTag string, osName string, images *bool) error {
+func releaseImage(cfg config, storePath string, imageName string, imageTag string, images *bool) error {
 	info("detected as image %s", bold(imageName+":"+imageTag))
 	*images = true
 
@@ -255,8 +253,6 @@ func releaseImage(run runner, cfg config, storePath string, imageName string, im
 		warn("upload failed")
 		return nil
 	}
-
-	_ = osName
 	return nil
 }
 

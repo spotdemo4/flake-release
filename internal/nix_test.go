@@ -27,3 +27,11 @@ func TestSetupNixConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestNixCommandString(t *testing.T) {
+	got := nixCommandString("build", ".#default", "--no-link")
+	want := "nix build .#default --no-link"
+	if got != want {
+		t.Fatalf("nixCommandString() = %q; want %q", got, want)
+	}
+}

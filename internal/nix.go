@@ -1,12 +1,17 @@
 package flakerelease
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type platform struct {
@@ -79,24 +84,24 @@ func userAndGroupIDs(userName string) (int, int, error) {
 	return uid, gid, nil
 }
 
-func nixSystem(run runner) (string, error) {
-	system, err := run.capture("nix", "eval", "--impure", "--raw", "--expr", "builtins.currentSystem")
+func nixSystem() (string, error) {
+	system, err := nixCapture("eval", "--impure", "--raw", "--expr", "builtins.currentSystem")
 	if err == nil && system != "" {
 		info(dim("system: %s"), system)
 	}
 	return system, err
 }
 
-func nixPkgPath(run runner, pkg string) (string, error) {
-	path, err := run.capture("nix", "eval", "--raw", ".#"+pkg)
+func nixPkgPath(pkg string) (string, error) {
+	path, err := nixCapture("eval", "--raw", ".#"+pkg)
 	if err == nil && path != "" {
 		info(dim("path: %s"), path)
 	}
 	return path, err
 }
 
-func nixPkgPname(run runner, pkg string) string {
-	pname, err := run.capture("nix", "eval", "--raw", ".#"+pkg+".pname")
+func nixPkgPname(pkg string) string {
+	pname, err := nixCapture("eval", "--raw", ".#"+pkg+".pname")
 	if err == nil && pname != "" {
 		info(dim("pname: %s"), pname)
 		return pname
@@ -104,8 +109,8 @@ func nixPkgPname(run runner, pkg string) string {
 	return ""
 }
 
-func nixPkgVersion(run runner, pkg string) string {
-	version, err := run.capture("nix", "eval", "--raw", ".#"+pkg+".version")
+func nixPkgVersion(pkg string) string {
+	version, err := nixCapture("eval", "--raw", ".#"+pkg+".version")
 	if err == nil && version != "" {
 		info(dim("version: %s"), version)
 		return version
@@ -113,8 +118,8 @@ func nixPkgVersion(run runner, pkg string) string {
 	return ""
 }
 
-func nixPkgPlatform(run runner, pkg string) platform {
-	out, err := run.capture("nix", "eval", "--json", ".#"+pkg+".stdenv.hostPlatform.go")
+func nixPkgPlatform(pkg string) platform {
+	out, err := nixCapture("eval", "--json", ".#"+pkg+".stdenv.hostPlatform.go")
 	if err != nil || out == "" {
 		return platform{}
 	}
@@ -133,8 +138,8 @@ func nixPkgPlatform(run runner, pkg string) platform {
 	return p
 }
 
-func nixImageName(run runner, pkg string) string {
-	imageName, err := run.capture("nix", "eval", "--raw", ".#"+pkg+".imageName")
+func nixImageName(pkg string) string {
+	imageName, err := nixCapture("eval", "--raw", ".#"+pkg+".imageName")
 	if err == nil && imageName != "" {
 		info(dim("image name: %s"), imageName)
 		return imageName
@@ -142,8 +147,8 @@ func nixImageName(run runner, pkg string) string {
 	return ""
 }
 
-func nixImageTag(run runner, pkg string) string {
-	imageTag, err := run.capture("nix", "eval", "--raw", ".#"+pkg+".imageTag")
+func nixImageTag(pkg string) string {
+	imageTag, err := nixCapture("eval", "--raw", ".#"+pkg+".imageTag")
 	if err == nil && imageTag != "" {
 		info(dim("image tag: %s"), imageTag)
 		return imageTag
@@ -151,17 +156,17 @@ func nixImageTag(run runner, pkg string) string {
 	return ""
 }
 
-func nixBuild(run runner, pkg string) error {
-	return run.run("nix", "build", ".#"+pkg, "--no-link")
+func nixBuild(pkg string) error {
+	return nixRun("build", ".#"+pkg, "--no-link")
 }
 
-func nixBundleAppImage(run runner, pkg string) (string, error) {
+func nixBundleAppImage(pkg string) (string, error) {
 	tmpLink, err := tempName()
 	if err != nil {
 		return "", err
 	}
 
-	if err := run.run("nix", "bundle", "--bundler", "github:spotdemo4/nur#appimage", ".#"+pkg, "-o", tmpLink); err != nil {
+	if err := nixRun("bundle", "--bundler", "github:spotdemo4/nur#appimage", ".#"+pkg, "-o", tmpLink); err != nil {
 		warn("AppImage bundle failed")
 		return "", err
 	}
@@ -179,4 +184,47 @@ func nixBundleAppImage(run runner, pkg string) (string, error) {
 		return "", os.ErrNotExist
 	}
 	return files[0], nil
+}
+
+func nixRun(args ...string) error {
+	cmd := exec.Command("nix", args...)
+
+	if os.Getenv("DEBUG") != "" {
+		info(nixCommandString(args...))
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	if os.Getenv("CI") != "" {
+		fmt.Fprintf(os.Stderr, "::group::%s\n", nixCommandString(args...))
+		defer fmt.Fprintln(os.Stderr, "::endgroup::")
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
+}
+
+func nixCapture(args ...string) (string, error) {
+	cmd := exec.Command("nix", args...)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if os.Getenv("DEBUG") != "" {
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stderr = io.Discard
+	}
+
+	err := cmd.Run()
+	return strings.TrimRight(stdout.String(), "\n"), err
+}
+
+func nixCommandString(args ...string) string {
+	parts := append([]string{"nix"}, args...)
+	return strings.Join(parts, " ")
 }
