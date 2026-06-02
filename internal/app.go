@@ -203,7 +203,7 @@ func releasePackage(run runner, cfg config, provider releaseProvider, tag string
 		return releaseImage(run, cfg, storePath, imageName, imageTag, p.OS, images)
 	}
 
-	if pname != "" && version != "" && allStatic(run, storePath) {
+	if pname != "" && version != "" && allStatic(storePath) {
 		info("detected as static executable(s)")
 		return releaseStaticAsset(run, cfg, provider, tag, storePath, pname, version, p.OS, p.Arch)
 	}

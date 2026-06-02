@@ -252,6 +252,17 @@ func TestHTTPRequest(t *testing.T) {
 	}
 }
 
+func TestIsStaticRejectsTextExecutable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "script")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if isStatic(path) {
+		t.Fatal("isStatic returned true for text executable")
+	}
+}
+
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }

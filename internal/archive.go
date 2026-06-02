@@ -4,6 +4,9 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/flate"
+	"debug/elf"
+	"debug/macho"
+	"debug/pe"
 	"errors"
 	"io"
 	"io/fs"
@@ -316,23 +319,85 @@ func copyFile(src string, dst string, info fs.FileInfo) error {
 	return os.Chmod(dst, info.Mode().Perm())
 }
 
-func isStatic(run runner, file string) bool {
-	encoding, err := run.capture("file", "-b", "--mime-encoding", file)
-	if err != nil || encoding != "binary" {
+func isStatic(path string) bool {
+	if !executable(path) {
 		return false
 	}
 
-	info, err := run.capture("file", file)
-	return err == nil && !strings.Contains(info, "dynamically linked")
+	if static, err := isStaticELF(path); err == nil {
+		return static
+	}
+	if static, err := isStaticMachO(path); err == nil {
+		return static
+	}
+	if static, err := isStaticPE(path); err == nil {
+		return static
+	}
+	return false
 }
 
-func allStatic(run runner, path string) bool {
+func isStaticELF(path string) (bool, error) {
+	file, err := elf.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	if file.Type != elf.ET_EXEC && file.Type != elf.ET_DYN {
+		return false, nil
+	}
+	for _, program := range file.Progs {
+		if program.Type == elf.PT_INTERP {
+			return false, nil
+		}
+	}
+
+	libraries, err := file.ImportedLibraries()
+	if err == nil && len(libraries) > 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+func isStaticMachO(path string) (bool, error) {
+	file, err := macho.Open(path)
+	if err == nil {
+		defer file.Close()
+		return file.Type == macho.TypeExec, nil
+	}
+
+	fatFile, fatErr := macho.OpenFat(path)
+	if fatErr != nil {
+		return false, err
+	}
+	defer fatFile.Close()
+
+	for _, arch := range fatFile.Arches {
+		if arch.File.Type != macho.TypeExec {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func isStaticPE(path string) (bool, error) {
+	file, err := pe.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	return file.FileHeader.Characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE != 0 &&
+		file.FileHeader.Characteristics&pe.IMAGE_FILE_DLL == 0, nil
+}
+
+func allStatic(path string) bool {
 	stat, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
 	if !stat.IsDir() {
-		return isStatic(run, path)
+		return isStatic(path)
 	}
 
 	binPath := filepath.Join(path, "bin")
@@ -345,7 +410,7 @@ func allStatic(run runner, path string) bool {
 		return false
 	}
 	for _, file := range files {
-		if !isStatic(run, file) {
+		if !isStatic(file) {
 			return false
 		}
 	}

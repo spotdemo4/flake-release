@@ -46,7 +46,6 @@
               gotools
 
               # deps
-              file
               forgejo-cli
               gh
               git
@@ -221,7 +220,6 @@
             ];
 
             runtimeInputs = with pkgs; [
-              file
               forgejo-cli
               gh
               tea
