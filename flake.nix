@@ -61,6 +61,8 @@
 
               # lint
               go-tools
+              nixd
+              nil
 
               # format
               nixfmt
