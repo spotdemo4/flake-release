@@ -101,6 +101,26 @@ func TestGitRepositoryFromOrigin(t *testing.T) {
 	}
 }
 
+func TestGitServerURLFromOrigin(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   string
+	}{
+		{origin: "git@github.com:spotdemo4/flake-release.git", want: "https://github.com"},
+		{origin: "https://github.com/spotdemo4/flake-release.git", want: "https://github.com"},
+		{origin: "http://git.example:3000/owner/project.git", want: "http://git.example:3000"},
+		{origin: "ssh://git@git.example:2222/owner/project.git", want: "https://git.example"},
+		{origin: "file:///home/owner/project.git", want: ""},
+		{origin: "/home/owner/project.git", want: ""},
+	}
+
+	for _, test := range tests {
+		if got := gitServerURLFromOrigin(test.origin); got != test.want {
+			t.Fatalf("gitServerURLFromOrigin(%q) = %q; want %q", test.origin, got, test.want)
+		}
+	}
+}
+
 func TestGitChangelogForCurrentRepositoryTags(t *testing.T) {
 	repo, err := openGitRepository()
 	if err != nil {

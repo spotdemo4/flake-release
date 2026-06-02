@@ -25,7 +25,7 @@ flake-release [packages...]
 | ---------------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
 | GIT_TYPE                     | Host type for release                                                                  | `github` / `gitea` / `forgejo` |
 | GITHUB_REPOSITORY            | Repository to push releases, inferred from `remote.origin.url` when unset              | `spotdemo4/flake-release`      |
-| GITHUB_SERVER_URL            | Server to push releases                                                                | `https://github.com`           |
+| GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                  | `https://github.com`           |
 | GITHUB_ACTOR                 | User for Gitea & Forgejo                                                               | `github-actions[bot]`          |
 | GITHUB_TOKEN                 | Token used to push releases                                                            |                                |
 | REGISTRY                     | Container registry                                                                     | `ghcr.io`                      |

@@ -212,6 +212,29 @@ func gitRepositoryFromOrigin(origin string) string {
 	return repository
 }
 
+func gitServerURLFromOrigin(origin string) string {
+	if parsed, err := url.Parse(origin); err == nil && parsed.Scheme != "" {
+		if parsed.Scheme == "file" || parsed.Host == "" {
+			return ""
+		}
+		switch parsed.Scheme {
+		case "http", "https":
+			return parsed.Scheme + "://" + parsed.Host
+		default:
+			if parsed.Hostname() == "" {
+				return ""
+			}
+			return "https://" + parsed.Hostname()
+		}
+	}
+
+	host := gitOriginSCPHost(origin)
+	if host == "" {
+		return ""
+	}
+	return "https://" + host
+}
+
 func gitOriginPath(origin string) string {
 	if parsed, err := url.Parse(origin); err == nil && parsed.Scheme != "" {
 		if parsed.Scheme == "file" || parsed.Host == "" {
@@ -220,11 +243,24 @@ func gitOriginPath(origin string) string {
 		return parsed.Path
 	}
 
-	prefix, path, ok := strings.Cut(origin, ":")
-	if ok && !strings.Contains(prefix, "/") {
+	_, path, ok := strings.Cut(origin, ":")
+	if ok && gitOriginSCPHost(origin) != "" {
 		return path
 	}
 	return ""
+}
+
+func gitOriginSCPHost(origin string) string {
+	prefix, _, ok := strings.Cut(origin, ":")
+	if !ok || strings.Contains(prefix, "/") {
+		return ""
+	}
+
+	host := prefix
+	if _, value, ok := strings.Cut(host, "@"); ok {
+		host = value
+	}
+	return host
 }
 
 func gitChangelog(tag string) (string, error) {

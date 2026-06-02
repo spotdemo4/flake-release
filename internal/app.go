@@ -60,6 +60,13 @@ func Run(args []string) error {
 		}
 	}
 	info("git repository: %s", firstNonEmpty(cfg.githubRepository, "<none>"))
+	if cfg.githubServerURL == "" {
+		if serverURL := gitServerURLFromOrigin(origin); serverURL != "" {
+			cfg.githubServerURL = serverURL
+			_ = os.Setenv("GITHUB_SERVER_URL", cfg.githubServerURL)
+		}
+	}
+	info("git server: %s", firstNonEmpty(cfg.githubServerURL, "<none>"))
 
 	provider, err := releaseType(origin)
 	if err != nil {
