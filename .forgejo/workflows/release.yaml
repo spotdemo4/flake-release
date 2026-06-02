@@ -35,7 +35,7 @@ jobs:
             images.x86_64-linux.default.x86_64-unknown-linux-musl
             images.x86_64-linux.default.aarch64-unknown-linux-musl
 
-      - name: Publish Go package to Forgejo
+      - name: Release to cache
         run: |
           set -euo pipefail
 
