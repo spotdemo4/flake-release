@@ -128,11 +128,11 @@
             ];
             packages = with pkgs; [
               action-validator
-              octoscan
+              zizmor
             ];
-            forEach = ''
+            script = ''
               action-validator "$file"
-              octoscan scan "$file"
+              zizmor --offline "$file"
             '';
           };
 
@@ -142,7 +142,7 @@
             packages = with pkgs; [
               zizmor
             ];
-            forEach = ''
+            script = ''
               zizmor --offline "$file"
             '';
           };
@@ -164,7 +164,7 @@
             packages = with pkgs; [
               nixfmt
             ];
-            forEach = ''
+            script = ''
               nixfmt --check "$file"
             '';
           };
