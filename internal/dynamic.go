@@ -393,7 +393,8 @@ func copyPathDereference(src string, dst string) error {
 
 	switch {
 	case info.IsDir():
-		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+		mode := info.Mode().Perm() | 0o200
+		if err := os.MkdirAll(dst, mode); err != nil {
 			return err
 		}
 		entries, err := os.ReadDir(src)
@@ -405,7 +406,7 @@ func copyPathDereference(src string, dst string) error {
 				return err
 			}
 		}
-		return os.Chmod(dst, info.Mode().Perm())
+		return os.Chmod(dst, mode)
 	case info.Mode().IsRegular():
 		return copyFile(src, dst, info)
 	default:

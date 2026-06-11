@@ -70,6 +70,40 @@ func TestCopyPathDereference(t *testing.T) {
 	}
 }
 
+func TestCopyPathDereferenceKeepsCopiedDirectoriesWritable(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "src")
+	bin := filepath.Join(src, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "app"), []byte("app"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(bin, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(src, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(bin, 0o755)
+		_ = os.Chmod(src, 0o755)
+	})
+
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := copyPathDereference(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(filepath.Join(dst, "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("copied directory mode = %o; want 755", info.Mode().Perm())
+	}
+}
+
 func TestMakeWritable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(path, []byte("file"), 0o555); err != nil {
