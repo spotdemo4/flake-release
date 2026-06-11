@@ -174,11 +174,17 @@ func bundleDynamicLibraries(bundle string, executables []dynamicExecutable) ([]d
 
 func patchDynamicBundle(executables []dynamicExecutable, libraries []dynamicLibrary, interpreter string) error {
 	for _, executable := range executables {
+		if err := makeWritable(executable.dst); err != nil {
+			return err
+		}
 		if err := patchelf("--set-interpreter", interpreter, "--set-rpath", "$ORIGIN/../lib", executable.dst); err != nil {
 			return err
 		}
 	}
 	for _, library := range libraries {
+		if err := makeWritable(library.dst); err != nil {
+			return err
+		}
 		if err := patchelf("--set-rpath", "$ORIGIN", library.dst); err != nil {
 			return err
 		}
@@ -410,6 +416,14 @@ func copyPathDereference(src string, dst string) error {
 func fileExists(path string) bool {
 	stat, err := os.Stat(path)
 	return err == nil && stat.Mode().IsRegular()
+}
+
+func makeWritable(path string) error {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return os.Chmod(path, stat.Mode().Perm()|0o200)
 }
 
 func patchelf(args ...string) error {

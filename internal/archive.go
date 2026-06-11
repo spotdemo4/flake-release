@@ -303,7 +303,8 @@ func copyFile(src string, dst string, info fs.FileInfo) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	mode := info.Mode().Perm()
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode|0o200)
 	if err != nil {
 		return err
 	}
@@ -316,7 +317,7 @@ func copyFile(src string, dst string, info fs.FileInfo) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Chmod(dst, info.Mode().Perm())
+	return os.Chmod(dst, mode)
 }
 
 func isStatic(path string) bool {

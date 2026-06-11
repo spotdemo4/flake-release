@@ -41,7 +41,7 @@ func TestExpandELFOrigin(t *testing.T) {
 func TestCopyPathDereference(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target")
-	if err := os.WriteFile(target, []byte("target"), 0o600); err != nil {
+	if err := os.WriteFile(target, []byte("target"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(root, "link")
@@ -67,5 +67,23 @@ func TestCopyPathDereference(t *testing.T) {
 	}
 	if string(data) != "target" {
 		t.Fatalf("copied content = %q; want target", data)
+	}
+}
+
+func TestMakeWritable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("file"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := makeWritable(path); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %o; want 755", info.Mode().Perm())
 	}
 }
