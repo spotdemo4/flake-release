@@ -230,6 +230,7 @@
               description = "Flake package releaser";
               license = licenses.mit;
               platforms = platforms.unix;
+              badPlatforms = [ systems.inspect.platformPatterns.isStatic ];
               homepage = "https://trev.zip/llc/flake-release";
               changelog = "https://trev.zip/llc/flake-release/releases/tag/v${final.version}";
             };
@@ -241,6 +242,13 @@
           src = self.packages.${system}.default;
           contents = with pkgs; [ dockerTools.caCertificates ];
           config.Env = [ "DOCKER=true" ];
+        };
+
+        # nix build #appimages.[...]
+        appimages = {
+          default = pkgs.mkAppImage {
+            src = self.packages.${system}.default;
+          };
         };
 
         formatter = pkgs.treefmt.withConfig {
