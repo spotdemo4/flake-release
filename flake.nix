@@ -200,6 +200,7 @@
             tags = goTags;
 
             nativeBuildInputs = with pkgs; [
+              makeWrapper
               pkg-config
             ];
             buildInputs = with pkgs; [
@@ -218,6 +219,10 @@
               go vet ./...
               staticcheck ./...
               modernize -any=false ./...
+            '';
+
+            postInstall = ''
+              wrapProgram $out/bin/flake-release --prefix PATH : ${makeBinPath [ pkgs.patchelf ]}
             '';
 
             meta = {

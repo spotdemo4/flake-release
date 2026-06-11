@@ -6,7 +6,7 @@
 Generates release artifacts for packages in a nix flake:
 
 - `dockerTools.buildLayeredImage` & `dockerTools.streamLayeredImage` can be uploaded to a container registry
-- packages that contain only static executable binaries will be compressed & uploaded to a release directly
+- packages that contain only static or dynamic ELF executable binaries will be compressed & uploaded to a release directly
 - others will be bundled into an AppImage
 
 Works with GitHub, Gitea & Forgejo
