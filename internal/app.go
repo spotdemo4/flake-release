@@ -191,13 +191,9 @@ func releasePackage(cfg config, release releaseClient, tag string, pkg string, s
 	}
 	storePaths[storePath] = true
 
-	if err := nixBuild(pkg); err != nil {
-		warn("build failed")
-		return nil
-	}
-
 	pname := nixPkgPname(pkg)
 	version := nixPkgVersion(pkg)
+	mainProgram := nixPkgMainProgram(pkg)
 	p := nixPkgPlatform(pkg)
 	imageName := nixImageName(pkg)
 	imageTag := nixImageTag(pkg)
@@ -207,48 +203,45 @@ func releasePackage(cfg config, release releaseClient, tag string, pkg string, s
 		return nil
 	}
 
-	if imageName != "" && imageTag != "" && isFile(storePath) && p.OS == "linux" {
-		return releaseImage(cfg, storePath, imageName, imageTag, images)
-	}
-
-	if pname != "" && version != "" && allStatic(storePath) {
-		info("detected as static executable(s)")
-		return releaseStaticAsset(cfg, release, tag, storePath, pname, version, p.OS, p.Arch)
-	}
-
-	if pname != "" && version != "" && p.OS == "linux" && allLinuxExecutables(storePath) && hasDynamicELF(storePath) {
-		info("detected as dynamic executable(s)")
-		return releaseDynamicAsset(cfg, release, tag, storePath, pname, version, p.OS, p.Arch)
-	}
-
-	if pname != "" && version != "" {
-		outputs, err := nixBuildOutputs(pkg)
-		if err != nil {
-			warn("building package outputs failed")
+	if imageName != "" && imageTag != "" && p.OS == "linux" {
+		if err := nixBuild(pkg); err != nil {
+			warn("build failed")
 			return nil
 		}
-		hasExecutables, err := outputsHaveExecutables(outputs)
-		if err != nil {
-			return err
-		}
-		if !hasExecutables {
-			info("detected as package without executables")
-			return releaseOutputsAsset(cfg, release, tag, outputs, pname, version, p.OS, p.Arch)
+		if isFile(storePath) {
+			return releaseImage(cfg, storePath, imageName, imageTag, images)
 		}
 	}
 
-	if pname != "" && version != "" && p.OS == "linux" {
-		info("bundling as AppImage")
-		archivePath, err := nixBundleAppImage(pkg)
-		if err != nil {
-			warn("bundling failed")
-			return nil
-		}
-		return uploadArchive(cfg, release, tag, archivePath, pname, version, p.OS, p.Arch)
+	if pname == "" || version == "" {
+		warn("unknown package type")
+		return nil
 	}
 
-	warn("unknown package type")
-	return nil
+	outputs, err := nixBuildOutputs(pkg)
+	if err != nil {
+		warn("building package outputs failed")
+		return nil
+	}
+
+	if mainProgram != "" && p.OS == "linux" {
+		path := packageMainProgramPath(outputs, mainProgram)
+		switch {
+		case path == "":
+			warn("main program %q was not found; archiving package outputs", mainProgram)
+		case !isNativeBinary(path):
+			info("main program is not a native binary, bundling as AppImage")
+			archivePath, err := nixBundleAppImage(pkg)
+			if err != nil {
+				warn("bundling failed")
+				return nil
+			}
+			return uploadArchive(cfg, release, tag, archivePath, pname, version, p.OS, p.Arch)
+		}
+	}
+
+	info("archiving all package outputs")
+	return releasePackageAsset(cfg, release, tag, outputs, pname, version, p.OS, p.Arch)
 }
 
 func releaseImage(cfg config, storePath string, imageName string, imageTag string, images *bool) error {
@@ -292,30 +285,13 @@ func releaseImage(cfg config, storePath string, imageName string, imageTag strin
 	return nil
 }
 
-func releaseStaticAsset(cfg config, release releaseClient, tag string, storePath string, pname string, version string, osName string, archName string) error {
-	archivePath, err := archive(storePath, osName)
-	if err != nil {
-		warn("archiving failed")
-		return nil
-	}
-	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)
-}
-
-func releaseDynamicAsset(cfg config, release releaseClient, tag string, storePath string, pname string, version string, osName string, archName string) error {
-	archivePath, err := dynamicArchive(storePath, archName)
-	if err != nil {
-		warn("dynamic bundling failed: %v", err)
-		return nil
-	}
-	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)
-}
-
-func releaseOutputsAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string) error {
-	archivePath, err := archiveOutputs(outputs)
+func releasePackageAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string) error {
+	archivePath, err := archiveOutputs(outputs, osName, archName)
 	if err != nil {
 		warn("archiving package outputs failed")
 		return nil
 	}
+	defer deletePath(filepath.Dir(archivePath))
 	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)
 }
 
@@ -324,7 +300,10 @@ func uploadArchive(cfg config, release releaseClient, tag string, archivePath st
 	if err != nil {
 		return err
 	}
-	defer deletePath(asset)
+	defer func() {
+		deletePath(asset)
+		_ = os.Remove(filepath.Dir(asset))
+	}()
 
 	if cfg.dryRun {
 		info("dry run: skipping upload")
@@ -339,4 +318,19 @@ func uploadArchive(cfg config, release releaseClient, tag string, archivePath st
 func isFile(path string) bool {
 	stat, err := os.Stat(filepath.Clean(path))
 	return err == nil && stat.Mode().IsRegular()
+}
+
+func packageMainProgramPath(outputs []packageOutput, mainProgram string) string {
+	for _, outputName := range []string{"bin", "out"} {
+		for _, output := range outputs {
+			if output.Name != outputName {
+				continue
+			}
+			path := filepath.Join(output.Path, "bin", mainProgram)
+			if isFile(path) {
+				return path
+			}
+		}
+	}
+	return ""
 }

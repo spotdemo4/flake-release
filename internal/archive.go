@@ -13,70 +13,41 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
-	"sort"
 	"strings"
 )
 
-func archive(path string, osName string) (string, error) {
-	stat, err := os.Stat(path)
+func archiveOutputs(outputs []packageOutput, osName string, archName string) (string, error) {
+	bundle, err := preparePackageBundle(outputs, osName, archName)
 	if err != nil {
 		return "", err
 	}
-
-	if !stat.IsDir() {
-		info(dim("archive: skipped"))
-		return filepath.EvalSymlinks(path)
-	}
-
-	files, err := findFiles(path)
-	if err != nil {
-		return "", err
-	}
-
-	binPath := filepath.Join(path, "bin")
-	binFiles, _ := findFiles(binPath)
-
-	workdir := path
-	if len(files) == len(binFiles) && len(binFiles) > 0 {
-		workdir = binPath
-	}
+	defer deletePath(bundle)
 
 	outdir, err := os.MkdirTemp("", "flake-release-archive-*")
 	if err != nil {
 		return "", err
 	}
-
-	if len(binFiles) == 1 {
-		info(dim("archive: skipped"))
-		return filepath.EvalSymlinks(binFiles[0])
-	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			deletePath(outdir)
+		}
+	}()
 
 	if osName == "windows" {
 		out := filepath.Join(outdir, "archive.zip")
-		if err := zipDirectory(workdir, out); err != nil {
+		if err := zipDirectory(bundle, out); err != nil {
 			return "", err
 		}
+		cleanup = false
 		return out, nil
 	}
 
 	out := filepath.Join(outdir, "archive.tar.xz")
-	if err := tarXzDirectory(workdir, out); err != nil {
+	if err := tarXzDirectory(bundle, out); err != nil {
 		return "", err
 	}
-	return out, nil
-}
-
-func archiveOutputs(outputs []packageOutput) (string, error) {
-	outdir, err := os.MkdirTemp("", "flake-release-outputs-archive-*")
-	if err != nil {
-		return "", err
-	}
-
-	out := filepath.Join(outdir, "archive.tar.xz")
-	if err := tarXzOutputs(outputs, out); err != nil {
-		return "", err
-	}
+	cleanup = false
 	return out, nil
 }
 
@@ -84,48 +55,6 @@ func tarXzDirectory(root string, out string) error {
 	return writeTarXz(out, func(writer *tar.Writer) error {
 		return writeTarPath(writer, root, "")
 	})
-}
-
-func tarXzOutputs(outputs []packageOutput, out string) error {
-	return writeTarXz(out, func(writer *tar.Writer) error {
-		return writeTarOutputs(writer, outputs)
-	})
-}
-
-func writeTarOutputs(writer *tar.Writer, outputs []packageOutput) error {
-	outputs = append([]packageOutput(nil), outputs...)
-	sort.Slice(outputs, func(i int, j int) bool {
-		return outputs[i].Name < outputs[j].Name
-	})
-
-	for _, output := range outputs {
-		if output.Name == "" || output.Name == "." || output.Name == ".." || filepath.Base(output.Name) != output.Name {
-			return fmt.Errorf("invalid package output name %q", output.Name)
-		}
-
-		stat, err := os.Stat(output.Path)
-		if err != nil {
-			return err
-		}
-		if stat.IsDir() {
-			if err := writeTarPath(writer, output.Path, output.Name); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if err := writer.WriteHeader(&tar.Header{
-			Name:     output.Name + "/",
-			Mode:     0o755,
-			Typeflag: tar.TypeDir,
-		}); err != nil {
-			return err
-		}
-		if err := writeTarPath(writer, output.Path, filepath.Join(output.Name, filepath.Base(output.Path))); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func writeTarXz(out string, writeEntries func(*tar.Writer) error) error {
@@ -244,7 +173,7 @@ func zipDirectory(root string, out string) error {
 		return flate.NewWriter(out, flate.BestCompression)
 	})
 
-	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	if err := filepath.WalkDir(root, func(path string, _ fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -252,7 +181,7 @@ func zipDirectory(root string, out string) error {
 			return nil
 		}
 
-		info, err := os.Stat(path)
+		info, err := os.Lstat(path)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil
@@ -265,25 +194,34 @@ func zipDirectory(root string, out string) error {
 			return err
 		}
 		name = filepath.ToSlash(name)
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = name
 
 		if info.IsDir() {
-			header, err := zip.FileInfoHeader(info)
+			header.Name += "/"
+			_, err = writer.CreateHeader(header)
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			header.Method = zip.Store
+			dst, err := writer.CreateHeader(header)
 			if err != nil {
 				return err
 			}
-			header.Name = name + "/"
-			_, err = writer.CreateHeader(header)
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			_, err = io.WriteString(dst, target)
 			return err
 		}
 		if !info.Mode().IsRegular() {
 			return nil
 		}
 
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-		header.Name = name
 		header.Method = zip.Deflate
 
 		dst, err := writer.CreateHeader(header)
@@ -315,13 +253,33 @@ func zipDirectory(root string, out string) error {
 }
 
 func renameAsset(filepathName string, name string, version string, osName string, arch string) (string, error) {
+	for label, value := range map[string]string{
+		"name": name,
+		"version": version,
+		"operating system": osName,
+		"architecture": arch,
+	} {
+		if !validAssetComponent(value) {
+			return "", fmt.Errorf("invalid asset %s %q", label, value)
+		}
+	}
+
 	filename := filepath.Base(filepathName)
 	ext := strings.TrimPrefix(filepath.Ext(filename), ".")
+	if strings.HasSuffix(strings.ToLower(filename), ".tar.xz") {
+		ext = "tar.xz"
+	}
 
 	outdir, err := os.MkdirTemp("", "flake-release-asset-*")
 	if err != nil {
 		return "", err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			deletePath(outdir)
+		}
+	}()
 
 	var final string
 	if ext != "" {
@@ -338,7 +296,12 @@ func renameAsset(filepathName string, name string, version string, osName string
 	if err := copyPath(filepathName, final); err != nil {
 		return "", err
 	}
+	cleanup = false
 	return final, nil
+}
+
+func validAssetComponent(value string) bool {
+	return value != "." && value != ".." && filepath.Base(value) == value && !strings.ContainsAny(value, `/\`)
 }
 
 func copyPath(src string, dst string) error {
@@ -471,59 +434,6 @@ func isStaticPE(path string) (bool, error) {
 		file.FileHeader.Characteristics&pe.IMAGE_FILE_DLL == 0, nil
 }
 
-func allStatic(path string) bool {
-	stat, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	if !stat.IsDir() {
-		return isStatic(path)
-	}
-
-	binPath := filepath.Join(path, "bin")
-	if stat, err := os.Stat(binPath); err != nil || !stat.IsDir() {
-		return false
-	}
-
-	files, err := findFiles(binPath)
-	if err != nil || len(files) == 0 {
-		return false
-	}
-	for _, file := range files {
-		if !isStatic(file) {
-			return false
-		}
-	}
-	return true
-}
-
-func outputsHaveExecutables(outputs []packageOutput) (bool, error) {
-	for _, output := range outputs {
-		stat, err := os.Stat(output.Path)
-		if err != nil {
-			return false, err
-		}
-		if !stat.IsDir() {
-			if executable(output.Path) {
-				return true, nil
-			}
-			continue
-		}
-
-		files, err := findFiles(filepath.Join(output.Path, "bin"))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return false, err
-		}
-		if slices.ContainsFunc(files, executable) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func findFiles(path string) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -533,7 +443,7 @@ func findFiles(path string) ([]string, error) {
 	var files []string
 	for _, entry := range entries {
 		entryPath := filepath.Join(path, entry.Name())
-		info, err := os.Stat(entryPath)
+		info, err := os.Lstat(entryPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue

@@ -129,6 +129,15 @@ func nixPkgVersion(pkg string) string {
 	return ""
 }
 
+func nixPkgMainProgram(pkg string) string {
+	mainProgram, err := nixCapture("eval", "--raw", ".#"+pkg+".meta.mainProgram")
+	if err == nil && mainProgram != "" {
+		info(dim("main program: %s"), mainProgram)
+		return mainProgram
+	}
+	return ""
+}
+
 func nixPkgPlatform(pkg string) platform {
 	out, err := nixCapture("eval", "--json", ".#"+pkg+".stdenv.hostPlatform.go")
 	if err != nil || out == "" {
@@ -223,6 +232,7 @@ func nixBundleAppImage(pkg string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer deletePath(tmpLink)
 
 	if err := nixRun("bundle", "--bundler", "github:spotdemo4/nur#appimage", ".#"+pkg, "-o", tmpLink); err != nil {
 		warn("AppImage bundle failed")

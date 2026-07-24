@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -21,43 +22,27 @@ type dynamicLibrary struct {
 	dst string
 }
 
-func dynamicArchive(path string, archName string) (string, error) {
-	interpreter, err := linuxInterpreter(archName)
-	if err != nil {
-		return "", err
-	}
-
-	bundle, executables, err := prepareDynamicBundle(path)
-	if err != nil {
-		return "", err
-	}
-	defer deletePath(bundle)
-
-	libraries, err := bundleDynamicLibraries(bundle, executables)
-	if err != nil {
-		return "", err
-	}
-	if err := patchDynamicBundle(executables, libraries, interpreter); err != nil {
-		return "", err
-	}
-
-	outdir, err := os.MkdirTemp("", "flake-release-dynamic-archive-*")
-	if err != nil {
-		return "", err
-	}
-	out := filepath.Join(outdir, "archive.tar.xz")
-	if err := tarXzDirectory(bundle, out); err != nil {
-		return "", err
-	}
-	return out, nil
+type bundledOutput struct {
+	packageOutput
+	root            string
+	flattenedSource string
+	flattenedPath   string
 }
 
-func prepareDynamicBundle(path string) (string, []dynamicExecutable, error) {
-	bundle, err := os.MkdirTemp("", "flake-release-dynamic-*")
-	if err != nil {
-		return "", nil, err
+func preparePackageBundle(outputs []packageOutput, osName string, archName string) (string, error) {
+	if len(outputs) == 0 {
+		return "", errors.New("package has no outputs")
 	}
 
+	outputs = append([]packageOutput(nil), outputs...)
+	sort.Slice(outputs, func(i int, j int) bool {
+		return outputs[i].Name < outputs[j].Name
+	})
+
+	bundle, err := os.MkdirTemp("", "flake-release-package-*")
+	if err != nil {
+		return "", err
+	}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -65,57 +50,162 @@ func prepareDynamicBundle(path string) (string, []dynamicExecutable, error) {
 		}
 	}()
 
-	stat, err := os.Stat(path)
-	if err != nil {
-		return "", nil, err
+	flattenedSource := singleOutputExecutable(outputs)
+	var bundled []bundledOutput
+	for _, output := range outputs {
+		if !validPackageOutputName(output.Name) {
+			return "", fmt.Errorf("invalid package output name %q", output.Name)
+		}
+
+		stat, err := os.Stat(output.Path)
+		if err != nil {
+			return "", err
+		}
+
+		root := filepath.Join(bundle, output.Name)
+		if len(outputs) == 1 && output.Name == "out" {
+			root = bundle
+		}
+		item := bundledOutput{packageOutput: output, root: root}
+
+		switch {
+		case flattenedSource != "":
+			item.flattenedSource = flattenedSource
+			item.flattenedPath = filepath.Join(root, filepath.Base(flattenedSource))
+			resolved, err := filepath.EvalSymlinks(flattenedSource)
+			if err != nil {
+				return "", err
+			}
+			if !pathWithin(resolved, output.Path) && !pathWithin(resolved, "/nix/store") {
+				return "", fmt.Errorf("executable symlink %s points outside its output", flattenedSource)
+			}
+			info, err := os.Stat(flattenedSource)
+			if err != nil {
+				return "", err
+			}
+			if err := copyFile(flattenedSource, item.flattenedPath, info); err != nil {
+				return "", err
+			}
+		case stat.IsDir() && root == bundle:
+			if err := copyDirectoryContents(output.Path, root); err != nil {
+				return "", err
+			}
+		case stat.IsDir():
+			if err := copyPathWritable(output.Path, root); err != nil {
+				return "", err
+			}
+		default:
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				return "", err
+			}
+			item.flattenedSource = output.Path
+			item.flattenedPath = filepath.Join(root, filepath.Base(output.Path))
+			if err := copyPathWritable(output.Path, item.flattenedPath); err != nil {
+				return "", err
+			}
+		}
+		bundled = append(bundled, item)
 	}
 
-	var executables []dynamicExecutable
-	if !stat.IsDir() {
-		binDir := filepath.Join(bundle, "bin")
-		if err := os.MkdirAll(binDir, 0o755); err != nil {
-			return "", nil, err
-		}
-
-		dst := filepath.Join(binDir, filepath.Base(path))
-		if err := copyFile(path, dst, stat); err != nil {
-			return "", nil, err
-		}
-		executables = append(executables, dynamicExecutable{src: path, dst: dst})
-	} else {
-		if err := copyPathDereference(path, bundle); err != nil {
-			return "", nil, err
-		}
-
-		binPath := filepath.Join(path, "bin")
-		files, err := findFiles(binPath)
-		if err != nil {
-			return "", nil, err
-		}
-		for _, file := range files {
-			if dynamic, _ := isDynamicELF(file); !dynamic {
+	if osName == "linux" {
+		for _, output := range bundled {
+			if output.Name != "out" && output.Name != "bin" {
+				continue
+			}
+			executables, err := output.dynamicExecutables()
+			if err != nil {
+				return "", err
+			}
+			if len(executables) == 0 {
 				continue
 			}
 
-			rel, err := filepath.Rel(path, file)
+			interpreter, err := linuxInterpreter(archName)
 			if err != nil {
-				return "", nil, err
+				return "", err
 			}
-			executables = append(executables, dynamicExecutable{
-				src: file,
-				dst: filepath.Join(bundle, rel),
-			})
+			libraries, replacements, err := bundleDynamicLibraries(output.root, executables)
+			if err != nil {
+				return "", err
+			}
+			if err := patchDynamicBundle(output.root, executables, libraries, replacements, interpreter); err != nil {
+				return "", err
+			}
 		}
 	}
 
-	if len(executables) == 0 {
-		return "", nil, errors.New("no dynamic ELF executables found")
-	}
 	cleanup = false
-	return bundle, executables, nil
+	return bundle, nil
 }
 
-func bundleDynamicLibraries(bundle string, executables []dynamicExecutable) ([]dynamicLibrary, error) {
+func singleOutputExecutable(outputs []packageOutput) string {
+	if len(outputs) != 1 || outputs[0].Name != "out" {
+		return ""
+	}
+	stat, err := os.Stat(outputs[0].Path)
+	if err != nil || !stat.IsDir() {
+		return ""
+	}
+	files, err := findFiles(outputs[0].Path)
+	if err != nil || len(files) != 1 || !executable(files[0]) {
+		return ""
+	}
+	relative, err := filepath.Rel(outputs[0].Path, files[0])
+	if err != nil || filepath.Dir(relative) != "bin" {
+		return ""
+	}
+	return files[0]
+}
+
+func (output bundledOutput) dynamicExecutables() ([]dynamicExecutable, error) {
+	stat, err := os.Stat(output.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	if stat.IsDir() {
+		files, err = findFiles(filepath.Join(output.Path, "bin"))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		files = []string{output.Path}
+	}
+
+	var executables []dynamicExecutable
+	for _, file := range files {
+		if !isDynamicELFPath(file) {
+			continue
+		}
+
+		dst := output.flattenedPath
+		if file != output.flattenedSource {
+			relative, err := filepath.Rel(output.Path, file)
+			if err != nil {
+				return nil, err
+			}
+			dst = filepath.Join(output.root, relative)
+		}
+		relativeParent, err := filepath.Rel(output.root, filepath.Dir(dst))
+		if err != nil {
+			return nil, err
+		}
+		if err := materializeDirectoryTree(output.root, relativeParent); err != nil {
+			return nil, err
+		}
+		if err := materializeDynamicExecutable(file, dst, output.Path); err != nil {
+			return nil, err
+		}
+		executables = append(executables, dynamicExecutable{src: file, dst: dst})
+	}
+	return executables, nil
+}
+
+func bundleDynamicLibraries(bundle string, executables []dynamicExecutable) ([]dynamicLibrary, map[string]string, error) {
 	libDir := filepath.Join(bundle, "lib")
 	copied := map[string]string{}
 	queued := make([]string, 0, len(executables))
@@ -124,65 +214,98 @@ func bundleDynamicLibraries(bundle string, executables []dynamicExecutable) ([]d
 	}
 
 	var libraries []dynamicLibrary
+	replacements := map[string]string{}
 	for len(queued) > 0 {
 		path := queued[0]
 		queued = queued[1:]
 
 		dependencies, err := elfDependencies(path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, dependency := range dependencies {
-			if isGlibcLibrary(dependency) {
+			name, err := libraryBundleName(dependency)
+			if err != nil {
+				return nil, nil, err
+			}
+			if name != dependency {
+				replacements[dependency] = name
+			}
+			if isGlibcLibrary(name) {
 				continue
 			}
 
 			lib, err := resolveELFLibrary(path, dependency)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			realLib, err := filepath.EvalSymlinks(lib)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
-			if existing, ok := copied[dependency]; ok {
+			if existing, ok := copied[name]; ok {
 				if existing != realLib {
-					return nil, fmt.Errorf("conflicting libraries for %s: %s and %s", dependency, existing, realLib)
+					return nil, nil, fmt.Errorf("conflicting libraries for %s: %s and %s", name, existing, realLib)
 				}
 				continue
 			}
 
-			if err := os.MkdirAll(libDir, 0o755); err != nil {
-				return nil, err
+			if err := materializeDirectoryTree(bundle, "lib"); err != nil {
+				return nil, nil, err
 			}
 			info, err := os.Stat(lib)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
-			dst := filepath.Join(libDir, dependency)
+			dst := filepath.Join(libDir, name)
+			if info, err := os.Lstat(dst); err == nil && info.Mode()&os.ModeSymlink != 0 {
+				if err := os.Remove(dst); err != nil {
+					return nil, nil, err
+				}
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, nil, err
+			}
 			if err := copyFile(lib, dst, info); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
-			copied[dependency] = realLib
+			copied[name] = realLib
 			queued = append(queued, lib)
 			libraries = append(libraries, dynamicLibrary{src: lib, dst: dst})
 		}
 	}
-	return libraries, nil
+	return libraries, replacements, nil
 }
 
-func patchDynamicBundle(executables []dynamicExecutable, libraries []dynamicLibrary, interpreter string) error {
+func libraryBundleName(dependency string) (string, error) {
+	name := filepath.Base(filepath.Clean(dependency))
+	if name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid ELF dependency %q", dependency)
+	}
+	return name, nil
+}
+
+func patchDynamicBundle(root string, executables []dynamicExecutable, libraries []dynamicLibrary, replacements map[string]string, interpreter string) error {
 	for _, executable := range executables {
 		if err := makeWritable(executable.dst); err != nil {
 			return err
 		}
-		if err := patchelf("--set-interpreter", interpreter, "--set-rpath", "$ORIGIN/../lib", executable.dst); err != nil {
+		rpath, err := dynamicRPath(root, executable.dst)
+		if err != nil {
+			return err
+		}
+		if err := patchELFDependencies(executable.dst, replacements); err != nil {
+			return err
+		}
+		if err := patchelf("--set-interpreter", interpreter, "--set-rpath", rpath, executable.dst); err != nil {
 			return err
 		}
 	}
 	for _, library := range libraries {
 		if err := makeWritable(library.dst); err != nil {
+			return err
+		}
+		if err := patchELFDependencies(library.dst, replacements); err != nil {
 			return err
 		}
 		if err := patchelf("--set-rpath", "$ORIGIN", library.dst); err != nil {
@@ -192,46 +315,185 @@ func patchDynamicBundle(executables []dynamicExecutable, libraries []dynamicLibr
 	return nil
 }
 
-func allLinuxExecutables(path string) bool {
-	stat, err := os.Stat(path)
-	if err != nil {
-		return false
+func patchELFDependencies(path string, replacements map[string]string) error {
+	names := make([]string, 0, len(replacements))
+	for name := range replacements {
+		names = append(names, name)
 	}
-	if !stat.IsDir() {
-		return isStatic(path) || isDynamicELFPath(path)
-	}
-
-	binPath := filepath.Join(path, "bin")
-	if stat, err := os.Stat(binPath); err != nil || !stat.IsDir() {
-		return false
-	}
-
-	files, err := findFiles(binPath)
-	if err != nil || len(files) == 0 {
-		return false
-	}
-	for _, file := range files {
-		if !isStatic(file) && !isDynamicELFPath(file) {
-			return false
+	sort.Strings(names)
+	for _, name := range names {
+		if err := patchelf("--replace-needed", name, replacements[name], path); err != nil {
+			return err
 		}
 	}
-	return true
+	return nil
 }
 
-func hasDynamicELF(path string) bool {
-	stat, err := os.Stat(path)
+func dynamicRPath(root string, executablePath string) (string, error) {
+	relative, err := filepath.Rel(filepath.Dir(executablePath), filepath.Join(root, "lib"))
 	if err != nil {
-		return false
+		return "", err
 	}
-	if !stat.IsDir() {
-		return isDynamicELFPath(path)
+	if relative == "." {
+		return "$ORIGIN", nil
+	}
+	return "$ORIGIN/" + filepath.ToSlash(relative), nil
+}
+
+func isNativeBinary(path string) bool {
+	return isStatic(path) || isDynamicELFPath(path)
+}
+
+func validPackageOutputName(name string) bool {
+	return name != "" && name != "." && name != ".." && filepath.Base(name) == name && !strings.ContainsAny(name, `/\`)
+}
+
+func copyDirectoryContents(src string, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := copyPathWritable(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyPathWritable(src string, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
 	}
 
-	files, err := findFiles(filepath.Join(path, "bin"))
-	if err != nil {
-		return false
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, dst)
+	case info.IsDir():
+		mode := info.Mode().Perm() | 0o200
+		if err := os.MkdirAll(dst, mode); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if err := copyPathWritable(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+				return err
+			}
+		}
+		return os.Chmod(dst, mode)
+	case info.Mode().IsRegular():
+		return copyFile(src, dst, info)
+	default:
+		return errors.New("unsupported file type: " + src)
 	}
-	return slices.ContainsFunc(files, isDynamicELFPath)
+}
+
+func materializeDynamicExecutable(src string, dst string, sourceRoot string) error {
+	info, err := os.Lstat(dst)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	resolved, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+	if !pathWithin(resolved, sourceRoot) && !pathWithin(resolved, "/nix/store") {
+		return fmt.Errorf("executable symlink %s points outside its output", src)
+	}
+	if err := os.Remove(dst); err != nil {
+		return err
+	}
+	info, err = os.Stat(src)
+	if err != nil {
+		return err
+	}
+	return copyFile(src, dst, info)
+}
+
+func materializeDirectoryTree(root string, relative string) error {
+	relative = filepath.Clean(relative)
+	if relative == "." {
+		return nil
+	}
+	if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("directory %q escapes bundle root", relative)
+	}
+
+	current := root
+	for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			if err := os.Mkdir(current, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return err
+			}
+			if !pathWithin(resolved, root) && !pathWithin(resolved, "/nix/store") {
+				return fmt.Errorf("directory symlink %s points outside the bundle", current)
+			}
+			if pathWithin(current, resolved) {
+				return fmt.Errorf("directory symlink %s points to an ancestor", current)
+			}
+			resolvedInfo, err := os.Stat(resolved)
+			if err != nil {
+				return err
+			}
+			if !resolvedInfo.IsDir() {
+				return fmt.Errorf("directory symlink %s does not point to a directory", current)
+			}
+
+			temporary, err := os.MkdirTemp("", "flake-release-directory-*")
+			if err != nil {
+				return err
+			}
+			if err := copyDirectoryContents(resolved, temporary); err != nil {
+				deletePath(temporary)
+				return err
+			}
+			if err := os.Chmod(temporary, resolvedInfo.Mode().Perm()|0o200); err != nil {
+				deletePath(temporary)
+				return err
+			}
+			if err := os.Remove(current); err != nil {
+				deletePath(temporary)
+				return err
+			}
+			if err := os.Rename(temporary, current); err != nil {
+				deletePath(temporary)
+				return err
+			}
+			continue
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("bundle path %s is not a directory", current)
+		}
+	}
+	return nil
+}
+
+func pathWithin(path string, root string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func isDynamicELFPath(path string) bool {
@@ -382,35 +644,6 @@ func linuxInterpreter(archName string) (string, error) {
 		return "/lib/ld64.so.1", nil
 	default:
 		return "", fmt.Errorf("unsupported linux architecture %q", archName)
-	}
-}
-
-func copyPathDereference(src string, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	switch {
-	case info.IsDir():
-		mode := info.Mode().Perm() | 0o200
-		if err := os.MkdirAll(dst, mode); err != nil {
-			return err
-		}
-		entries, err := os.ReadDir(src)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if err := copyPathDereference(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
-				return err
-			}
-		}
-		return os.Chmod(dst, mode)
-	case info.Mode().IsRegular():
-		return copyFile(src, dst, info)
-	default:
-		return errors.New("unsupported file type: " + src)
 	}
 }
 
