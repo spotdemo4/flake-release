@@ -3,6 +3,7 @@ package flakerelease
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -17,6 +19,15 @@ import (
 type platform struct {
 	OS   string `json:"GOOS"`
 	Arch string `json:"GOARCH"`
+}
+
+type packageOutput struct {
+	Name string
+	Path string
+}
+
+type nixBuildResult struct {
+	Outputs map[string]string `json:"outputs"`
 }
 
 func setupNixConfig() {
@@ -160,6 +171,53 @@ func nixBuild(pkg string) error {
 	return nixRun("build", ".#"+pkg, "--no-link")
 }
 
+func nixBuildOutputs(pkg string) ([]packageOutput, error) {
+	out, err := nixCaptureLogged("build", ".#"+pkg+"^*", "--no-link", "--json")
+	if err != nil {
+		return nil, err
+	}
+	outputs, err := parseNixBuildOutputs(out)
+	if err != nil {
+		return nil, err
+	}
+	for _, output := range outputs {
+		info(dim("output %s: %s"), output.Name, output.Path)
+	}
+	return outputs, nil
+}
+
+func parseNixBuildOutputs(out string) ([]packageOutput, error) {
+	var results []nixBuildResult
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		return nil, err
+	}
+
+	paths := map[string]string{}
+	for _, result := range results {
+		for name, path := range result.Outputs {
+			if name == "" || path == "" {
+				continue
+			}
+			if previous := paths[name]; previous != "" && previous != path {
+				return nil, fmt.Errorf("nix build returned conflicting paths for output %q", name)
+			}
+			paths[name] = path
+		}
+	}
+	if len(paths) == 0 {
+		return nil, errors.New("nix build returned no package outputs")
+	}
+
+	outputs := make([]packageOutput, 0, len(paths))
+	for name, path := range paths {
+		outputs = append(outputs, packageOutput{Name: name, Path: path})
+	}
+	sort.Slice(outputs, func(i int, j int) bool {
+		return outputs[i].Name < outputs[j].Name
+	})
+	return outputs, nil
+}
+
 func nixBundleAppImage(pkg string) (string, error) {
 	tmpLink, err := tempName()
 	if err != nil {
@@ -215,6 +273,26 @@ func nixCapture(args ...string) (string, error) {
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if os.Getenv("DEBUG") != "" {
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stderr = io.Discard
+	}
+
+	err := cmd.Run()
+	return strings.TrimRight(stdout.String(), "\n"), err
+}
+
+func nixCaptureLogged(args ...string) (string, error) {
+	cmd := exec.Command("nix", args...)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if os.Getenv("DEBUG") != "" {
+		info(nixCommandString(args...))
+		cmd.Stderr = os.Stderr
+	} else if os.Getenv("CI") != "" {
+		fmt.Fprintf(os.Stderr, "::group::%s\n", nixCommandString(args...))
+		defer fmt.Fprintln(os.Stderr, "::endgroup::")
 		cmd.Stderr = os.Stderr
 	} else {
 		cmd.Stderr = io.Discard

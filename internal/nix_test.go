@@ -35,3 +35,30 @@ func TestNixCommandString(t *testing.T) {
 		t.Fatalf("nixCommandString() = %q; want %q", got, want)
 	}
 }
+
+func TestParseNixBuildOutputs(t *testing.T) {
+	outputs, err := parseNixBuildOutputs(`[{"drvPath":"/nix/store/package.drv","outputs":{"out":"/nix/store/package","doc":"/nix/store/package-doc","dev":"/nix/store/package-dev"}}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []packageOutput{
+		{Name: "dev", Path: "/nix/store/package-dev"},
+		{Name: "doc", Path: "/nix/store/package-doc"},
+		{Name: "out", Path: "/nix/store/package"},
+	}
+	if len(outputs) != len(want) {
+		t.Fatalf("output count = %d; want %d", len(outputs), len(want))
+	}
+	for index := range want {
+		if outputs[index] != want[index] {
+			t.Fatalf("output %d = %#v; want %#v", index, outputs[index], want[index])
+		}
+	}
+}
+
+func TestParseNixBuildOutputsRejectsEmptyOutputs(t *testing.T) {
+	if _, err := parseNixBuildOutputs(`[{"outputs":{}}]`); err == nil {
+		t.Fatal("parseNixBuildOutputs returned no error for empty outputs")
+	}
+}

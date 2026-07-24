@@ -221,6 +221,22 @@ func releasePackage(cfg config, release releaseClient, tag string, pkg string, s
 		return releaseDynamicAsset(cfg, release, tag, storePath, pname, version, p.OS, p.Arch)
 	}
 
+	if pname != "" && version != "" {
+		outputs, err := nixBuildOutputs(pkg)
+		if err != nil {
+			warn("building package outputs failed")
+			return nil
+		}
+		hasExecutables, err := outputsHaveExecutables(outputs)
+		if err != nil {
+			return err
+		}
+		if !hasExecutables {
+			info("detected as package without executables")
+			return releaseOutputsAsset(cfg, release, tag, outputs, pname, version, p.OS, p.Arch)
+		}
+	}
+
 	if pname != "" && version != "" && p.OS == "linux" {
 		info("bundling as AppImage")
 		archivePath, err := nixBundleAppImage(pkg)
@@ -289,6 +305,15 @@ func releaseDynamicAsset(cfg config, release releaseClient, tag string, storePat
 	archivePath, err := dynamicArchive(storePath, archName)
 	if err != nil {
 		warn("dynamic bundling failed: %v", err)
+		return nil
+	}
+	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)
+}
+
+func releaseOutputsAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string) error {
+	archivePath, err := archiveOutputs(outputs)
+	if err != nil {
+		warn("archiving package outputs failed")
 		return nil
 	}
 	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)

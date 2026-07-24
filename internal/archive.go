@@ -8,10 +8,13 @@ import (
 	"debug/macho"
 	"debug/pe"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -64,7 +67,68 @@ func archive(path string, osName string) (string, error) {
 	return out, nil
 }
 
+func archiveOutputs(outputs []packageOutput) (string, error) {
+	outdir, err := os.MkdirTemp("", "flake-release-outputs-archive-*")
+	if err != nil {
+		return "", err
+	}
+
+	out := filepath.Join(outdir, "archive.tar.xz")
+	if err := tarXzOutputs(outputs, out); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
 func tarXzDirectory(root string, out string) error {
+	return writeTarXz(out, func(writer *tar.Writer) error {
+		return writeTarPath(writer, root, "")
+	})
+}
+
+func tarXzOutputs(outputs []packageOutput, out string) error {
+	return writeTarXz(out, func(writer *tar.Writer) error {
+		return writeTarOutputs(writer, outputs)
+	})
+}
+
+func writeTarOutputs(writer *tar.Writer, outputs []packageOutput) error {
+	outputs = append([]packageOutput(nil), outputs...)
+	sort.Slice(outputs, func(i int, j int) bool {
+		return outputs[i].Name < outputs[j].Name
+	})
+
+	for _, output := range outputs {
+		if output.Name == "" || output.Name == "." || output.Name == ".." || filepath.Base(output.Name) != output.Name {
+			return fmt.Errorf("invalid package output name %q", output.Name)
+		}
+
+		stat, err := os.Stat(output.Path)
+		if err != nil {
+			return err
+		}
+		if stat.IsDir() {
+			if err := writeTarPath(writer, output.Path, output.Name); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := writer.WriteHeader(&tar.Header{
+			Name:     output.Name + "/",
+			Mode:     0o755,
+			Typeflag: tar.TypeDir,
+		}); err != nil {
+			return err
+		}
+		if err := writeTarPath(writer, output.Path, filepath.Join(output.Name, filepath.Base(output.Path))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeTarXz(out string, writeEntries func(*tar.Writer) error) error {
 	file, err := os.Create(out)
 	if err != nil {
 		return err
@@ -82,56 +146,7 @@ func tarXzDirectory(root string, out string) error {
 	}
 	tarWriter := tar.NewWriter(xzWriter)
 
-	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == root {
-			return nil
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-
-		name, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		name = filepath.ToSlash(name)
-
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return err
-		}
-		header.Name = name
-		if info.IsDir() {
-			header.Name += "/"
-		}
-
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-
-		src, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-
-		_, copyErr := io.Copy(tarWriter, src)
-		closeErr := src.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		return closeErr
-	}); err != nil {
+	if err := writeEntries(tarWriter); err != nil {
 		_ = tarWriter.Close()
 		_ = xzWriter.Close()
 		return err
@@ -146,6 +161,70 @@ func tarXzDirectory(root string, out string) error {
 	}
 	closed = true
 	return file.Close()
+}
+
+func writeTarPath(writer *tar.Writer, root string, archiveRoot string) error {
+	return filepath.WalkDir(root, func(path string, _ fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root && archiveRoot == "" {
+			return nil
+		}
+
+		info, err := os.Lstat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+
+		name := archiveRoot
+		if path != root {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			name = filepath.Join(archiveRoot, relative)
+		}
+		name = filepath.ToSlash(name)
+
+		link := ""
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err = os.Readlink(path)
+			if err != nil {
+				return err
+			}
+		}
+		header, err := tar.FileInfoHeader(info, link)
+		if err != nil {
+			return err
+		}
+		header.Name = name
+		if info.IsDir() {
+			header.Name += "/"
+		}
+
+		if err := writer.WriteHeader(header); err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+
+		_, copyErr := io.Copy(writer, src)
+		closeErr := src.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
 }
 
 func zipDirectory(root string, out string) error {
@@ -407,7 +486,7 @@ func allStatic(path string) bool {
 	}
 
 	files, err := findFiles(binPath)
-	if err != nil {
+	if err != nil || len(files) == 0 {
 		return false
 	}
 	for _, file := range files {
@@ -416,6 +495,33 @@ func allStatic(path string) bool {
 		}
 	}
 	return true
+}
+
+func outputsHaveExecutables(outputs []packageOutput) (bool, error) {
+	for _, output := range outputs {
+		stat, err := os.Stat(output.Path)
+		if err != nil {
+			return false, err
+		}
+		if !stat.IsDir() {
+			if executable(output.Path) {
+				return true, nil
+			}
+			continue
+		}
+
+		files, err := findFiles(filepath.Join(output.Path, "bin"))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if slices.ContainsFunc(files, executable) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func findFiles(path string) ([]string, error) {
