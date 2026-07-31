@@ -184,7 +184,7 @@
         packages.default = pkgs.buildGoModule (
           final: with pkgs.lib; {
             pname = "flake-release";
-            version = "0.20.3";
+            version = "0.21.0";
 
             src = fileset.toSource {
               root = ./.;
