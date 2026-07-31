@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
 	"io"
@@ -174,7 +175,7 @@ func TestPreparePackageBundleMultipleOutputs(t *testing.T) {
 	want := map[string]string{
 		"dev/include/app/api.h":        "header",
 		"doc/share/doc/app/readme.md": "documentation",
-		"out/share/app/data.txt":       "runtime",
+		"share/app/data.txt":           "runtime",
 	}
 	for name, wantContent := range want {
 		got, err := os.ReadFile(filepath.Join(bundle, filepath.FromSlash(name)))
@@ -184,6 +185,9 @@ func TestPreparePackageBundleMultipleOutputs(t *testing.T) {
 		if string(got) != wantContent {
 			t.Fatalf("bundle entry %q = %q; want %q", name, got, wantContent)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "out")); !os.IsNotExist(err) {
+		t.Fatalf("bundle out directory error = %v; want not found", err)
 	}
 }
 
@@ -286,7 +290,7 @@ func TestPreparePackageBundleRetainsBinWithOtherContent(t *testing.T) {
 	}
 }
 
-func TestPreparePackageBundleRetainsOutputRoots(t *testing.T) {
+func TestPreparePackageBundleFlattensOutWithOtherOutputs(t *testing.T) {
 	root := t.TempDir()
 	out := filepath.Join(root, "out")
 	executablePath := filepath.Join(out, "bin", "tool")
@@ -307,21 +311,32 @@ func TestPreparePackageBundleRetainsOutputRoots(t *testing.T) {
 	}
 	defer deletePath(bundle)
 
-	if _, err := os.Stat(filepath.Join(bundle, "out", "bin", "tool")); err != nil {
+	if _, err := os.Stat(filepath.Join(bundle, "bin", "tool")); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "out")); !os.IsNotExist(err) {
+		t.Fatalf("bundle out directory error = %v; want not found", err)
 	}
 }
 
 func TestArchiveOutputsUsesZipForWindows(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "out")
+	root := t.TempDir()
+	out := filepath.Join(root, "out")
 	if err := os.MkdirAll(filepath.Join(out, "share"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(out, "share", "data"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	dev := filepath.Join(root, "dev")
+	if err := os.MkdirAll(filepath.Join(dev, "include"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dev, "include", "api.h"), []byte("header"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: out}}, "windows", "amd64")
+	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: out}, {Name: "dev", Path: dev}}, "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,8 +349,76 @@ func TestArchiveOutputsUsesZipForWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	if len(reader.File) != 2 || reader.File[1].Name != "share/data" {
-		t.Fatalf("zip entries = %v; want share/data", reader.File)
+
+	entries := map[string]bool{}
+	for _, file := range reader.File {
+		entries[file.Name] = true
+	}
+	for _, name := range []string{"share/data", "dev/include/api.h"} {
+		if !entries[name] {
+			t.Errorf("zip entry %q not found in %v", name, entries)
+		}
+	}
+	for name := range entries {
+		if strings.HasPrefix(name, "out/") {
+			t.Errorf("unexpected nested out entry %q", name)
+		}
+	}
+}
+
+func TestWriteTarPathUsesBundleLayout(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "out")
+	if err := os.MkdirAll(filepath.Join(out, "share"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "share", "data"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dev := filepath.Join(root, "dev")
+	if err := os.MkdirAll(filepath.Join(dev, "include"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dev, "include", "api.h"), []byte("header"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := preparePackageBundle([]packageOutput{{Name: "out", Path: out}, {Name: "dev", Path: dev}}, "windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(bundle)
+
+	var data bytes.Buffer
+	writer := tar.NewWriter(&data)
+	if err := writeTarPath(writer, bundle, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := map[string]bool{}
+	reader := tar.NewReader(bytes.NewReader(data.Bytes()))
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[header.Name] = true
+	}
+	for _, name := range []string{"share/data", "dev/include/api.h"} {
+		if !entries[name] {
+			t.Errorf("tar entry %q not found in %v", name, entries)
+		}
+	}
+	for name := range entries {
+		if strings.HasPrefix(name, "out/") {
+			t.Errorf("unexpected nested out entry %q", name)
+		}
 	}
 }
 

@@ -63,7 +63,7 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 		}
 
 		root := filepath.Join(bundle, output.Name)
-		if len(outputs) == 1 && output.Name == "out" {
+		if output.Name == "out" {
 			root = bundle
 		}
 		item := bundledOutput{packageOutput: output, root: root}
