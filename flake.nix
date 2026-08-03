@@ -196,7 +196,7 @@
             };
             goSum = ./go.sum;
             proxyVendor = true;
-            vendorHash = "sha256-wNmYo5GlrrK03Qa7lj9gofhwEoVHtoDvaibkDseglE4=";
+            vendorHash = "sha256-xvMY02XuWiELCqK4KL9cV9mUOczDc0FowZnGOUT0NoA=";
             tags = goTags;
 
             nativeBuildInputs = with pkgs; [
