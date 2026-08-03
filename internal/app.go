@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,39 @@ type config struct {
 	registry                  string
 	registryUsername          string
 	registryPassword          string
+}
+
+type releaseSession struct {
+	cfg               config
+	client            releaseClient
+	tag               string
+	changelog         string
+	hasOutput         bool
+	creationAttempted bool
+	created           bool
+}
+
+func (session *releaseSession) ensureRelease() {
+	session.hasOutput = true
+	if session.creationAttempted {
+		return
+	}
+	session.creationAttempted = true
+
+	if session.cfg.dryRun {
+		info("dry run: skipping release creation")
+	} else if err := session.client.createRelease(session.tag, session.changelog); err != nil {
+		warn("could not create release %s", session.tag)
+	} else {
+		session.created = true
+	}
+}
+
+func (session releaseSession) requireOutput() error {
+	if !session.hasOutput {
+		return errors.New("no releasable package outputs found")
+	}
+	return nil
 }
 
 func Run(args []string) error {
@@ -118,15 +152,7 @@ func Run(args []string) error {
 		return err
 	}
 	defer deletePath(changelog)
-
-	releaseCreated := false
-	if cfg.dryRun {
-		info("dry run: skipping release creation")
-	} else if err := release.createRelease(tag, changelog); err != nil {
-		warn("could not create release %s", tag)
-	} else {
-		releaseCreated = true
-	}
+	session := releaseSession{cfg: cfg, client: release, tag: tag, changelog: changelog}
 
 	if len(packages) == 0 {
 		system, err := nixSystem()
@@ -139,9 +165,12 @@ func Run(args []string) error {
 	images := false
 	storePaths := map[string]bool{}
 	for _, pkg := range packages {
-		if err := releasePackage(cfg, release, tag, pkg, storePaths, &images); err != nil {
+		if err := releasePackage(cfg, release, tag, pkg, storePaths, session.ensureRelease, &images); err != nil {
 			warn("%v", err)
 		}
+	}
+	if err := session.requireOutput(); err != nil {
+		return err
 	}
 
 	info("")
@@ -160,7 +189,7 @@ func Run(args []string) error {
 		switch {
 		case cfg.dryRun:
 			info("dry run: skipping old release artifact cleanup")
-		case !releaseCreated:
+		case !session.created:
 			info("old release artifact cleanup requested, but no new release was created")
 		default:
 			if err := release.cleanupAssets(tag); err != nil {
@@ -177,7 +206,7 @@ func Run(args []string) error {
 	return nil
 }
 
-func releasePackage(cfg config, release releaseClient, tag string, pkg string, storePaths map[string]bool, images *bool) error {
+func releasePackage(cfg config, release releaseClient, tag string, pkg string, storePaths map[string]bool, ensureRelease func(), images *bool) error {
 	info("")
 	info("evaluating %s", bold(pkg))
 
@@ -209,7 +238,7 @@ func releasePackage(cfg config, release releaseClient, tag string, pkg string, s
 			return nil
 		}
 		if isFile(storePath) {
-			return releaseImage(cfg, storePath, imageName, imageTag, images)
+			return releaseImage(cfg, storePath, imageName, imageTag, ensureRelease, images)
 		}
 	}
 
@@ -236,17 +265,16 @@ func releasePackage(cfg config, release releaseClient, tag string, pkg string, s
 				warn("bundling failed")
 				return nil
 			}
-			return uploadArchive(cfg, release, tag, archivePath, pname, version, p.OS, p.Arch)
+			return uploadArchive(cfg, release, tag, archivePath, pname, version, p.OS, p.Arch, ensureRelease)
 		}
 	}
 
 	info("archiving all package outputs")
-	return releasePackageAsset(cfg, release, tag, outputs, pname, version, p.OS, p.Arch)
+	return releasePackageAsset(cfg, release, tag, outputs, pname, version, p.OS, p.Arch, ensureRelease)
 }
 
-func releaseImage(cfg config, storePath string, imageName string, imageTag string, images *bool) error {
+func releaseImage(cfg config, storePath string, imageName string, imageTag string, ensureRelease func(), images *bool) error {
 	info("detected as image %s", bold(imageName+":"+imageTag))
-	*images = true
 
 	imagePath := storePath
 	if strings.HasSuffix(storePath, ".tar.gz") {
@@ -268,6 +296,8 @@ func releaseImage(cfg config, storePath string, imageName string, imageTag strin
 		return err
 	}
 	info("image arch: %s", arch)
+	*images = true
+	ensureRelease()
 
 	if imageExists(cfg, imageTag, arch) {
 		warn("image already exists, skipping upload")
@@ -285,17 +315,17 @@ func releaseImage(cfg config, storePath string, imageName string, imageTag strin
 	return nil
 }
 
-func releasePackageAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string) error {
+func releasePackageAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string, ensureRelease func()) error {
 	archivePath, err := archiveOutputs(outputs, osName, archName)
 	if err != nil {
 		warn("archiving package outputs failed")
 		return nil
 	}
 	defer deletePath(filepath.Dir(archivePath))
-	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName)
+	return uploadArchive(cfg, release, tag, archivePath, pname, version, osName, archName, ensureRelease)
 }
 
-func uploadArchive(cfg config, release releaseClient, tag string, archivePath string, pname string, version string, osName string, archName string) error {
+func uploadArchive(cfg config, release releaseClient, tag string, archivePath string, pname string, version string, osName string, archName string, ensureRelease func()) error {
 	asset, err := renameAsset(archivePath, pname, version, osName, archName)
 	if err != nil {
 		return err
@@ -304,6 +334,7 @@ func uploadArchive(cfg config, release releaseClient, tag string, archivePath st
 		deletePath(asset)
 		_ = os.Remove(filepath.Dir(asset))
 	}()
+	ensureRelease()
 
 	if cfg.dryRun {
 		info("dry run: skipping upload")

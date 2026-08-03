@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+type recordingReleaseClient struct {
+	createCalls int
+}
+
+func (client *recordingReleaseClient) createRelease(_ string, _ string) error {
+	client.createCalls++
+	return nil
+}
+
+func (*recordingReleaseClient) uploadAsset(_ string, _ string) error {
+	return nil
+}
+
+func (*recordingReleaseClient) cleanupAssets(_ string) error {
+	return nil
+}
+
 func TestRunHelp(t *testing.T) {
 	t.Setenv("CI", "")
 	t.Setenv("DOCKER", "")
@@ -13,6 +30,53 @@ func TestRunHelp(t *testing.T) {
 
 	if err := Run([]string{"--help"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReleaseSessionRejectsRunWithoutOutputs(t *testing.T) {
+	client := &recordingReleaseClient{}
+	session := releaseSession{client: client, tag: "v1.0.0"}
+
+	if err := session.requireOutput(); err == nil {
+		t.Fatal("release session returned no error without outputs")
+	}
+	if client.createCalls != 0 {
+		t.Fatalf("release creation calls = %d; want 0", client.createCalls)
+	}
+}
+
+func TestReleaseSessionCreatesReleaseOnce(t *testing.T) {
+	client := &recordingReleaseClient{}
+	session := releaseSession{client: client, tag: "v1.0.0"}
+
+	session.ensureRelease()
+	session.ensureRelease()
+
+	if err := session.requireOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if client.createCalls != 1 {
+		t.Fatalf("release creation calls = %d; want 1", client.createCalls)
+	}
+	if !session.created {
+		t.Fatal("release session did not record the created release")
+	}
+}
+
+func TestReleaseSessionDryRunRecordsOutputWithoutCreatingRelease(t *testing.T) {
+	client := &recordingReleaseClient{}
+	session := releaseSession{cfg: config{dryRun: true}, client: client, tag: "v1.0.0"}
+
+	session.ensureRelease()
+
+	if err := session.requireOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if client.createCalls != 0 {
+		t.Fatalf("release creation calls = %d; want 0", client.createCalls)
+	}
+	if session.created {
+		t.Fatal("dry-run release session recorded a created release")
 	}
 }
 

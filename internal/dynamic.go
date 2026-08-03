@@ -35,6 +35,33 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 	}
 
 	outputs = append([]packageOutput(nil), outputs...)
+	nonEmptyOutputs := outputs[:0]
+	for _, output := range outputs {
+		if !validPackageOutputName(output.Name) {
+			return "", fmt.Errorf("invalid package output name %q", output.Name)
+		}
+
+		stat, err := os.Stat(output.Path)
+		if err != nil {
+			return "", err
+		}
+		if stat.IsDir() {
+			entries, err := os.ReadDir(output.Path)
+			if err != nil {
+				return "", err
+			}
+			if len(entries) == 0 {
+				info("output %s is empty, skipping", output.Name)
+				continue
+			}
+		}
+		nonEmptyOutputs = append(nonEmptyOutputs, output)
+	}
+	outputs = nonEmptyOutputs
+	if len(outputs) == 0 {
+		return "", errors.New("package has no non-empty outputs")
+	}
+
 	sort.Slice(outputs, func(i int, j int) bool {
 		return outputs[i].Name < outputs[j].Name
 	})
@@ -53,10 +80,6 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 	flattenedSource := singleOutputExecutable(outputs)
 	var bundled []bundledOutput
 	for _, output := range outputs {
-		if !validPackageOutputName(output.Name) {
-			return "", fmt.Errorf("invalid package output name %q", output.Name)
-		}
-
 		stat, err := os.Stat(output.Path)
 		if err != nil {
 			return "", err

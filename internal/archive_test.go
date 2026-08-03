@@ -290,7 +290,7 @@ func TestPreparePackageBundleRetainsBinWithOtherContent(t *testing.T) {
 	}
 }
 
-func TestPreparePackageBundleFlattensOutWithOtherOutputs(t *testing.T) {
+func TestPreparePackageBundleSkipsEmptyOutputBeforeFlattening(t *testing.T) {
 	root := t.TempDir()
 	out := filepath.Join(root, "out")
 	executablePath := filepath.Join(out, "bin", "tool")
@@ -311,11 +311,34 @@ func TestPreparePackageBundleFlattensOutWithOtherOutputs(t *testing.T) {
 	}
 	defer deletePath(bundle)
 
-	if _, err := os.Stat(filepath.Join(bundle, "bin", "tool")); err != nil {
+	if _, err := os.Stat(filepath.Join(bundle, "tool")); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "bin")); !os.IsNotExist(err) {
+		t.Fatalf("bundle bin directory error = %v; want not found", err)
 	}
 	if _, err := os.Stat(filepath.Join(bundle, "out")); !os.IsNotExist(err) {
 		t.Fatalf("bundle out directory error = %v; want not found", err)
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "dev")); !os.IsNotExist(err) {
+		t.Fatalf("bundle dev directory error = %v; want not found", err)
+	}
+}
+
+func TestPreparePackageBundleRejectsEmptyOutputs(t *testing.T) {
+	root := t.TempDir()
+	outputs := []packageOutput{
+		{Name: "out", Path: filepath.Join(root, "out")},
+		{Name: "dev", Path: filepath.Join(root, "dev")},
+	}
+	for _, output := range outputs {
+		if err := os.MkdirAll(output.Path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := preparePackageBundle(outputs, "linux", "amd64"); err == nil {
+		t.Fatal("preparePackageBundle returned no error for empty outputs")
 	}
 }
 
