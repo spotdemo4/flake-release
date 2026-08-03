@@ -31,6 +31,26 @@ inputs:
     required: false
     default: ${{ github.token }}
 
+  publish_packages:
+    description: language package kinds to publish (go, cargo, npm, pypi)
+    required: false
+
+  package_registry_owner:
+    description: package registry owner or namespace
+    required: false
+
+  package_registry_url:
+    description: package registry server or npm registry url override
+    required: false
+
+  package_registry_username:
+    description: package registry username
+    required: false
+
+  package_registry_token:
+    description: dedicated package registry write token
+    required: false
+
   registry:
     description: container registry url
     required: false
@@ -64,4 +84,9 @@ runs:
     REGISTRY: ${{ inputs.registry }}
     REGISTRY_USERNAME: ${{ inputs.registry_username }}
     REGISTRY_PASSWORD: ${{ inputs.registry_password }}
+    PUBLISH_PACKAGES: ${{ inputs.publish_packages }}
+    PACKAGE_REGISTRY_OWNER: ${{ inputs.package_registry_owner }}
+    PACKAGE_REGISTRY_URL: ${{ inputs.package_registry_url }}
+    PACKAGE_REGISTRY_TOKEN: ${{ inputs.package_registry_token }}
+    PACKAGE_REGISTRY_USERNAME: ${{ inputs.package_registry_username }}
     DELETE_OLD_RELEASE_ARTIFACTS: ${{ inputs.delete_old_release_artifacts }}

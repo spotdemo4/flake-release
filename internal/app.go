@@ -17,6 +17,11 @@ type config struct {
 	registry                  string
 	registryUsername          string
 	registryPassword          string
+	publishPackages           string
+	packageRegistryOwner      string
+	packageRegistryURL        string
+	packageRegistryToken      string
+	packageRegistryUsername   string
 }
 
 type releaseSession struct {
@@ -65,6 +70,11 @@ func Run(args []string) error {
 		registry:                  os.Getenv("REGISTRY"),
 		registryUsername:          os.Getenv("REGISTRY_USERNAME"),
 		registryPassword:          os.Getenv("REGISTRY_PASSWORD"),
+		publishPackages:           os.Getenv("PUBLISH_PACKAGES"),
+		packageRegistryOwner:      os.Getenv("PACKAGE_REGISTRY_OWNER"),
+		packageRegistryURL:        os.Getenv("PACKAGE_REGISTRY_URL"),
+		packageRegistryToken:      os.Getenv("PACKAGE_REGISTRY_TOKEN"),
+		packageRegistryUsername:   os.Getenv("PACKAGE_REGISTRY_USERNAME"),
 	}
 
 	var packages []string
@@ -145,8 +155,31 @@ func Run(args []string) error {
 		_ = os.Setenv("REGISTRY", cfg.registry)
 	}
 	info("registry: %s", firstNonEmpty(cfg.registry, "<none>"))
-	release := newReleaseClient(provider, cfg)
 
+	applyPackageRegistryDefaults(&cfg, provider)
+	if cfg.publishPackages != "" {
+		info("package registry owner: %s", firstNonEmpty(cfg.packageRegistryOwner, "<none>"))
+		info("package registry: %s", packageRegistryDisplayURL(cfg.packageRegistryURL))
+		info("package registry user: %s", firstNonEmpty(cfg.packageRegistryUsername, "<none>"))
+	}
+
+	if len(packages) == 0 {
+		system, systemErr := nixSystem()
+		if systemErr != nil {
+			return systemErr
+		}
+		packages = append(packages, "packages."+system+".default")
+	}
+
+	publications, err := preparePackagePublications(cfg, provider, tag, packages)
+	if err != nil {
+		return err
+	}
+	if publications != nil {
+		defer publications.Close()
+	}
+
+	release := newReleaseClient(provider, cfg)
 	changelog, err := gitChangelog(tag)
 	if err != nil {
 		return err
@@ -154,20 +187,15 @@ func Run(args []string) error {
 	defer deletePath(changelog)
 	session := releaseSession{cfg: cfg, client: release, tag: tag, changelog: changelog}
 
-	if len(packages) == 0 {
-		system, err := nixSystem()
-		if err != nil {
-			return err
-		}
-		packages = append(packages, "packages."+system+".default")
-	}
-
 	images := false
 	storePaths := map[string]bool{}
 	for _, pkg := range packages {
 		if err := releasePackage(cfg, release, tag, pkg, storePaths, session.ensureRelease, &images); err != nil {
 			warn("%v", err)
 		}
+	}
+	if publications != nil {
+		session.ensureRelease()
 	}
 	if err := session.requireOutput(); err != nil {
 		return err
@@ -183,6 +211,10 @@ func Run(args []string) error {
 				warn("%v", err)
 			}
 		}
+	}
+
+	if err := publications.publish(); err != nil {
+		return err
 	}
 
 	if truthy(cfg.deleteOldReleaseArtifacts) {

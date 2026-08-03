@@ -28,37 +28,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.DOCTOR_TOKEN }}
           REGISTRY: trev.zip
           REGISTRY_PASSWORD: ${{ secrets.PACKAGE_TOKEN }}
+          PUBLISH_PACKAGES: go
+          PACKAGE_REGISTRY_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
           DELETE_OLD_RELEASE_ARTIFACTS: true
           PACKAGES: |
+            packages.x86_64-linux.default
             appimages.x86_64-linux.default.x86_64-unknown-linux-gnu
             appimages.x86_64-linux.default.aarch64-unknown-linux-gnu
             images.x86_64-linux.default.x86_64-unknown-linux-gnu
             images.x86_64-linux.default.aarch64-unknown-linux-gnu
-
-      - name: Release to proxy
-        run: |
-          set -euo pipefail
-
-          module="$(go list -m)"
-          version="${GITHUB_REF_NAME}"
-          cache="$(mktemp -d)"
-          metadata="${cache}/module.json"
-
-          GOMODCACHE="${cache}/mod" \
-            GONOSUMDB="${module}" \
-            GOPRIVATE="${module}" \
-            GOPROXY=direct \
-            go mod download -json "${module}@${version}" > "${metadata}"
-
-          archive="$(jq -r .Zip "${metadata}")"
-          test -n "${archive}"
-          test "${archive}" != "null"
-
-          curl --fail-with-body \
-            --request PUT \
-            --header "Authorization: token ${FORGEJO_TOKEN}" \
-            --upload-file "${archive}" \
-            "${FORGEJO_GO_UPLOAD_URL}"
-        env:
-          FORGEJO_GO_UPLOAD_URL: ${{ forgejo.SERVER_URL }}/api/packages/${{ forgejo.REPOSITORY_OWNER }}/go/upload
-          FORGEJO_TOKEN: ${{ secrets.PACKAGE_TOKEN }}

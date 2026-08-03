@@ -111,6 +111,30 @@ func nixPkgPath(pkg string) (string, error) {
 	return path, err
 }
 
+func nixPkgSrc(pkg string) (string, error) {
+	return nixPkgSrcWithCapture(pkg, nixCapture)
+}
+
+func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (string, error) {
+	out, err := capture("eval", "--json", ".#"+pkg+".src")
+	if err != nil || out == "" || out == "null" {
+		info(dim("source: unavailable for %s"), pkg)
+		return "", nil
+	}
+	var path string
+	if err := json.Unmarshal([]byte(out), &path); err != nil || path == "" {
+		info(dim("source: unavailable for %s"), pkg)
+		return "", nil
+	}
+	stat, err := os.Stat(path)
+	if err != nil || !stat.IsDir() {
+		info(dim("source: unavailable for %s"), pkg)
+		return "", nil
+	}
+	info(dim("source: %s"), path)
+	return path, nil
+}
+
 func nixPkgPname(pkg string) string {
 	pname, err := nixCapture("eval", "--raw", ".#"+pkg+".pname")
 	if err == nil && pname != "" {
