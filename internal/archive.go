@@ -34,6 +34,19 @@ func archiveOutputs(outputs []packageOutput, osName string, archName string) (st
 		}
 	}()
 
+	files, err := findFiles(bundle)
+	if err == nil && len(files) == 1 && isAlreadyCompressedFile(files[0]) {
+		info, err := os.Stat(files[0])
+		if err == nil && info.Mode().IsRegular() {
+			src := files[0]
+			dst := filepath.Join(outdir, filepath.Base(src))
+			if err := copyFile(src, dst, info); err == nil {
+				cleanup = false
+				return dst, nil
+			}
+		}
+	}
+
 	if osName == "windows" {
 		out := filepath.Join(outdir, "archive.zip")
 		if err := zipDirectory(bundle, out); err != nil {
@@ -265,10 +278,7 @@ func renameAsset(filepathName string, name string, version string, osName string
 	}
 
 	filename := filepath.Base(filepathName)
-	ext := strings.TrimPrefix(filepath.Ext(filename), ".")
-	if strings.HasSuffix(strings.ToLower(filename), ".tar.xz") {
-		ext = "tar.xz"
-	}
+	ext := assetExtension(filename)
 
 	outdir, err := os.MkdirTemp("", "flake-release-asset-*")
 	if err != nil {
@@ -476,4 +486,29 @@ func tempName() (string, error) {
 		return "", err
 	}
 	return name, nil
+}
+
+func assetExtension(filename string) string {
+	lower := strings.ToLower(filename)
+	for _, candidate := range []string{".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.zstd", ".tar.lz4", ".tar.br"} {
+		if strings.HasSuffix(lower, candidate) {
+			return strings.TrimPrefix(candidate, ".")
+		}
+	}
+	return strings.TrimPrefix(filepath.Ext(filename), ".")
+}
+
+func isAlreadyCompressedFile(name string) bool {
+	lower := strings.ToLower(filepath.Base(name))
+	for _, ext := range []string{
+		".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.zstd", ".tar.lz4", ".tar.br",
+		".appimage",
+		".tgz", ".tbz2", ".tbz", ".txz", ".tzst", ".tzstd", ".tlz4",
+		".zip", ".gz", ".bz2", ".xz", ".zst", ".zstd", ".7z", ".rar", ".lz4", ".br", ".tar",
+	} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
 }

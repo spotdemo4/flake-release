@@ -135,6 +135,9 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 			if output.Name != "out" && output.Name != "bin" {
 				continue
 			}
+			if output.flattenedSource != "" && isAlreadyCompressedFile(output.flattenedSource) {
+				continue
+			}
 			executables, err := output.dynamicExecutables()
 			if err != nil {
 				return "", err
@@ -201,6 +204,9 @@ func (output bundledOutput) dynamicExecutables() ([]dynamicExecutable, error) {
 
 	var executables []dynamicExecutable
 	for _, file := range files {
+		if isAlreadyCompressedFile(file) {
+			continue
+		}
 		if !isDynamicELFPath(file) {
 			continue
 		}
