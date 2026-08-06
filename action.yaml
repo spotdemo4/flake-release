@@ -32,7 +32,7 @@ inputs:
     default: ${{ github.token }}
 
   publish_packages:
-    description: language package kinds to publish (go, cargo, npm, pypi)
+    description: language package kinds to publish (go, cargo, gradle, maven, npm, pypi)
     required: false
 
   package_registry_owner:
@@ -40,7 +40,7 @@ inputs:
     required: false
 
   package_registry_url:
-    description: package registry server or npm registry url override
+    description: package registry server or npm/maven registry url override
     required: false
 
   package_registry_username:

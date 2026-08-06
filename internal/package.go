@@ -14,10 +14,12 @@ import (
 type packageKind string
 
 const (
-	packageGo    packageKind = "go"
-	packageCargo packageKind = "cargo"
-	packageNPM   packageKind = "npm"
-	packagePyPI  packageKind = "pypi"
+	packageGo     packageKind = "go"
+	packageCargo  packageKind = "cargo"
+	packageNPM    packageKind = "npm"
+	packagePyPI   packageKind = "pypi"
+	packageMaven  packageKind = "maven"
+	packageGradle packageKind = "gradle"
 )
 
 var packageManifests = map[packageKind]string{
@@ -25,6 +27,20 @@ var packageManifests = map[packageKind]string{
 	packageCargo: "Cargo.toml",
 	packageNPM:   "package.json",
 	packagePyPI:  "pyproject.toml",
+	packageMaven: "pom.xml",
+	packageGradle: "build.gradle",
+}
+
+func packageManifestCandidates(kind packageKind) []string {
+	switch kind {
+	case packageGradle:
+		return []string{"build.gradle", "build.gradle.kts"}
+	default:
+		if manifest, ok := packageManifests[kind]; ok {
+			return []string{manifest}
+		}
+		return nil
+	}
 }
 
 type packagePublication struct {
@@ -126,7 +142,15 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag st
 		seenSources[source] = true
 
 		for _, kind := range kinds {
-			if !isFile(filepath.Join(source, packageManifests[kind])) {
+			candidates := packageManifestCandidates(kind)
+			foundManifest := ""
+			for _, candidate := range candidates {
+				if isFile(filepath.Join(source, candidate)) {
+					foundManifest = candidate
+					break
+				}
+			}
+			if foundManifest == "" {
 				continue
 			}
 			staged := filepath.Join(root, fmt.Sprintf("source-%d-%s", index+1, kind))
@@ -138,14 +162,19 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag st
 				kind:     kind,
 				source:   source,
 				dir:      staged,
-				manifest: filepath.Join(staged, packageManifests[kind]),
+				manifest: filepath.Join(staged, foundManifest),
 			})
 		}
 	}
 
 	for _, kind := range kinds {
 		if !foundKinds[kind] {
-			return nil, fmt.Errorf("PUBLISH_PACKAGES requested %q, but no %s was found at an evaluated source root", kind, packageManifests[kind])
+			candidates := packageManifestCandidates(kind)
+			manifestDisplay := strings.Join(candidates, " or ")
+			if manifestDisplay == "" {
+				manifestDisplay = string(kind)
+			}
+			return nil, fmt.Errorf("PUBLISH_PACKAGES requested %q, but no %s was found at an evaluated source root", kind, manifestDisplay)
 		}
 	}
 	if err := set.preflight(); err != nil {
@@ -227,6 +256,10 @@ func (publication *packagePublication) preflight(set *packagePublicationSet) err
 		return preflightNPMPackage(set, publication)
 	case packagePyPI:
 		return preflightPyPIPackage(set, publication)
+	case packageMaven:
+		return preflightMavenPackage(set, publication)
+	case packageGradle:
+		return preflightGradlePackage(set, publication)
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
 	}
@@ -242,6 +275,10 @@ func (publication *packagePublication) publish(set *packagePublicationSet) error
 		return publishNPMPackage(set, publication)
 	case packagePyPI:
 		return publishPyPIPackage(set, publication)
+	case packageMaven:
+		return publishMavenPackage(set, publication)
+	case packageGradle:
+		return publishGradlePackage(set, publication)
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
 	}
@@ -255,8 +292,10 @@ func parsePackageKinds(value string) ([]packageKind, error) {
 	kinds := make([]packageKind, 0, len(fields))
 	for _, field := range fields {
 		kind := packageKind(field)
-		if _, ok := packageManifests[kind]; !ok {
-			return nil, fmt.Errorf("unsupported package kind %q in PUBLISH_PACKAGES; supported kinds are cargo, go, npm, and pypi", field)
+		switch kind {
+		case packageGo, packageCargo, packageNPM, packagePyPI, packageMaven, packageGradle:
+		default:
+			return nil, fmt.Errorf("unsupported package kind %q in PUBLISH_PACKAGES; supported kinds are cargo, go, gradle, maven, npm, and pypi", field)
 		}
 		if !seen[kind] {
 			seen[kind] = true
@@ -292,8 +331,10 @@ func validatePackageRegistryConfig(cfg config, provider releaseProvider, kinds [
 				return fmt.Errorf("PACKAGE_REGISTRY_USERNAME is required to publish PyPI packages to %s", provider)
 			}
 		case releaseGitHub:
-			if kind != packageNPM {
-				return fmt.Errorf("GitHub package publishing supports npm only, not %s", kind)
+			switch kind {
+			case packageNPM, packageMaven, packageGradle:
+			default:
+				return fmt.Errorf("GitHub package publishing supports gradle, maven, and npm only, not %s", kind)
 			}
 		default:
 			return fmt.Errorf("package publishing is not supported for release provider %q", provider)
@@ -305,9 +346,39 @@ func validatePackageRegistryConfig(cfg config, provider releaseProvider, kinds [
 func (set *packagePublicationSet) registryURL(kind packageKind) string {
 	base := strings.TrimRight(set.cfg.packageRegistryURL, "/")
 	if set.provider == releaseGitHub {
+		switch kind {
+		case packageNPM:
+			if base == "" {
+				base = "https://npm.pkg.github.com"
+			}
+			return base + "/"
+		case packageMaven, packageGradle:
+			explicitURL := os.Getenv("PACKAGE_REGISTRY_URL") != ""
+			if explicitURL && base != "" && base != "https://npm.pkg.github.com" {
+				return base + "/"
+			}
+			if explicitURL && base != "" && strings.Contains(base, "maven.pkg.github.com") {
+				return base + "/"
+			}
+			owner := set.cfg.packageRegistryOwner
+			repo := ""
+			if set.cfg.githubRepository != "" {
+				if repository, err := parseRepository(set.cfg.githubRepository); err == nil {
+					repo = repository.name
+				}
+			}
+			if repo != "" {
+				return fmt.Sprintf("https://maven.pkg.github.com/%s/%s/", url.PathEscape(owner), url.PathEscape(repo))
+			}
+			return fmt.Sprintf("https://maven.pkg.github.com/%s/", url.PathEscape(owner))
+		}
 		return base + "/"
 	}
-	return fmt.Sprintf("%s/api/packages/%s/%s/", base, url.PathEscape(set.cfg.packageRegistryOwner), kind)
+	registryKind := kind
+	if kind == packageGradle {
+		registryKind = packageMaven
+	}
+	return fmt.Sprintf("%s/api/packages/%s/%s/", base, url.PathEscape(set.cfg.packageRegistryOwner), url.PathEscape(string(registryKind)))
 }
 
 func packageRegistryDisplayURL(value string) string {
