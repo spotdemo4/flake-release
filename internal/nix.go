@@ -200,8 +200,8 @@ func nixImageTag(pkg string) string {
 	return ""
 }
 
-func nixBuild(pkg string) error {
-	return nixRun("build", ".#"+pkg, "--no-link")
+func nixBuildLinked(pkg string, outLink string) error {
+	return nixRun("build", ".#"+pkg, "--out-link", outLink)
 }
 
 func nixBuildOutputs(pkg string) ([]packageOutput, error) {

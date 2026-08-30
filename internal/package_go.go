@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/mod/module"
 )
 
 type goModuleDownload struct {
@@ -18,22 +21,25 @@ func preflightGoPackage(set *packagePublicationSet, publication *packagePublicat
 	if err := set.commands.require("go"); err != nil {
 		return err
 	}
-	if set.tag != "v"+set.version {
-		return fmt.Errorf("go packages require a v-prefixed semantic version tag, got %q", set.tag)
+	if set.releaseTag.versionTag != "v"+set.releaseTag.version {
+		return fmt.Errorf("go packages require a v-prefixed semantic version tag, got %q", set.releaseTag.full)
 	}
-	if err := requireStrictPackageVersion(set.version); err != nil {
+	if err := requireStrictPackageVersion(set.releaseTag.version); err != nil {
 		return err
 	}
-	if strings.Contains(set.version, "+") && !strings.HasSuffix(set.version, "+incompatible") {
-		return fmt.Errorf("go module version %q has unsupported build metadata", set.tag)
+	if strings.Contains(set.releaseTag.version, "+") && !strings.HasSuffix(set.releaseTag.version, "+incompatible") {
+		return fmt.Errorf("go module version %q has unsupported build metadata", set.releaseTag.versionTag)
 	}
 
 	module, err := readGoModule(publication.manifest)
 	if err != nil {
 		return err
 	}
+	if err := validateGoModuleTagNamespace(set.cfg, module, set.releaseTag); err != nil {
+		return err
+	}
 	publication.name = module
-	publication.version = set.tag
+	publication.version = set.releaseTag.versionTag
 
 	listed, err := set.commands.capture(commandOptions{
 		name: "go",
@@ -54,7 +60,7 @@ func preflightGoPackage(set *packagePublicationSet, publication *packagePublicat
 	}
 	output, err := set.commands.capture(commandOptions{
 		name: "go",
-		args: []string{"mod", "download", "-json", module + "@" + set.tag},
+		args: []string{"mod", "download", "-json", module + "@" + set.releaseTag.versionTag},
 		dir:  publication.dir,
 		env: []string{
 			"GOMODCACHE=" + moduleCache,
@@ -76,6 +82,59 @@ func preflightGoPackage(set *packagePublicationSet, publication *packagePublicat
 	}
 	publication.artifacts = []string{filepath.Clean(download.Zip)}
 	return nil
+}
+
+func validateGoModuleTagNamespace(cfg config, module string, tag releaseTag) error {
+	if tag.namespace == "" {
+		return nil
+	}
+
+	serverURL, err := url.Parse(cfg.githubServerURL)
+	if err != nil || serverURL.Hostname() == "" {
+		return fmt.Errorf("cannot verify Go module provenance: GITHUB_SERVER_URL must contain a host")
+	}
+	repository, err := parseRepository(cfg.githubRepository)
+	if err != nil {
+		return fmt.Errorf("cannot verify Go module provenance: invalid GITHUB_REPOSITORY: %w", err)
+	}
+	prefix := serverURL.Hostname()
+	if serverPath := strings.Trim(serverURL.Path, "/"); serverPath != "" {
+		prefix += "/" + serverPath
+	}
+	prefix += "/" + repository.owner + "/" + repository.name
+	codePath := goModuleCodePath(module)
+	suffix, ok := goModuleRepositorySuffix(codePath, prefix)
+	if !ok {
+		return fmt.Errorf("go module %q does not belong to repository %q", module, prefix)
+	}
+	if suffix == "" {
+		return fmt.Errorf("root Go module %q cannot be published from scoped tag %q; use an unscoped tag", module, tag.full)
+	}
+	if suffix != tag.namespace {
+		return fmt.Errorf("go submodule %q requires tag namespace %q, got %q", module, suffix, tag.namespace)
+	}
+	return nil
+}
+
+func goModuleRepositorySuffix(module string, prefix string) (string, bool) {
+	for _, repositoryPrefix := range []string{prefix, prefix + ".git"} {
+		if len(module) < len(repositoryPrefix) || !strings.EqualFold(module[:len(repositoryPrefix)], repositoryPrefix) {
+			continue
+		}
+		if len(module) > len(repositoryPrefix) && module[len(repositoryPrefix)] != '/' {
+			continue
+		}
+		return strings.TrimPrefix(module[len(repositoryPrefix):], "/"), true
+	}
+	return "", false
+}
+
+func goModuleCodePath(modulePath string) string {
+	prefix, _, ok := module.SplitPathVersion(modulePath)
+	if !ok {
+		return modulePath
+	}
+	return prefix
 }
 
 func publishGoPackage(set *packagePublicationSet, publication *packagePublication) error {

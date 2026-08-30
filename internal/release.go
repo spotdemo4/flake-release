@@ -62,7 +62,7 @@ type createReleaseRequest struct {
 type releaseClient interface {
 	createRelease(tag string, changelog string) error
 	uploadAsset(tag string, asset string) error
-	cleanupAssets(currentTag string) error
+	cleanupAssets(currentTag releaseTag) error
 }
 
 type noopReleaseClient struct{}
@@ -144,7 +144,7 @@ func (noopReleaseClient) uploadAsset(_ string, _ string) error {
 	return nil
 }
 
-func (noopReleaseClient) cleanupAssets(_ string) error {
+func (noopReleaseClient) cleanupAssets(_ releaseTag) error {
 	return nil
 }
 
@@ -218,7 +218,19 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 	return err
 }
 
-func (c githubReleaseClient) cleanupAssets(currentTag string) error {
+func releaseCleanupCandidate(currentTag releaseTag, candidate string) bool {
+	if candidate == "" || candidate == currentTag.full {
+		return false
+	}
+	candidateTag, err := parseSelectedReleaseTag(candidate)
+	if err != nil {
+		legacyTag := parseReleaseTag(candidate)
+		return legacyTag.namespace == currentTag.namespace && legacyTag.versionTag == "v"
+	}
+	return candidateTag.namespace == currentTag.namespace && compareVersionTags(candidateTag.versionTag, currentTag.versionTag) < 0
+}
+
+func (c githubReleaseClient) cleanupAssets(currentTag releaseTag) error {
 	action := "delete old GitHub release assets"
 	repo, err := c.repository(action)
 	if err != nil {
@@ -237,7 +249,7 @@ func (c githubReleaseClient) cleanupAssets(currentTag string) error {
 	info("deleting old GitHub release assets at %s", c.cfg.githubRepository)
 	failed := false
 	for _, release := range releases {
-		if release.TagName == "" || release.TagName == currentTag || release.ID == 0 {
+		if release.ID == 0 || !releaseCleanupCandidate(currentTag, release.TagName) {
 			continue
 		}
 
@@ -417,7 +429,7 @@ func (r giteaReleaseResponse) tagName() string {
 	return firstNonEmpty(r.TagName, r.TagNameAlt, r.Tag)
 }
 
-func (c giteaReleaseClient) cleanupAssets(currentTag string) error {
+func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag) error {
 	repo, err := c.repository("delete old " + c.name + " release assets")
 	if err != nil {
 		return err
@@ -433,7 +445,7 @@ func (c giteaReleaseClient) cleanupAssets(currentTag string) error {
 	info("deleting old %s release assets at %s", c.name, c.cfg.githubRepository)
 	for _, release := range releases {
 		releaseTag := release.tagName()
-		if releaseTag == currentTag || release.ID == 0 {
+		if release.ID == 0 || !releaseCleanupCandidate(currentTag, releaseTag) {
 			continue
 		}
 

@@ -155,6 +155,39 @@ func TestParseRepository(t *testing.T) {
 	}
 }
 
+func TestReleaseCleanupCandidateOnlySelectsOlderNamespaceReleases(t *testing.T) {
+	current, err := parseSelectedReleaseTag("packages/cli/v2.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		candidate string
+		want      bool
+	}{
+		{candidate: "packages/cli/v1.0.0", want: true},
+		{candidate: "packages/cli/v2.0.0", want: false},
+		{candidate: "packages/cli/v3.0.0", want: false},
+		{candidate: "packages/web/v1.0.0", want: false},
+		{candidate: "packages/cli/v", want: true},
+		{candidate: "packages/cli/", want: false},
+		{candidate: "packages/cli/v1.0.0.lock", want: false},
+		{candidate: "packages/cli/v~", want: false},
+	}
+	for _, test := range tests {
+		if got := releaseCleanupCandidate(current, test.candidate); got != test.want {
+			t.Fatalf("releaseCleanupCandidate(%q) = %t; want %t", test.candidate, got, test.want)
+		}
+	}
+
+	root, err := parseSelectedReleaseTag("v2.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !releaseCleanupCandidate(root, "v") {
+		t.Fatal("legacy root release was excluded from cleanup")
+	}
+}
+
 func TestReleaseAssetUploadURL(t *testing.T) {
 	got, err := releaseAssetUploadURL("https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}", "asset name.zip")
 	if err != nil {

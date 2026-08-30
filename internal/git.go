@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/storer"
+	"golang.org/x/mod/semver"
 )
 
 func gitLatestTag() (string, error) {
@@ -57,8 +59,11 @@ func gitLatestTag() (string, error) {
 		if len(names) == 0 {
 			continue
 		}
-		sortVersionTags(names)
-		return names[len(names)-1], nil
+		if len(names) > 1 {
+			sortVersionTags(names)
+			return "", fmt.Errorf("latest tagged commit has multiple tags (%s); set TAG explicitly", strings.Join(names, ", "))
+		}
+		return names[0], nil
 	}
 
 	return "", errors.New("no tags found")
@@ -263,34 +268,38 @@ func gitOriginSCPHost(origin string) string {
 	return host
 }
 
-func gitChangelog(tag string) (string, error) {
+func gitChangelog(tag releaseTag) (string, error) {
 	repo, err := openGitRepository()
 	if err != nil {
 		return "", err
 	}
 	defer closeGitRepository(repo)
 
-	file, err := os.CreateTemp("", "flake-release-changelog-*")
-	if err != nil {
-		return "", err
-	}
-	_ = file.Close()
-
 	lastTag, err := previousTag(repo, tag)
 	if err != nil {
 		return "", err
 	}
 
-	log, err := changelog(repo, lastTag, tag)
+	log, err := changelog(repo, lastTag, tag.full)
 	if err != nil {
 		return "", err
 	}
 
-	if err := os.WriteFile(file.Name(), []byte(sortChangelog(log)), 0o600); err != nil {
+	file, err := os.CreateTemp("", "flake-release-changelog-*")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		deletePath(path)
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(sortChangelog(log)), 0o600); err != nil {
+		deletePath(path)
 		return "", err
 	}
 
-	return file.Name(), nil
+	return path, nil
 }
 
 func openGitRepository() (*git.Repository, error) {
@@ -303,24 +312,76 @@ func closeGitRepository(repo *git.Repository) {
 	_ = repo.Close()
 }
 
-func previousTag(repo *git.Repository, tag string) (string, error) {
+func previousTag(repo *git.Repository, tag releaseTag) (string, error) {
 	tags, err := tagNames(repo)
 	if err != nil {
 		return "", err
 	}
-	sortVersionTags(tags)
-
-	for i, candidate := range tags {
-		if candidate != tag {
-			continue
+	selectedHash, err := revisionCommitHash(repo, tag.full)
+	if err != nil {
+		root, rootErr := rootCommit(repo)
+		if rootErr != nil {
+			return "", rootErr
 		}
-		if i > 0 {
-			return tags[i-1], nil
-		}
-		return candidate, nil
+		return root.String(), nil
+	}
+	ancestors, err := reachableCommits(repo, selectedHash)
+	if err != nil {
+		return "", err
 	}
 
-	root, err := rootCommit(repo)
+	selectedFound := false
+	var previous *releaseTag
+	var previousHash plumbing.Hash
+	for _, candidateName := range tags {
+		candidate, err := parseSelectedReleaseTag(candidateName)
+		if err != nil || candidate.namespace != tag.namespace {
+			continue
+		}
+		candidateHash, err := revisionCommitHash(repo, candidate.full)
+		if err != nil {
+			continue
+		}
+		if candidate.full == tag.full {
+			selectedFound = true
+			continue
+		}
+
+		comparison := compareVersionTags(candidate.versionTag, tag.versionTag)
+		if comparison == 0 {
+			if candidateHash == selectedHash {
+				continue
+			}
+			return "", fmt.Errorf("release tag %q has ambiguous equivalent tag %q on a different commit", tag.full, candidate.full)
+		}
+		if comparison > 0 || !ancestors[candidateHash] {
+			continue
+		}
+		if previous == nil {
+			value := candidate
+			previous = &value
+			previousHash = candidateHash
+			continue
+		}
+
+		comparison = compareVersionTags(previous.versionTag, candidate.versionTag)
+		if comparison == 0 {
+			if previousHash == candidateHash {
+				continue
+			}
+			return "", fmt.Errorf("release history for %q has ambiguous equivalent predecessor tags %q and %q on different commits", tag.full, previous.full, candidate.full)
+		}
+		if comparison < 0 {
+			value := candidate
+			previous = &value
+			previousHash = candidateHash
+		}
+	}
+
+	if selectedFound && previous != nil {
+		return previous.full, nil
+	}
+	root, err := rootCommitFrom(repo, selectedHash)
 	if err != nil {
 		return "", err
 	}
@@ -414,26 +475,17 @@ func rootCommit(repo *git.Repository) (plumbing.Hash, error) {
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
+	return rootCommitFrom(repo, head.Hash())
+}
 
-	commits, err := repo.Log(&git.LogOptions{
-		From:  head.Hash(),
-		Order: git.LogOrderCommitterTime,
-	})
+func rootCommitFrom(repo *git.Repository, from plumbing.Hash) (plumbing.Hash, error) {
+	commits, err := commitHistory(repo, from)
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
-	defer commits.Close()
-
 	var root plumbing.Hash
-	for {
-		commit, err := commits.Next()
-		if errors.Is(err, storer.ErrStop) {
-			break
-		}
-		if err != nil {
-			return plumbing.ZeroHash, err
-		}
-		if commit.NumParents() == 0 {
+	for _, commit := range commits {
+		if commit.NumParents() == 0 && (root == plumbing.ZeroHash || commit.Hash.String() < root.String()) {
 			root = commit.Hash
 		}
 	}
@@ -531,16 +583,25 @@ func sortVersionTags(tags []string) {
 }
 
 func versionLess(left string, right string) bool {
+	return compareVersionTags(left, right) < 0
+}
+
+func compareVersionTags(left string, right string) int {
+	leftSemantic, leftValid := semanticVersion(left)
+	rightSemantic, rightValid := semanticVersion(right)
+	if leftValid && rightValid {
+		return semver.Compare(leftSemantic, rightSemantic)
+	}
+
 	leftParts := versionParts(left)
 	rightParts := versionParts(right)
 	limit := max(len(rightParts), len(leftParts))
-
 	for i := range limit {
 		if i >= len(leftParts) {
-			return true
+			return -1
 		}
 		if i >= len(rightParts) {
-			return false
+			return 1
 		}
 
 		leftPart := leftParts[i]
@@ -548,17 +609,30 @@ func versionLess(left string, right string) bool {
 		leftNum, leftErr := strconv.Atoi(leftPart)
 		rightNum, rightErr := strconv.Atoi(rightPart)
 		if leftErr == nil && rightErr == nil {
-			if leftNum != rightNum {
-				return leftNum < rightNum
+			if leftNum < rightNum {
+				return -1
+			}
+			if leftNum > rightNum {
+				return 1
 			}
 			continue
 		}
-		if leftPart != rightPart {
-			return leftPart < rightPart
+		if leftPart < rightPart {
+			return -1
+		}
+		if leftPart > rightPart {
+			return 1
 		}
 	}
+	return 0
+}
 
-	return false
+func semanticVersion(value string) (string, bool) {
+	value = parseReleaseTag(value).versionTag
+	if !strings.HasPrefix(value, "v") {
+		value = "v" + value
+	}
+	return value, semver.IsValid(value)
 }
 
 func versionParts(value string) []string {

@@ -155,7 +155,7 @@ func TestPrepareMavenPublications(t *testing.T) {
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 	}
-	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, "v1.2.3", []string{"pkg"}, func(string) (string, error) { return source, nil }, fakePackageCommandRunner{
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("packages/jvm/v1.2.3"), []string{"pkg"}, func(string) (string, error) { return source, nil }, fakePackageCommandRunner{
 		requireFunc: func(name string) error { return nil },
 		runFunc: func(options commandOptions) error { return nil },
 		captureFunc: func(options commandOptions) (string, error) { return "", nil },
@@ -182,7 +182,7 @@ func TestPrepareGradlePublications(t *testing.T) {
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 	}
-	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, "v1.2.3", []string{"pkg"}, func(string) (string, error) { return source, nil }, fakePackageCommandRunner{
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("packages/jvm/v1.2.3"), []string{"pkg"}, func(string) (string, error) { return source, nil }, fakePackageCommandRunner{
 		requireFunc: func(name string) error { return nil },
 		runFunc: func(options commandOptions) error { return nil },
 		captureFunc: func(options commandOptions) (string, error) { return "", nil },
@@ -264,8 +264,7 @@ func TestPublishMavenCommand(t *testing.T) {
 	set := &packagePublicationSet{
 		cfg:          cfg,
 		provider:     releaseForgejo,
-		tag:          "v1.2.3",
-		version:      "1.2.3",
+		releaseTag:   parseReleaseTag("v1.2.3"),
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(string) error { return nil },
@@ -374,8 +373,7 @@ func TestPublishGradleCommand(t *testing.T) {
 	set := &packagePublicationSet{
 		cfg:          cfg,
 		provider:     releaseForgejo,
-		tag:          "v1.2.3",
-		version:      "1.2.3",
+		releaseTag:   parseReleaseTag("v1.2.3"),
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(string) error { return nil },

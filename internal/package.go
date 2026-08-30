@@ -56,8 +56,7 @@ type packagePublication struct {
 type packagePublicationSet struct {
 	cfg          config
 	provider     releaseProvider
-	tag          string
-	version      string
+	releaseTag   releaseTag
 	temporaryDir string
 	packages     []packagePublication
 	commands     packageCommandRunner
@@ -82,11 +81,11 @@ func applyPackageRegistryDefaults(cfg *config, provider releaseProvider) {
 	}
 }
 
-func preparePackagePublications(cfg config, provider releaseProvider, tag string, nixPackages []string) (*packagePublicationSet, error) {
+func preparePackagePublications(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string) (*packagePublicationSet, error) {
 	return preparePackagePublicationsWith(cfg, provider, tag, nixPackages, nixPkgSrc, execPackageCommandRunner{})
 }
 
-func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag string, nixPackages []string, packageSource func(string) (string, error), commands packageCommandRunner) (*packagePublicationSet, error) {
+func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, packageSource func(string) (string, error), commands packageCommandRunner) (*packagePublicationSet, error) {
 	kinds, err := parsePackageKinds(cfg.publishPackages)
 	if err != nil {
 		return nil, err
@@ -105,8 +104,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag st
 	set := &packagePublicationSet{
 		cfg:          cfg,
 		provider:     provider,
-		tag:          tag,
-		version:      tagVersion(tag),
+		releaseTag:   tag,
 		temporaryDir: root,
 		commands:     commands,
 	}
@@ -202,9 +200,9 @@ func (set *packagePublicationSet) preflight() error {
 		if err := publication.preflight(set); err != nil {
 			return fmt.Errorf("preflighting %s package at %s: %w", publication.kind, publication.source, err)
 		}
-		expectedVersion := set.version
+		expectedVersion := set.releaseTag.version
 		if publication.kind == packageGo {
-			expectedVersion = set.tag
+			expectedVersion = set.releaseTag.versionTag
 		}
 		if publication.version != expectedVersion {
 			return fmt.Errorf("%s package %s version %q does not match git tag %q", publication.kind, publication.name, publication.version, expectedVersion)

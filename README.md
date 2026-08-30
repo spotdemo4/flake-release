@@ -28,6 +28,7 @@ flake-release [packages...] [--dry-run]
 | GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                  | `https://github.com`             |
 | GITHUB_ACTOR                 | User for Gitea & Forgejo                                                               | `github-actions[bot]`            |
 | GITHUB_TOKEN                 | Token used to push releases                                                            |                                  |
+| TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery       | `packages/api/v1.2.3`            |
 | REGISTRY                     | Container registry                                                                     | `ghcr.io`                        |
 | REGISTRY_USERNAME            | Username for container registry                                                        | `github-actions[bot]`            |
 | REGISTRY_PASSWORD            | Password for container registry                                                        |                                  |
@@ -38,6 +39,12 @@ flake-release [packages...] [--dry-run]
 | PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; required outside dry-run                       |                                  |
 | DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                       | `true`                           |
 | DELETE_OLD_RELEASE_ARTIFACTS | Delete release assets and image tags from previous releases after a new release exists | `true`                           |
+
+### Scoped release tags
+
+Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The complete tag identifies the hosted release and limits changelog ancestry and old-asset cleanup to that exact namespace. Go submodules also verify that the namespace matches the module path beneath the configured repository.
+
+A namespace does not infer Nix package attributes or filter requested source manifests. For a scoped release, pass only the package attributes that belong to that namespace. Container images cannot be published from scoped tags because container registries do not preserve the release namespace safely.
 
 ### Package publishing
 

@@ -75,6 +75,22 @@ func TestParsePackageKinds(t *testing.T) {
 	}
 }
 
+func TestPackageMatchesScopedReleaseTagVersion(t *testing.T) {
+	tag := parseReleaseTag("packages/cli/v1.2.3")
+	if !packageMatchesReleaseTag("1.2.3", "", tag) {
+		t.Fatal("Nix package version did not match the parsed scoped release version")
+	}
+	if !packageMatchesReleaseTag("", "1.2.3", tag) {
+		t.Fatal("image tag did not match the parsed scoped release version")
+	}
+	if packageMatchesReleaseTag("packages/cli/v1.2.3", "", tag) {
+		t.Fatal("full scoped tag incorrectly matched a Nix package version")
+	}
+	if packageMatchesReleaseTag("", "", parseReleaseTag("pkg/v")) {
+		t.Fatal("empty package metadata matched an empty release version")
+	}
+}
+
 func TestValidatePackageRegistryConfigDryRunDoesNotRequireCredentials(t *testing.T) {
 	cfg := config{
 		dryRun:               true,
@@ -142,8 +158,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	set := &packagePublicationSet{
 		cfg:          cfg,
 		provider:     releaseGitHub,
-		tag:          "v1.2.3",
-		version:      "1.2.3",
+		releaseTag:   parseReleaseTag("v1.2.3"),
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(name string) error {
@@ -215,7 +230,7 @@ func TestNixPkgSrcSkipsUnavailableSources(t *testing.T) {
 
 func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing.T) {
 	source := t.TempDir()
-	writeTestFile(t, filepath.Join(source, "go.mod"), "module example.com/project\n")
+	writeTestFile(t, filepath.Join(source, "go.mod"), "module example.com/owner/project\n")
 	writeTestFile(t, filepath.Join(source, "main.go"), "package project\n")
 	archive := filepath.Join(t.TempDir(), "module.zip")
 	writeTestFile(t, archive, "zip")
@@ -241,8 +256,8 @@ func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing
 			}
 			switch {
 			case slices.Equal(options.args, []string{"list", "-m", "-mod=readonly"}):
-				return "example.com/project", nil
-			case slices.Equal(options.args, []string{"mod", "download", "-json", "example.com/project@v1.2.3"}):
+				return "example.com/owner/project", nil
+			case slices.Equal(options.args, []string{"mod", "download", "-json", "example.com/owner/project@v1.2.3"}):
 				return `{"Zip":"` + archive + `"}`, nil
 			default:
 				t.Fatalf("captured command = %q %q", options.name, options.args)
@@ -252,11 +267,13 @@ func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing
 	}
 	cfg := config{
 		dryRun:               true,
+		githubRepository:     "owner/project",
+		githubServerURL:      "https://example.com",
 		publishPackages:      "go",
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 	}
-	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, "v1.2.3", []string{"null", "unevaluable", "valid"}, func(pkg string) (string, error) {
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"null", "unevaluable", "valid"}, func(pkg string) (string, error) {
 		requested = append(requested, pkg)
 		if pkg == "valid" {
 			return source, nil
@@ -316,18 +333,21 @@ func TestCopyWritableTree(t *testing.T) {
 	}
 }
 
-func TestPreflightGoPackageUsesDownloadedModuleArchive(t *testing.T) {
+func TestPreflightGoPackageUsesScopedVersionTagForDownload(t *testing.T) {
 	source := t.TempDir()
 	manifest := filepath.Join(source, "go.mod")
-	writeTestFile(t, manifest, "module example.com/Owner/Module\n")
+	writeTestFile(t, manifest, "module example.com/Owner/Repo/modules/api\n")
 	archive := filepath.Join(t.TempDir(), "module.zip")
 	writeTestFile(t, archive, "zip")
 
 	var downloaded commandOptions
 	set := &packagePublicationSet{
-		cfg:          config{dryRun: true},
-		tag:          "v1.2.3",
-		version:      "1.2.3",
+		cfg: config{
+			dryRun:           true,
+			githubServerURL:  "https://example.com",
+			githubRepository: "Owner/Repo",
+		},
+		releaseTag:   parseReleaseTag("modules/api/v1.2.3"),
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(name string) error {
@@ -346,8 +366,8 @@ func TestPreflightGoPackageUsesDownloadedModuleArchive(t *testing.T) {
 					if !slices.Contains(options.env, "GOWORK=off") {
 						t.Fatalf("go list env = %q", options.env)
 					}
-					return "example.com/Owner/Module", nil
-				case slices.Equal(options.args, []string{"mod", "download", "-json", "example.com/Owner/Module@v1.2.3"}):
+					return "example.com/Owner/Repo/modules/api", nil
+				case slices.Equal(options.args, []string{"mod", "download", "-json", "example.com/Owner/Repo/modules/api@v1.2.3"}):
 					downloaded = options
 					return `{"Zip":"` + archive + `"}`, nil
 				default:
@@ -361,16 +381,85 @@ func TestPreflightGoPackageUsesDownloadedModuleArchive(t *testing.T) {
 	if err := preflightGoPackage(set, publication); err != nil {
 		t.Fatal(err)
 	}
-	if publication.name != "example.com/Owner/Module" || publication.version != "v1.2.3" {
+	if publication.name != "example.com/Owner/Repo/modules/api" || publication.version != "v1.2.3" {
 		t.Fatalf("go identity = %s@%s", publication.name, publication.version)
 	}
 	if !slices.Equal(publication.artifacts, []string{archive}) {
 		t.Fatalf("go artifacts = %q; want %q", publication.artifacts, archive)
 	}
-	for _, expected := range []string{"GONOSUMDB=example.com/Owner/Module", "GOPRIVATE=example.com/Owner/Module", "GOPROXY=direct", "GOWORK=off"} {
+	for _, expected := range []string{"GONOSUMDB=example.com/Owner/Repo/modules/api", "GOPRIVATE=example.com/Owner/Repo/modules/api", "GOPROXY=direct", "GOWORK=off"} {
 		if !slices.Contains(downloaded.env, expected) {
 			t.Fatalf("go mod download env = %q; missing %q", downloaded.env, expected)
 		}
+	}
+}
+
+func TestPreflightGoPackageRejectsScopedTagForRootModuleBeforeDownload(t *testing.T) {
+	source := t.TempDir()
+	manifest := filepath.Join(source, "go.mod")
+	writeTestFile(t, manifest, "module example.com/Owner/Repo\n")
+
+	captureCalled := false
+	set := &packagePublicationSet{
+		cfg: config{
+			dryRun:           true,
+			githubServerURL:  "https://example.com",
+			githubRepository: "owner/repo",
+		},
+		releaseTag:   parseReleaseTag("modules/api/v1.2.3"),
+		temporaryDir: t.TempDir(),
+		commands: fakePackageCommandRunner{
+			requireFunc: func(string) error { return nil },
+			captureFunc: func(commandOptions) (string, error) {
+				captureCalled = true
+				return "", nil
+			},
+		},
+	}
+	publication := &packagePublication{kind: packageGo, dir: source, manifest: manifest}
+	if err := preflightGoPackage(set, publication); err == nil || !strings.Contains(err.Error(), "root Go module") {
+		t.Fatalf("preflightGoPackage() error = %v; want scoped root-module rejection", err)
+	}
+	if captureCalled {
+		t.Fatal("Go command ran before module tag namespace provenance was rejected")
+	}
+}
+
+func TestValidateGoModuleTagNamespaceHandlesSemanticMajorSuffix(t *testing.T) {
+	cfg := config{
+		githubServerURL:  "https://example.com",
+		githubRepository: "Owner/Repo",
+	}
+	if err := validateGoModuleTagNamespace(cfg, "example.com/Owner/Repo/modules/api/v2", parseReleaseTag("modules/api/v2.0.0")); err != nil {
+		t.Fatalf("scoped v2 submodule was rejected: %v", err)
+	}
+	if err := validateGoModuleTagNamespace(cfg, "example.com/Owner/Repo/v2", parseReleaseTag("v2.0.0")); err != nil {
+		t.Fatalf("unscoped v2 root module was rejected: %v", err)
+	}
+}
+
+func TestValidateGoModuleTagNamespaceIncludesServerPath(t *testing.T) {
+	cfg := config{
+		githubServerURL:  "https://example.com/forgejo/",
+		githubRepository: "Owner/Repo",
+	}
+	for _, module := range []string{
+		"example.com/forgejo/Owner/Repo/modules/api/v2",
+		"example.com/forgejo/Owner/Repo.git/modules/api/v2",
+	} {
+		if err := validateGoModuleTagNamespace(cfg, module, parseReleaseTag("modules/api/v2.0.0")); err != nil {
+			t.Fatalf("scoped module %q on a subpath-hosted server was rejected: %v", module, err)
+		}
+	}
+}
+
+func TestValidateGoModuleTagNamespacePreservesUnscopedVanityModules(t *testing.T) {
+	cfg := config{
+		githubServerURL:  "https://example.com",
+		githubRepository: "Owner/Repo",
+	}
+	if err := validateGoModuleTagNamespace(cfg, "go.example.com/library", parseReleaseTag("v1.2.3")); err != nil {
+		t.Fatalf("unscoped vanity module was rejected: %v", err)
 	}
 }
 
@@ -509,8 +598,7 @@ func TestPackagePreflightRejectsDuplicateRegistryIdentity(t *testing.T) {
 			packageRegistryURL:   "https://git.example",
 		},
 		provider:     releaseForgejo,
-		tag:          "v1.2.3",
-		version:      "1.2.3",
+		releaseTag:   parseReleaseTag("v1.2.3"),
 		temporaryDir: root,
 		packages:     publications,
 		commands:     runner,
