@@ -258,7 +258,7 @@ func nixBundleAppImage(pkg string) (string, error) {
 	}
 	defer deletePath(tmpLink)
 
-	if err := nixRun("bundle", "--bundler", "github:spotdemo4/nur#appimage", ".#"+pkg, "-o", tmpLink); err != nil {
+	if err := nixRun("bundle", "--bundler", "github:spotdemo4/trevpkgs#appimage", ".#"+pkg, "-o", tmpLink); err != nil {
 		warn("AppImage bundle failed")
 		return "", err
 	}
