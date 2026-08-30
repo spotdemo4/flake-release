@@ -73,7 +73,7 @@
 
           release = pkgs.mkShell {
             packages = with pkgs; [
-              flake-release
+              self.packages.${system}.default
               go
             ];
           };
