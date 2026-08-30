@@ -61,11 +61,19 @@ func captureCommand(options commandOptions) (string, error) {
 	cmd.Dir = options.dir
 	cmd.Env = commandEnvironment(options.env)
 
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	err := cmd.Run()
-	text := redactSecrets(strings.TrimSpace(output.String()), options.secrets)
+	text := strings.TrimSpace(stdout.String())
+	if stderrText := strings.TrimSpace(stderr.String()); stderrText != "" {
+		if text != "" {
+			text += "\n"
+		}
+		text += stderrText
+	}
+	text = redactSecrets(text, options.secrets)
 	if text != "" && (err != nil || os.Getenv("DEBUG") != "") {
 		info("%s", text)
 	}
@@ -75,7 +83,7 @@ func captureCommand(options commandOptions) (string, error) {
 		}
 		return "", fmt.Errorf("%s failed: %w", display, err)
 	}
-	return strings.TrimSpace(output.String()), nil
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 func commandEnvironment(overrides []string) []string {
