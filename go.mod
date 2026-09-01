@@ -5,7 +5,7 @@ go 1.26.5
 toolchain go1.27.0
 
 require (
-	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260826184203-41e7e7838115
+	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260831171047-2851e6b418e1
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-alpha.5
 	github.com/opencontainers/image-spec v1.1.2-0.20260709172216-af26a05fba5e

@@ -60,6 +60,8 @@ github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
 github.com/estesp/manifest-tool/v2 v2.2.3-0.20260826184203-41e7e7838115 h1:mtkOMuo+jugFeb50TsxkQd/uu7vPapFz2SvNzy3G4L0=
 github.com/estesp/manifest-tool/v2 v2.2.3-0.20260826184203-41e7e7838115/go.mod h1:dWJiXmtgF2STieQH5zqczFz2B44Q6qCrh8ao+ZBL3pk=
+github.com/estesp/manifest-tool/v2 v2.2.3-0.20260831171047-2851e6b418e1 h1:OPCwHdWpzueLO3QarTtptqxKtAoNLVr+gdoWEBpZ598=
+github.com/estesp/manifest-tool/v2 v2.2.3-0.20260831171047-2851e6b418e1/go.mod h1:IT5naMi9pRqC6iOeCb2qxxwYGoIp0AOfIelPIcI4YvA=
 github.com/fatih/color v1.19.0 h1:Zp3PiM21/9Ld6FzSKyL5c/BULoe/ONr9KlbYVOfG8+w=
 github.com/fatih/color v1.19.0/go.mod h1:zNk67I0ZUT1bEGsSGyCZYZNrHuTkJJB+r6Q9VuMi0LE=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
