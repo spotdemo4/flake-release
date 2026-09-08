@@ -5,7 +5,7 @@ go 1.26.5
 toolchain go1.27.1
 
 require (
-	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260902113632-0a4e36830ef1
+	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260907214542-7ff1d72c5bac
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-alpha.5
 	github.com/opencontainers/image-spec v1.1.2-0.20260709172216-af26a05fba5e
@@ -33,7 +33,7 @@ require (
 	github.com/containers/ocicrypt v1.3.2 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/cli v29.7.2+incompatible // indirect
+	github.com/docker/cli v29.8.0+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker v28.5.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.8 // indirect
