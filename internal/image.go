@@ -30,12 +30,12 @@ var (
 	imageSystemContextRegistriesErr error
 )
 
-func imageUpload(cfg config, path string, tag string, arch string) error {
+func imageUpload(cfg config, repository string, path string, tag string, arch string) error {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot upload image to container registry")
 		return fmt.Errorf("REGISTRY is not set")
 	}
-	if cfg.githubRepository == "" {
+	if repository == "" {
 		warn("GITHUB_REPOSITORY is not set, cannot upload image to container registry")
 		return fmt.Errorf("GITHUB_REPOSITORY is not set")
 	}
@@ -52,7 +52,7 @@ func imageUpload(cfg config, path string, tag string, arch string) error {
 	if err != nil {
 		return err
 	}
-	destRef, err := dockerImageReference(cfg.registry, cfg.githubRepository, tag+"-"+arch)
+	destRef, err := dockerImageReference(cfg.registry, repository, tag+"-"+arch)
 	if err != nil {
 		return err
 	}
@@ -138,12 +138,12 @@ func imageGzip(path string) (string, error) {
 	return out.Name(), nil
 }
 
-func imageExists(cfg config, tag string, arch string) bool {
+func imageExists(cfg config, repository string, tag string, arch string) bool {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot inspect container registry")
 		return false
 	}
-	if cfg.githubRepository == "" {
+	if repository == "" {
 		warn("GITHUB_REPOSITORY is not set, cannot inspect container registry")
 		return false
 	}
@@ -156,16 +156,16 @@ func imageExists(cfg config, tag string, arch string) bool {
 		return false
 	}
 
-	_, err := inspectImage(cfg, tag+"-"+arch)
+	_, err := inspectImage(cfg, repository, tag+"-"+arch)
 	return err == nil
 }
 
-func imageCleanupOld(cfg config, currentTag string) error {
+func imageCleanupOld(cfg config, repository string, currentTag string) error {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot delete old container images")
 		return fmt.Errorf("REGISTRY is not set")
 	}
-	if cfg.githubRepository == "" {
+	if repository == "" {
 		warn("GITHUB_REPOSITORY is not set, cannot delete old container images")
 		return fmt.Errorf("GITHUB_REPOSITORY is not set")
 	}
@@ -178,7 +178,7 @@ func imageCleanupOld(cfg config, currentTag string) error {
 		return fmt.Errorf("REGISTRY_PASSWORD is not set")
 	}
 
-	tags, err := listImageTags(cfg)
+	tags, err := listImageTags(cfg, repository)
 	if err != nil {
 		warn("failed to fetch image tags")
 		return err
@@ -201,14 +201,14 @@ func imageCleanupOld(cfg config, currentTag string) error {
 	}
 
 	failed := false
-	info("deleting old container image tags at %s/%s", strings.ToLower(cfg.registry), strings.ToLower(cfg.githubRepository))
+	info("deleting old container image tags at %s/%s", strings.ToLower(cfg.registry), strings.ToLower(repository))
 	for _, remoteTag := range tags {
 		if remoteTag == "latest" || remoteTag == currentTag || strings.HasPrefix(remoteTag, currentTag+"-") {
 			continue
 		}
 
 		info("deleting image tag %s", remoteTag)
-		ref, err := dockerImageReference(cfg.registry, cfg.githubRepository, remoteTag)
+		ref, err := dockerImageReference(cfg.registry, repository, remoteTag)
 		if err != nil {
 			warn("failed to parse image tag %s", remoteTag)
 			failed = true
@@ -226,12 +226,12 @@ func imageCleanupOld(cfg config, currentTag string) error {
 	return nil
 }
 
-func manifestUpdate(cfg config, tag string) error {
+func manifestUpdate(cfg config, repository string, tag string) error {
 	if cfg.registry == "" {
 		warn("REGISTRY is not set, cannot list container registry tags")
 		return fmt.Errorf("REGISTRY is not set")
 	}
-	if cfg.githubRepository == "" {
+	if repository == "" {
 		warn("GITHUB_REPOSITORY is not set, cannot list container registry tags")
 		return fmt.Errorf("GITHUB_REPOSITORY is not set")
 	}
@@ -244,7 +244,7 @@ func manifestUpdate(cfg config, tag string) error {
 		return fmt.Errorf("REGISTRY_PASSWORD is not set")
 	}
 
-	remoteTags, err := listImageTags(cfg)
+	remoteTags, err := listImageTags(cfg, repository)
 	if err != nil {
 		warn("failed to fetch image tags")
 		return nil
@@ -264,14 +264,14 @@ func manifestUpdate(cfg config, tag string) error {
 	var manifests []manifesttypes.ManifestEntry
 	annotations := map[string]string{}
 	for i, remoteTag := range matchingTags {
-		inspect, err := inspectImage(cfg, remoteTag)
+		inspect, err := inspectImage(cfg, repository, remoteTag)
 		if err != nil {
 			return err
 		}
 
 		if inspect.OS != "" && inspect.Architecture != "" {
 			manifests = append(manifests, manifesttypes.ManifestEntry{
-				Image: dockerImageName(cfg.registry, cfg.githubRepository, remoteTag),
+				Image: dockerImageName(cfg.registry, repository, remoteTag),
 				Platform: ocispec.Platform{
 					OS:           inspect.OS,
 					Architecture: inspect.Architecture,
@@ -292,7 +292,7 @@ func manifestUpdate(cfg config, tag string) error {
 	defer logrus.SetLevel(previousLevel)
 
 	digest, length, err := manifestregistry.PushManifestList(cfg.registryUsername, cfg.registryPassword, manifesttypes.YAMLInput{
-		Image:       dockerImageName(cfg.registry, cfg.githubRepository, tag),
+		Image:       dockerImageName(cfg.registry, repository, tag),
 		Tags:        []string{"latest"},
 		Manifests:   manifests,
 		Annotations: annotations,
@@ -311,8 +311,8 @@ type imageInspect struct {
 	Labels       map[string]string
 }
 
-func listImageTags(cfg config) ([]string, error) {
-	ref, err := dockerImageReference(cfg.registry, cfg.githubRepository, "latest")
+func listImageTags(cfg config, repository string) ([]string, error) {
+	ref, err := dockerImageReference(cfg.registry, repository, "latest")
 	if err != nil {
 		return nil, err
 	}
@@ -323,8 +323,8 @@ func listImageTags(cfg config) ([]string, error) {
 	return docker.GetRepositoryTags(context.Background(), sys, ref)
 }
 
-func inspectImage(cfg config, tag string) (imageInspect, error) {
-	ref, err := dockerImageReference(cfg.registry, cfg.githubRepository, tag)
+func inspectImage(cfg config, repository string, tag string) (imageInspect, error) {
+	ref, err := dockerImageReference(cfg.registry, repository, tag)
 	if err != nil {
 		return imageInspect{}, err
 	}
@@ -393,6 +393,22 @@ func imageSystemContextRegistriesConfDir() (string, error) {
 		imageSystemContextRegistriesDir, imageSystemContextRegistriesErr = os.MkdirTemp("", "flake-release-registries.conf.d-")
 	})
 	return imageSystemContextRegistriesDir, imageSystemContextRegistriesErr
+}
+
+func validateImageDestination(cfg config, repository string, tag string) error {
+	if cfg.registry == "" {
+		return fmt.Errorf("REGISTRY is not set")
+	}
+	if repository == "" {
+		return fmt.Errorf("GITHUB_REPOSITORY is not set")
+	}
+	if tag == "" {
+		return fmt.Errorf("container image tag is empty")
+	}
+	if _, err := dockerImageReference(cfg.registry, repository, tag); err != nil {
+		return fmt.Errorf("invalid container image reference %q: %w", dockerImageName(cfg.registry, repository, tag), err)
+	}
+	return nil
 }
 
 func dockerImageReference(registry string, repository string, tag string) (types.ImageReference, error) {

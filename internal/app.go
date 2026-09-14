@@ -25,8 +25,6 @@ type config struct {
 	packageRegistryUsername   string
 }
 
-var errScopedImageRelease = errors.New("container image outputs cannot be published with scoped tags; use an unscoped TAG or exclude the image output")
-
 type releaseSession struct {
 	cfg               config
 	client            releaseClient
@@ -213,7 +211,8 @@ func Run(args []string) error {
 		return err
 	}
 	defer deletePath(changelog)
-	imageRoots, err := prepareReleaseImages(tag, releasePackages)
+	imageRepository := containerImageRepository(cfg.githubRepository, tag)
+	imageRoots, err := prepareReleaseImages(cfg, imageRepository, tag, releasePackages)
 	if imageRoots != "" {
 		defer deletePath(imageRoots)
 	}
@@ -225,7 +224,7 @@ func Run(args []string) error {
 	images := false
 	var releaseErr error
 	for _, pkg := range releasePackages {
-		if err := releasePackage(cfg, release, tag, pkg, session.ensureRelease, &images); err != nil {
+		if err := releasePackage(cfg, imageRepository, release, tag, pkg, session.ensureRelease, &images); err != nil {
 			warn("%v", err)
 			releaseErr = errors.Join(releaseErr, err)
 		}
@@ -248,7 +247,7 @@ func Run(args []string) error {
 			info("dry run: skipping manifest update")
 		} else {
 			info("updating image manifest for tag %s", bold(tag.version))
-			if err := manifestUpdate(cfg, tag.version); err != nil {
+			if err := manifestUpdate(cfg, imageRepository, tag.version); err != nil {
 				return fmt.Errorf("updating image manifest: %w", err)
 			}
 		}
@@ -269,7 +268,7 @@ func Run(args []string) error {
 				return fmt.Errorf("cleaning up old release assets: %w", err)
 			}
 			if images {
-				if err := imageCleanupOld(cfg, tag.version); err != nil {
+				if err := imageCleanupOld(cfg, imageRepository, tag.version); err != nil {
 					return fmt.Errorf("cleaning up old images: %w", err)
 				}
 			}
@@ -337,7 +336,14 @@ func prepareReleasePackagesWith(packages []string, load releasePackageLoader) []
 	return plans
 }
 
-func prepareReleaseImages(tag releaseTag, packages []releasePackagePlan) (string, error) {
+func containerImageRepository(repository string, tag releaseTag) string {
+	if repository == "" || tag.namespace == "" {
+		return repository
+	}
+	return repository + "/" + tag.namespace
+}
+
+func prepareReleaseImages(cfg config, imageRepository string, tag releaseTag, packages []releasePackagePlan) (string, error) {
 	rootDir := ""
 	for i := range packages {
 		pkg := &packages[i]
@@ -357,14 +363,14 @@ func prepareReleaseImages(tag releaseTag, packages []releasePackagePlan) (string
 			continue
 		}
 		pkg.image = publishableImagePath(pkg.storePath)
-		if err := validateScopedImagePackage(tag, *pkg); err != nil {
+		if err := validateImagePackageDestination(cfg, imageRepository, tag, *pkg); err != nil {
 			return rootDir, err
 		}
 	}
 	return rootDir, nil
 }
 
-func releasePackage(cfg config, release releaseClient, tag releaseTag, pkg releasePackagePlan, ensureRelease func() error, images *bool) error {
+func releasePackage(cfg config, imageRepository string, release releaseClient, tag releaseTag, pkg releasePackagePlan, ensureRelease func() error, images *bool) error {
 	if pkg.imageBuildFailed {
 		warn("build failed")
 		return nil
@@ -374,7 +380,7 @@ func releasePackage(cfg config, release releaseClient, tag releaseTag, pkg relea
 			warn("image tag '%s' does not match git tag '%s'", pkg.imageTag, tag.version)
 			return nil
 		}
-		return releaseImage(cfg, pkg.storePath, pkg.imageName, pkg.imageTag, ensureRelease, images)
+		return releaseImage(cfg, imageRepository, pkg.storePath, pkg.imageName, pkg.imageTag, ensureRelease, images)
 	}
 	if !packageVersionMatchesReleaseTag(pkg.version, tag) {
 		warn("package version '%s' does not match git tag '%s'", firstNonEmpty(pkg.version, pkg.imageTag), tag.version)
@@ -423,18 +429,21 @@ func imageTagMatchesReleaseTag(imageTag string, tag releaseTag) bool {
 	return imageTag != "" && imageTag == tag.version
 }
 
-func validateScopedImagePackage(tag releaseTag, pkg releasePackagePlan) error {
-	if tag.namespace == "" || !pkg.image {
+func validateImagePackageDestination(cfg config, imageRepository string, tag releaseTag, pkg releasePackagePlan) error {
+	if !pkg.image || !imageTagMatchesReleaseTag(pkg.imageTag, tag) {
 		return nil
 	}
-	return fmt.Errorf("%w: %s (%s:%s)", errScopedImageRelease, pkg.pkg, pkg.imageName, pkg.imageTag)
+	if err := validateImageDestination(cfg, imageRepository, pkg.imageTag); err != nil {
+		return fmt.Errorf("validating container image destination for %s (%s:%s): %w", pkg.pkg, pkg.imageName, pkg.imageTag, err)
+	}
+	return nil
 }
 
 func publishableImagePath(path string) bool {
 	return isFile(path) && (strings.HasSuffix(path, ".tar.gz") || executable(path))
 }
 
-func releaseImage(cfg config, storePath string, imageName string, imageTag string, ensureRelease func() error, images *bool) error {
+func releaseImage(cfg config, imageRepository string, storePath string, imageName string, imageTag string, ensureRelease func() error, images *bool) error {
 	info("detected as image %s", bold(imageName+":"+imageTag))
 
 	imagePath := storePath
@@ -457,12 +466,15 @@ func releaseImage(cfg config, storePath string, imageName string, imageTag strin
 		return err
 	}
 	info("image arch: %s", arch)
+	if err := validateImageDestination(cfg, imageRepository, imageTag+"-"+arch); err != nil {
+		return fmt.Errorf("validating container image destination for %s:%s: %w", imageName, imageTag, err)
+	}
 	*images = true
 	if err := ensureRelease(); err != nil {
 		return err
 	}
 
-	if imageExists(cfg, imageTag, arch) {
+	if imageExists(cfg, imageRepository, imageTag, arch) {
 		warn("image already exists, skipping upload")
 		return nil
 	}
@@ -471,7 +483,7 @@ func releaseImage(cfg config, storePath string, imageName string, imageTag strin
 		info("dry run: skipping image upload")
 		return nil
 	}
-	if err := imageUpload(cfg, imagePath, imageTag, arch); err != nil {
+	if err := imageUpload(cfg, imageRepository, imagePath, imageTag, arch); err != nil {
 		return fmt.Errorf("uploading image %s:%s: %w", imageName, imageTag, err)
 	}
 	return nil

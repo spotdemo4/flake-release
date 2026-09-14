@@ -216,7 +216,7 @@ func TestReleasePackageSkipsImageWithMismatchedImageTag(t *testing.T) {
 		imageTag:  "latest",
 		image:     true,
 	}
-	if err := releasePackage(config{}, nil, parseReleaseTag("v1.2.3"), pkg, func() error {
+	if err := releasePackage(config{}, "owner/repo", nil, parseReleaseTag("v1.2.3"), pkg, func() error {
 		created = true
 		return nil
 	}, &images); err != nil {
@@ -256,26 +256,64 @@ func TestPublishableImagePathRequiresKnownImageOutput(t *testing.T) {
 	}
 }
 
-func TestScopedTagsRejectOnlyPublishableContainerImages(t *testing.T) {
-	tag := parseReleaseTag("packages/cli/v1.2.3")
+func TestContainerImageRepository(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		repository string
+		tag        string
+		want       string
+	}{
+		{name: "unscoped", repository: "Owner/Repo", tag: "v1.2.3", want: "Owner/Repo"},
+		{name: "scoped", repository: "Owner/Repo", tag: "packages/api/v1.2.3", want: "Owner/Repo/packages/api"},
+		{name: "nested", repository: "Owner/Repo", tag: "packages/api/client/v1.2.3", want: "Owner/Repo/packages/api/client"},
+		{name: "mixed case", repository: "Owner/Repo", tag: "Packages/API/v1.2.3", want: "Owner/Repo/Packages/API"},
+		{name: "empty repository", repository: "", tag: "packages/api/v1.2.3", want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := containerImageRepository(test.repository, parseReleaseTag(test.tag))
+			if got != test.want {
+				t.Fatalf("containerImageRepository() = %q; want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateImagePackageDestination(t *testing.T) {
 	image := releasePackagePlan{
 		pkg:       "packages.image",
 		imageName: "owner/app",
 		imageTag:  "1.2.3",
 		image:     true,
 	}
-	if err := validateScopedImagePackage(tag, image); !errors.Is(err, errScopedImageRelease) {
-		t.Fatalf("validateScopedImagePackage() error = %v; want scoped image rejection", err)
-	}
-	if err := validateScopedImagePackage(parseReleaseTag("v1.2.3"), image); err != nil {
-		t.Fatalf("unscoped image release was rejected: %v", err)
+	mismatchedImage := image
+	mismatchedImage.imageTag = "latest"
+	for _, test := range []struct {
+		name       string
+		cfg        config
+		repository string
+		pkg        releasePackagePlan
+		wantErr    bool
+	}{
+		{name: "unscoped", cfg: config{registry: "ghcr.io"}, repository: "Owner/Repo", pkg: image},
+		{name: "scoped", cfg: config{registry: "ghcr.io"}, repository: "Owner/Repo/packages/api", pkg: image},
+		{name: "mixed case scope", cfg: config{registry: "ghcr.io"}, repository: "Owner/Repo/Packages/API", pkg: image},
+		{name: "invalid scope", cfg: config{registry: "ghcr.io"}, repository: "owner/repo/packages/@api", pkg: image, wantErr: true},
+		{name: "missing registry", cfg: config{}, repository: "owner/repo/packages/api", pkg: image, wantErr: true},
+		{name: "missing repository", cfg: config{registry: "ghcr.io"}, repository: "", pkg: image, wantErr: true},
+		{name: "dry run still validates", cfg: config{registry: "ghcr.io", dryRun: true}, repository: "owner/repo/packages/@api", pkg: image, wantErr: true},
+		{name: "mismatched image tag", cfg: config{}, repository: "", pkg: mismatchedImage},
+		{name: "archive only", cfg: config{}, repository: "", pkg: releasePackagePlan{pkg: "packages.archive"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateImagePackageDestination(test.cfg, test.repository, parseReleaseTag("v1.2.3"), test.pkg)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateImagePackageDestination() error = %v; wantErr %v", err, test.wantErr)
+			}
+		})
 	}
 
-	archiveOnly := image
-	archiveOnly.image = false
-	archiveOnly.imageTag = ""
-	if err := validateScopedImagePackage(tag, archiveOnly); err != nil {
-		t.Fatalf("archive-only scoped output was rejected: %v", err)
+	if err := validateImageDestination(config{registry: "ghcr.io"}, "owner/repo/packages/api", "1.2.3/bad"); err == nil {
+		t.Fatal("invalid container image tag was accepted")
 	}
 }
 

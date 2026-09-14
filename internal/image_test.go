@@ -9,10 +9,51 @@ import (
 )
 
 func TestDockerImageName(t *testing.T) {
-	got := dockerImageName("GHCR.IO", "Owner/Repo", "v1.2.3")
-	want := "ghcr.io/owner/repo:v1.2.3"
-	if got != want {
-		t.Fatalf("dockerImageName() = %q; want %q", got, want)
+	for _, test := range []struct {
+		name       string
+		registry   string
+		repository string
+		tag        string
+		want       string
+	}{
+		{
+			name:       "unscoped",
+			registry:   "GHCR.IO",
+			repository: "Owner/Repo",
+			tag:        "v1.2.3",
+			want:       "ghcr.io/owner/repo:v1.2.3",
+		},
+		{
+			name:       "scoped architecture",
+			registry:   "GHCR.IO",
+			repository: "Owner/Repo/Packages/API",
+			tag:        "1.2.3-amd64",
+			want:       "ghcr.io/owner/repo/packages/api:1.2.3-amd64",
+		},
+		{
+			name:       "nested scoped manifest",
+			registry:   "registry.example.com",
+			repository: "Owner/Repo/packages/api/client",
+			tag:        "2.0.0-rc.1",
+			want:       "registry.example.com/owner/repo/packages/api/client:2.0.0-rc.1",
+		},
+		{
+			name:       "scoped latest",
+			registry:   "ghcr.io",
+			repository: "owner/repo/packages/api",
+			tag:        "latest",
+			want:       "ghcr.io/owner/repo/packages/api:latest",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := dockerImageName(test.registry, test.repository, test.tag)
+			if got != test.want {
+				t.Fatalf("dockerImageName() = %q; want %q", got, test.want)
+			}
+			if _, err := dockerImageReference(test.registry, test.repository, test.tag); err != nil {
+				t.Fatalf("dockerImageReference() error = %v", err)
+			}
+		})
 	}
 }
 

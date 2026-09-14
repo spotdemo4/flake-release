@@ -44,7 +44,11 @@ flake-release [packages...] [--dry-run]
 
 Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The complete tag identifies the hosted release and limits changelog ancestry and old-asset cleanup to that exact namespace. Go submodules also verify that the namespace matches the module path beneath the configured repository.
 
-A namespace does not infer Nix package attributes or filter requested source manifests. For a scoped release, pass only the package attributes that belong to that namespace. Container images cannot be published from scoped tags because container registries do not preserve the release namespace safely.
+A namespace does not infer Nix package attributes or filter requested source manifests. For a scoped release, pass only the package attributes that belong to that namespace.
+
+Container images append the namespace to the repository path while retaining the terminal version as the image tag. For example, `packages/api/v1.2.3` publishes architecture images such as `registry/owner/repo/packages/api:1.2.3-amd64`, the combined manifest as `registry/owner/repo/packages/api:1.2.3`, and `registry/owner/repo/packages/api:latest`. Nested namespaces remain nested repository paths, while unscoped tags continue to publish directly to `registry/owner/repo`. Manifest discovery and old-image cleanup are confined to the derived repository path.
+
+Container registry and repository paths are normalized to lowercase, including scoped namespace components. Consequently, Git tag namespaces that differ only by case share the same container repository path.
 
 ### Package publishing
 
