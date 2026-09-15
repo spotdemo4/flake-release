@@ -15,6 +15,7 @@ import (
 	git "github.com/go-git/go-git/v6"
 	gitconfig "github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/storer"
 	"golang.org/x/mod/semver"
@@ -280,7 +281,7 @@ func gitChangelog(tag releaseTag) (string, error) {
 		return "", err
 	}
 
-	log, err := changelog(repo, lastTag, tag.full)
+	log, err := changelog(repo, lastTag, tag)
 	if err != nil {
 		return "", err
 	}
@@ -388,12 +389,12 @@ func previousTag(repo *git.Repository, tag releaseTag) (string, error) {
 	return root.String(), nil
 }
 
-func changelog(repo *git.Repository, from string, to string) (string, error) {
+func changelog(repo *git.Repository, from string, to releaseTag) (string, error) {
 	fromHash, err := revisionCommitHash(repo, from)
 	if err != nil {
 		return "", err
 	}
-	toHash, err := revisionCommitHash(repo, to)
+	toHash, err := revisionCommitHash(repo, to.full)
 	if err != nil {
 		return "", err
 	}
@@ -417,12 +418,79 @@ func changelog(repo *git.Repository, from string, to string) (string, error) {
 		if excluded[commit.Hash] {
 			continue
 		}
+		if to.namespace != "" {
+			changed, err := commitChangesPath(commit, to.namespace)
+			if err != nil {
+				return "", err
+			}
+			if !changed {
+				continue
+			}
+		}
 
 		subject := strings.SplitN(commit.Message, "\n", 2)[0]
 		lines = append(lines, "* "+subject+" ("+commit.Hash.String()+")")
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+type treePathState struct {
+	hash plumbing.Hash
+	mode filemode.FileMode
+}
+
+func commitChangesPath(commit *object.Commit, path string) (bool, error) {
+	tree, err := commit.Tree()
+	if err != nil {
+		return false, fmt.Errorf("load tree for commit %s: %w", commit.Hash, err)
+	}
+	current, err := treePathStateAt(tree, path)
+	if err != nil {
+		return false, fmt.Errorf("find path %q in commit %s: %w", path, commit.Hash, err)
+	}
+
+	var previous treePathState
+	if commit.NumParents() > 0 {
+		parent, err := commit.Parent(0)
+		if err != nil {
+			return false, fmt.Errorf("load first parent for commit %s: %w", commit.Hash, err)
+		}
+		parentTree, err := parent.Tree()
+		if err != nil {
+			return false, fmt.Errorf("load tree for parent %s: %w", parent.Hash, err)
+		}
+		previous, err = treePathStateAt(parentTree, path)
+		if err != nil {
+			return false, fmt.Errorf("find path %q in parent %s: %w", path, parent.Hash, err)
+		}
+	}
+
+	return current != previous, nil
+}
+
+func treePathStateAt(tree *object.Tree, path string) (treePathState, error) {
+	parts := strings.Split(path, "/")
+	for index, part := range parts {
+		entry, err := tree.FindEntry(part)
+		if errors.Is(err, object.ErrEntryNotFound) {
+			return treePathState{}, nil
+		}
+		if err != nil {
+			return treePathState{}, err
+		}
+		if index == len(parts)-1 {
+			return treePathState{hash: entry.Hash, mode: entry.Mode}, nil
+		}
+		if entry.Mode != filemode.Dir {
+			return treePathState{}, nil
+		}
+		tree, err = tree.Tree(part)
+		if err != nil {
+			return treePathState{}, err
+		}
+	}
+	return treePathState{}, nil
 }
 
 func reachableCommits(repo *git.Repository, from plumbing.Hash) (map[plumbing.Hash]bool, error) {

@@ -219,19 +219,161 @@ func TestPreviousTagUsesExactReleaseNamespace(t *testing.T) {
 			t.Fatalf("previousTag(%q) = %q; want %q", test.tag, got, test.want)
 		}
 	}
+}
+
+func TestGitChangelogFiltersScopedCommits(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGitRepository(repo)
+
+	commitGitTestFile(t, repo, dir, "root")
+	baseline := commitGitTestPaths(t, repo, dir, "api baseline", "packages/api/api.go")
+	createGitTestTag(t, repo, "v1.0.0", baseline)
+	createGitTestTag(t, repo, "packages/api/v1.0.0", baseline)
+
+	commitGitTestPaths(t, repo, dir, "api direct", "packages/api/api.go")
+	commitGitTestPaths(t, repo, dir, "api nested", "packages/api/internal/helper.go")
+	commitGitTestPaths(t, repo, dir, "web only", "packages/web/web.go")
+	commitGitTestPaths(t, repo, dir, "root docs", "README.md")
+	commitGitTestPaths(t, repo, dir, "similar prefix", "packages/api-client/client.go")
+	commitGitTestPaths(t, repo, dir, "case mismatch", "packages/API/api.go")
+	current := commitGitTestPaths(t, repo, dir, "mixed paths", "packages/api/api.go", "packages/web/web.go")
+	createGitTestTag(t, repo, "v1.1.0", current)
+	createGitTestTag(t, repo, "packages/api/v1.1.0", current)
 
 	chdir(t, dir)
-	changelogPath, err := gitChangelog(parseReleaseTag("packages/api/v1.1.0"))
+	scoped := readGitTestChangelog(t, "packages/api/v1.1.0")
+	for _, subject := range []string{"api direct", "api nested", "mixed paths"} {
+		if count := strings.Count(scoped, subject); count != 1 {
+			t.Fatalf("scoped changelog contains %q %d times; want once: %q", subject, count, scoped)
+		}
+	}
+	for _, subject := range []string{"api baseline", "web only", "root docs", "similar prefix", "case mismatch"} {
+		if strings.Contains(scoped, subject) {
+			t.Fatalf("scoped changelog contains unrelated commit %q: %q", subject, scoped)
+		}
+	}
+
+	unscoped := readGitTestChangelog(t, "v1.1.0")
+	for _, subject := range []string{"api direct", "api nested", "web only", "root docs", "similar prefix", "case mismatch", "mixed paths"} {
+		if !strings.Contains(unscoped, subject) {
+			t.Fatalf("unscoped changelog does not contain %q: %q", subject, unscoped)
+		}
+	}
+}
+
+func TestCommitChangesPathTracksTreeEntryChanges(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer deletePath(changelogPath)
-	contents, err := os.ReadFile(changelogPath)
+	defer closeGitRepository(repo)
+
+	tests := []struct {
+		hash plumbing.Hash
+		want bool
+	}{
+		{hash: commitGitTestFile(t, repo, dir, "root outside scope"), want: false},
+		{hash: commitGitTestPaths(t, repo, dir, "add scope", "packages/api/api.go"), want: true},
+		{hash: commitGitTestPaths(t, repo, dir, "unrelated change", "packages/web/web.go"), want: false},
+		{hash: moveGitTestPath(t, repo, dir, "move out", "packages/api/api.go", "packages/web/api.go"), want: true},
+		{hash: moveGitTestPath(t, repo, dir, "move in", "packages/web/api.go", "packages/api/api.go"), want: true},
+		{hash: moveGitTestPath(t, repo, dir, "move within", "packages/api/api.go", "packages/api/internal/api.go"), want: true},
+		{hash: removeGitTestPaths(t, repo, "remove scope", "packages/api/internal/api.go"), want: true},
+	}
+	for _, test := range tests {
+		commit, err := repo.CommitObject(test.hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := commitChangesPath(commit, "packages/api")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != test.want {
+			t.Fatalf("commitChangesPath(%q) = %t; want %t", commit.Message, got, test.want)
+		}
+	}
+
+	rootDir := t.TempDir()
+	rootRepo, err := git.PlainInit(rootDir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(contents); !strings.Contains(got, "second") || strings.Contains(got, "first") {
-		t.Fatalf("scoped changelog = %q; want only commits after packages/api/v1.0.0", got)
+	defer closeGitRepository(rootRepo)
+	rootHash := commitGitTestPaths(t, rootRepo, rootDir, "root inside scope", "packages/api/api.go")
+	rootCommit, err := rootRepo.CommitObject(rootHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := commitChangesPath(rootCommit, "packages/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("commitChangesPath(root) = false; want true for a root containing the scope")
+	}
+}
+
+func TestGitChangelogFirstScopedReleaseExcludesRoot(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGitRepository(repo)
+
+	commitGitTestPaths(t, repo, dir, "root scoped", "packages/api/root.go")
+	commitGitTestPaths(t, repo, dir, "unrelated", "packages/web/web.go")
+	current := commitGitTestPaths(t, repo, dir, "later scoped", "packages/api/api.go")
+	createGitTestTag(t, repo, "packages/api/v1.0.0", current)
+
+	chdir(t, dir)
+	got := readGitTestChangelog(t, "packages/api/v1.0.0")
+	if !strings.Contains(got, "later scoped") || strings.Contains(got, "root scoped") || strings.Contains(got, "unrelated") {
+		t.Fatalf("first scoped changelog = %q; want only later scoped changes after the root boundary", got)
+	}
+}
+
+func TestCommitChangesPathUsesFirstMergeParent(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGitRepository(repo)
+
+	root := commitGitTestFile(t, repo, dir, "root")
+	parentZero := commitGitTestPaths(t, repo, dir, "parent zero", "packages/api/api.go")
+	stageGitTestPaths(t, repo, dir, "parent one", "packages/api/api.go")
+	parentOne := commitGitTestIndex(t, repo, "parent one", []plumbing.Hash{root}, false)
+
+	changedMerge := commitGitTestIndex(t, repo, "changed merge", []plumbing.Hash{parentZero, parentOne}, false)
+	stageGitTestPaths(t, repo, dir, "parent zero", "packages/api/api.go")
+	unchangedMerge := commitGitTestIndex(t, repo, "unchanged merge", []plumbing.Hash{parentZero, parentOne}, true)
+
+	for _, test := range []struct {
+		hash plumbing.Hash
+		want bool
+	}{
+		{hash: changedMerge, want: true},
+		{hash: unchangedMerge, want: false},
+	} {
+		commit, err := repo.CommitObject(test.hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := commitChangesPath(commit, "packages/api")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != test.want {
+			t.Fatalf("commitChangesPath(%q) = %t; want %t", commit.Message, got, test.want)
+		}
 	}
 }
 
@@ -414,24 +556,100 @@ func TestGitChangelogForCurrentRepositoryTags(t *testing.T) {
 
 func commitGitTestFile(t *testing.T, repo *git.Repository, dir string, message string) plumbing.Hash {
 	t.Helper()
+	return commitGitTestPaths(t, repo, dir, message, "history")
+}
 
-	path := filepath.Join(dir, "history")
-	if err := os.WriteFile(path, []byte(message), 0o600); err != nil {
+func commitGitTestPaths(t *testing.T, repo *git.Repository, dir string, message string, paths ...string) plumbing.Hash {
+	t.Helper()
+	stageGitTestPaths(t, repo, dir, message, paths...)
+	return commitGitTestIndex(t, repo, message, nil, false)
+}
+
+func stageGitTestPaths(t *testing.T, repo *git.Repository, dir string, contents string, paths ...string) {
+	t.Helper()
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		filesystemPath := filepath.Join(dir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(filesystemPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filesystemPath, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := worktree.Add(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func moveGitTestPath(t *testing.T, repo *git.Repository, dir string, message string, from string, to string) plumbing.Hash {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, filepath.FromSlash(to))), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	worktree, err := repo.Worktree()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worktree.Add("history"); err != nil {
+	if _, err := worktree.Move(from, to); err != nil {
+		t.Fatal(err)
+	}
+	return commitGitTestIndex(t, repo, message, nil, false)
+}
+
+func removeGitTestPaths(t *testing.T, repo *git.Repository, message string, paths ...string) plumbing.Hash {
+	t.Helper()
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if _, err := worktree.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return commitGitTestIndex(t, repo, message, nil, false)
+}
+
+func commitGitTestIndex(t *testing.T, repo *git.Repository, message string, parents []plumbing.Hash, allowEmpty bool) plumbing.Hash {
+	t.Helper()
+
+	worktree, err := repo.Worktree()
+	if err != nil {
 		t.Fatal(err)
 	}
 	signature := &object.Signature{Name: "Test", Email: "test@example.com", When: time.Unix(int64(len(message)), 0)}
-	hash, err := worktree.Commit(message, &git.CommitOptions{Author: signature, Committer: signature})
+	hash, err := worktree.Commit(message, &git.CommitOptions{
+		Author:            signature,
+		Committer:         signature,
+		Parents:           parents,
+		AllowEmptyCommits: allowEmpty,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return hash
+}
+
+func readGitTestChangelog(t *testing.T, tag string) string {
+	t.Helper()
+
+	path, err := gitChangelog(parseReleaseTag(tag))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { deletePath(path) })
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
 }
 
 func createGitTestTag(t *testing.T, repo *git.Repository, name string, hash plumbing.Hash) {

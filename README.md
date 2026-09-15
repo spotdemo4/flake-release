@@ -42,7 +42,7 @@ flake-release [packages...] [--dry-run]
 
 ### Scoped release tags
 
-Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The complete tag identifies the hosted release and limits changelog ancestry and old-asset cleanup to that exact namespace. Go submodules also verify that the namespace matches the module path beneath the configured repository.
+Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The complete tag identifies the hosted release and limits changelog ancestry and old-asset cleanup to that exact namespace. The namespace is also interpreted as a literal, case-sensitive repository path when generating the changelog. A scoped changelog includes only commits that change that path or its descendants relative to their first parent; similarly prefixed sibling paths are excluded, while a commit that also changes unrelated paths is still included. Unscoped tags continue to include changes from the entire repository. Go submodules also verify that the namespace matches the module path beneath the configured repository.
 
 A namespace does not infer Nix package attributes or filter requested source manifests. For a scoped release, pass only the package attributes that belong to that namespace.
 
