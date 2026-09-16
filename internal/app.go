@@ -10,6 +10,7 @@ import (
 
 type config struct {
 	dryRun                    bool
+	bundleAppImage            bool
 	deleteOldReleaseArtifacts string
 	githubRepository          string
 	githubServerURL           string
@@ -81,11 +82,10 @@ func selectedReleaseTag() (string, error) {
 	return gitLatestTag()
 }
 
-func Run(args []string) error {
-	setupNixConfig()
-
-	cfg := config{
+func configFromEnv() config {
+	return config{
 		dryRun:                    os.Getenv("DRY_RUN") == "true",
+		bundleAppImage:            truthy(os.Getenv("BUNDLE_APPIMAGE")),
 		deleteOldReleaseArtifacts: os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
 		githubRepository:          os.Getenv("GITHUB_REPOSITORY"),
 		githubServerURL:           os.Getenv("GITHUB_SERVER_URL"),
@@ -100,20 +100,35 @@ func Run(args []string) error {
 		packageRegistryToken:      os.Getenv("PACKAGE_REGISTRY_TOKEN"),
 		packageRegistryUsername:   os.Getenv("PACKAGE_REGISTRY_USERNAME"),
 	}
+}
 
+func parseRunArgs(cfg *config, args []string) ([]string, bool) {
 	var packages []string
 	for _, arg := range args {
 		switch arg {
 		case "--help":
-			info("Usage: flake-release [packages...] [--dry-run]")
-			info("")
-			info("If no packages are provided as arguments, the command will attempt to get packages from the nix flake for the current system.")
-			return nil
+			return packages, true
 		case "--dry-run":
 			cfg.dryRun = true
+		case "--bundle-appimage":
+			cfg.bundleAppImage = true
 		default:
 			packages = append(packages, arg)
 		}
+	}
+	return packages, false
+}
+
+func Run(args []string) error {
+	setupNixConfig()
+
+	cfg := configFromEnv()
+	packages, help := parseRunArgs(&cfg, args)
+	if help {
+		info("Usage: flake-release [packages...] [--dry-run] [--bundle-appimage]")
+		info("")
+		info("If no packages are provided as arguments, the command will attempt to get packages from the nix flake for the current system.")
+		return nil
 	}
 	packages = append(packages, splitPackages(os.Getenv("PACKAGES"))...)
 
@@ -397,12 +412,12 @@ func releasePackage(cfg config, imageRepository string, release releaseClient, t
 		return nil
 	}
 
-	if pkg.mainProgram != "" && pkg.platform.OS == "linux" {
+	if cfg.bundleAppImage && pkg.mainProgram != "" && pkg.platform.OS == "linux" {
 		path := packageMainProgramPath(outputs, pkg.mainProgram)
 		switch {
 		case path == "":
 			warn("main program %q was not found; archiving package outputs", pkg.mainProgram)
-		case !isNativeBinary(path):
+		case shouldBundleAppImage(cfg, pkg, path):
 			info("main program is not a native binary, bundling as AppImage")
 			archivePath, err := nixBundleAppImage(pkg.pkg)
 			if err != nil {
@@ -525,6 +540,10 @@ func uploadArchive(cfg config, release releaseClient, tag string, archivePath st
 func isFile(path string) bool {
 	stat, err := os.Stat(filepath.Clean(path))
 	return err == nil && stat.Mode().IsRegular()
+}
+
+func shouldBundleAppImage(cfg config, pkg releasePackagePlan, path string) bool {
+	return cfg.bundleAppImage && pkg.mainProgram != "" && pkg.platform.OS == "linux" && path != "" && !isNativeBinary(path)
 }
 
 func packageMainProgramPath(outputs []packageOutput, mainProgram string) string {

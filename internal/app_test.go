@@ -39,6 +39,40 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvBundleAppImage(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "empty", want: false},
+		{name: "false", value: "false", want: false},
+		{name: "true", value: "true", want: true},
+		{name: "one", value: "1", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("BUNDLE_APPIMAGE", test.value)
+			if got := configFromEnv().bundleAppImage; got != test.want {
+				t.Fatalf("configFromEnv().bundleAppImage = %t; want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestParseRunArgsBundleAppImage(t *testing.T) {
+	cfg := config{}
+	packages, help := parseRunArgs(&cfg, []string{"packages.one", "--bundle-appimage", "packages.two"})
+	if help {
+		t.Fatal("parseRunArgs() requested help")
+	}
+	if !cfg.bundleAppImage {
+		t.Fatal("parseRunArgs() did not enable AppImage bundling")
+	}
+	if len(packages) != 2 || packages[0] != "packages.one" || packages[1] != "packages.two" {
+		t.Fatalf("parseRunArgs() packages = %q; want [packages.one packages.two]", packages)
+	}
+}
+
 func TestSelectedReleaseTagUsesExactTagEvent(t *testing.T) {
 	t.Setenv("TAG", "")
 	t.Setenv("GITHUB_REF_NAME", "packages/api/v1.2.3")
@@ -334,6 +368,67 @@ func TestPackageMainProgramPathPrefersBinOutput(t *testing.T) {
 	want := filepath.Join(bin, "bin", "app")
 	if got != want {
 		t.Fatalf("packageMainProgramPath() = %q; want %q", got, want)
+	}
+}
+
+func TestShouldBundleAppImage(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "script")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	native, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name string
+		cfg  config
+		pkg  releasePackagePlan
+		path string
+		want bool
+	}{
+		{
+			name: "disabled script",
+			pkg:  releasePackagePlan{mainProgram: "app", platform: platform{OS: "linux"}},
+			path: script,
+		},
+		{
+			name: "enabled script",
+			cfg:  config{bundleAppImage: true},
+			pkg:  releasePackagePlan{mainProgram: "app", platform: platform{OS: "linux"}},
+			path: script,
+			want: true,
+		},
+		{
+			name: "native binary",
+			cfg:  config{bundleAppImage: true},
+			pkg:  releasePackagePlan{mainProgram: "app", platform: platform{OS: "linux"}},
+			path: native,
+		},
+		{
+			name: "non-linux script",
+			cfg:  config{bundleAppImage: true},
+			pkg:  releasePackagePlan{mainProgram: "app", platform: platform{OS: "darwin"}},
+			path: script,
+		},
+		{
+			name: "missing main program",
+			cfg:  config{bundleAppImage: true},
+			pkg:  releasePackagePlan{platform: platform{OS: "linux"}},
+			path: script,
+		},
+		{
+			name: "missing path",
+			cfg:  config{bundleAppImage: true},
+			pkg:  releasePackagePlan{mainProgram: "app", platform: platform{OS: "linux"}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldBundleAppImage(test.cfg, test.pkg, test.path); got != test.want {
+				t.Fatalf("shouldBundleAppImage() = %t; want %t", got, test.want)
+			}
+		})
 	}
 }
 

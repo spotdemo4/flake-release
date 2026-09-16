@@ -8,7 +8,7 @@ Generates release artifacts for packages in a nix flake:
 - `dockerTools.buildLayeredImage` & `dockerTools.streamLayeredImage` can be uploaded to a container registry
 - packages have every non-empty output bundled into a `.tar.xz`, or a `.zip` on Windows; `out` contents are placed at the archive root while other split outputs retain names such as `bin/`, `dev/`, and `doc/`; runs without any releasable outputs fail without creating a release
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
-- Linux packages whose `meta.mainProgram` is a script rather than a native binary are bundled into an AppImage
+- Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
 - Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests
 
 Works with GitHub, Gitea & Forgejo
@@ -16,7 +16,7 @@ Works with GitHub, Gitea & Forgejo
 ## Usage
 
 ```sh
-flake-release [packages...] [--dry-run]
+flake-release [packages...] [--dry-run] [--bundle-appimage]
 ```
 
 ### Environment
@@ -39,6 +39,9 @@ flake-release [packages...] [--dry-run]
 | PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; required outside dry-run                       |                                  |
 | DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                       | `true`                           |
 | DELETE_OLD_RELEASE_ARTIFACTS | Delete release assets and image tags from previous releases after a new release exists | `true`                           |
+| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default                | `true`                           |
+
+By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
 
 ### Scoped release tags
 
@@ -118,6 +121,7 @@ Package versions are strict: Go publishes the exact release tag, including a lea
     package_registry_username: # default: ${{ github.actor }}
     package_registry_token: # dedicated package write token
     delete_old_release_artifacts: # default: false
+    bundle_appimage: # default: false
 ```
 
 ### Nix
@@ -161,6 +165,7 @@ docker run -it \
   -e REGISTRY_PASSWORD=... \
   -e PUBLISH_PACKAGES=... \
   -e PACKAGE_REGISTRY_TOKEN=... \
+  -e BUNDLE_APPIMAGE=true \
   ghcr.io/spotdemo4/flake-release:0.17.0
 ```
 

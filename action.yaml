@@ -71,6 +71,11 @@ inputs:
     required: false
     default: "false"
 
+  bundle_appimage:
+    description: bundle eligible Linux script packages as AppImages
+    required: false
+    default: "false"
+
 runs:
   using: docker
   image: docker://ghcr.io/spotdemo4/nix-flake-release:0.17.0
@@ -90,3 +95,4 @@ runs:
     PACKAGE_REGISTRY_TOKEN: ${{ inputs.package_registry_token }}
     PACKAGE_REGISTRY_USERNAME: ${{ inputs.package_registry_username }}
     DELETE_OLD_RELEASE_ARTIFACTS: ${{ inputs.delete_old_release_artifacts }}
+    BUNDLE_APPIMAGE: ${{ inputs.bundle_appimage }}

@@ -491,6 +491,37 @@ func TestFindFilesDoesNotFollowDirectorySymlinks(t *testing.T) {
 	}
 }
 
+func TestArchiveOutputsPreservesAppImage(t *testing.T) {
+	appImage := filepath.Join(t.TempDir(), "tool.AppImage")
+	if err := os.WriteFile(appImage, []byte("appimage"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: appImage}}, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(filepath.Dir(archivePath))
+
+	if got, want := filepath.Base(archivePath), "tool.AppImage"; got != want {
+		t.Fatalf("archive filename = %q; want %q", got, want)
+	}
+	data, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "appimage"; got != want {
+		t.Fatalf("archive contents = %q; want %q", got, want)
+	}
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("archive mode = %o; want 755", info.Mode().Perm())
+	}
+}
+
 func TestRenameAssetPreservesTarXzExtension(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "archive.tar.xz")
 	if err := os.WriteFile(archivePath, []byte("archive"), 0o644); err != nil {
@@ -503,6 +534,22 @@ func TestRenameAssetPreservesTarXzExtension(t *testing.T) {
 	}
 	defer deletePath(filepath.Dir(asset))
 	if got, want := filepath.Base(asset), "app_1.2.3_linux_amd64.tar.xz"; got != want {
+		t.Fatalf("asset name = %q; want %q", got, want)
+	}
+}
+
+func TestRenameAssetUsesAppImageExtension(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "archive.AppImage")
+	if err := os.WriteFile(archivePath, []byte("archive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	asset, err := renameAsset(archivePath, "app", "1.2.3", "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(filepath.Dir(asset))
+	if got, want := filepath.Base(asset), "app_1.2.3_amd64.AppImage"; got != want {
 		t.Fatalf("asset name = %q; want %q", got, want)
 	}
 }
