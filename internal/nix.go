@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -14,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type platform struct {
@@ -28,6 +28,51 @@ type packageOutput struct {
 
 type nixBuildResult struct {
 	Outputs map[string]string `json:"outputs"`
+}
+
+const nixDiagnosticLimit = 1024 * 1024
+
+type tailBuffer struct {
+	mu        sync.Mutex
+	data      []byte
+	limit     int
+	truncated bool
+}
+
+func newTailBuffer(limit int) *tailBuffer {
+	return &tailBuffer{limit: limit}
+}
+
+func (buffer *tailBuffer) Write(value []byte) (int, error) {
+	written := len(value)
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+
+	if buffer.limit <= 0 {
+		buffer.truncated = buffer.truncated || written > 0
+		return written, nil
+	}
+	if len(value) >= buffer.limit {
+		buffer.data = append(buffer.data[:0], value[len(value)-buffer.limit:]...)
+		buffer.truncated = true
+		return written, nil
+	}
+	if overflow := len(buffer.data) + len(value) - buffer.limit; overflow > 0 {
+		copy(buffer.data, buffer.data[overflow:])
+		buffer.data = buffer.data[:len(buffer.data)-overflow]
+		buffer.truncated = true
+	}
+	buffer.data = append(buffer.data, value...)
+	return written, nil
+}
+
+func (buffer *tailBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	if buffer.truncated {
+		return "[earlier output omitted]\n" + string(buffer.data)
+	}
+	return string(buffer.data)
 }
 
 func setupNixConfig() {
@@ -96,19 +141,11 @@ func userAndGroupIDs(userName string) (int, int, error) {
 }
 
 func nixSystem() (string, error) {
-	system, err := nixCapture("eval", "--impure", "--raw", "--expr", "builtins.currentSystem")
-	if err == nil && system != "" {
-		info(dim("system: %s"), system)
-	}
-	return system, err
+	return nixCapture("eval", "--impure", "--raw", "--expr", "builtins.currentSystem")
 }
 
 func nixPkgPath(pkg string) (string, error) {
-	path, err := nixCapture("eval", "--raw", ".#"+pkg)
-	if err == nil && path != "" {
-		info(dim("path: %s"), path)
-	}
-	return path, err
+	return nixCapture("eval", "--raw", ".#"+pkg)
 }
 
 func nixPkgSrc(pkg string) (string, error) {
@@ -118,27 +155,22 @@ func nixPkgSrc(pkg string) (string, error) {
 func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (string, error) {
 	out, err := capture("eval", "--json", ".#"+pkg+".src")
 	if err != nil || out == "" || out == "null" {
-		info(dim("source: unavailable for %s"), pkg)
 		return "", nil
 	}
 	var path string
 	if err := json.Unmarshal([]byte(out), &path); err != nil || path == "" {
-		info(dim("source: unavailable for %s"), pkg)
 		return "", nil
 	}
 	stat, err := os.Stat(path)
 	if err != nil || !stat.IsDir() {
-		info(dim("source: unavailable for %s"), pkg)
 		return "", nil
 	}
-	info(dim("source: %s"), path)
 	return path, nil
 }
 
 func nixPkgPname(pkg string) string {
 	pname, err := nixCapture("eval", "--raw", ".#"+pkg+".pname")
-	if err == nil && pname != "" {
-		info(dim("pname: %s"), pname)
+	if err == nil {
 		return pname
 	}
 	return ""
@@ -146,8 +178,7 @@ func nixPkgPname(pkg string) string {
 
 func nixPkgVersion(pkg string) string {
 	version, err := nixCapture("eval", "--raw", ".#"+pkg+".version")
-	if err == nil && version != "" {
-		info(dim("version: %s"), version)
+	if err == nil {
 		return version
 	}
 	return ""
@@ -155,8 +186,7 @@ func nixPkgVersion(pkg string) string {
 
 func nixPkgMainProgram(pkg string) string {
 	mainProgram, err := nixCapture("eval", "--raw", ".#"+pkg+".meta.mainProgram")
-	if err == nil && mainProgram != "" {
-		info(dim("main program: %s"), mainProgram)
+	if err == nil {
 		return mainProgram
 	}
 	return ""
@@ -173,19 +203,12 @@ func nixPkgPlatform(pkg string) platform {
 		return platform{}
 	}
 
-	if p.OS != "" {
-		info(dim("os: %s"), p.OS)
-	}
-	if p.Arch != "" {
-		info(dim("arch: %s"), p.Arch)
-	}
 	return p
 }
 
 func nixImageName(pkg string) string {
 	imageName, err := nixCapture("eval", "--raw", ".#"+pkg+".imageName")
-	if err == nil && imageName != "" {
-		info(dim("image name: %s"), imageName)
+	if err == nil {
 		return imageName
 	}
 	return ""
@@ -193,8 +216,7 @@ func nixImageName(pkg string) string {
 
 func nixImageTag(pkg string) string {
 	imageTag, err := nixCapture("eval", "--raw", ".#"+pkg+".imageTag")
-	if err == nil && imageTag != "" {
-		info(dim("image tag: %s"), imageTag)
+	if err == nil {
 		return imageTag
 	}
 	return ""
@@ -212,9 +234,6 @@ func nixBuildOutputs(pkg string) ([]packageOutput, error) {
 	outputs, err := parseNixBuildOutputs(out)
 	if err != nil {
 		return nil, err
-	}
-	for _, output := range outputs {
-		info(dim("output %s: %s"), output.Name, output.Path)
 	}
 	return outputs, nil
 }
@@ -259,7 +278,6 @@ func nixBundleAppImage(pkg string) (string, error) {
 	defer deletePath(tmpLink)
 
 	if err := nixRun("bundle", "--bundler", "github:spotdemo4/trevpkgs#appimage", ".#"+pkg, "-o", tmpLink); err != nil {
-		warn("AppImage bundle failed")
 		return "", err
 	}
 
@@ -280,60 +298,87 @@ func nixBundleAppImage(pkg string) (string, error) {
 
 func nixRun(args ...string) error {
 	cmd := exec.Command("nix", args...)
+	command := nixCommandString(args...)
 
 	if os.Getenv("DEBUG") != "" {
-		info(nixCommandString(args...))
+		detail("command: %s", command)
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return nixCommandError(command, err, "")
+		}
+		return nil
 	}
 
 	if os.Getenv("CI") != "" {
-		fmt.Fprintf(os.Stderr, "::group::%s\n", nixCommandString(args...))
+		fmt.Fprintf(os.Stderr, "::group::%s\n", command)
 		defer fmt.Fprintln(os.Stderr, "::endgroup::")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return nixCommandError(command, err, "")
+		}
+		return nil
 	}
 
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run()
+	output := newTailBuffer(nixDiagnosticLimit)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Run(); err != nil {
+		return nixCommandError(command, err, output.String())
+	}
+	return nil
 }
 
 func nixCapture(args ...string) (string, error) {
 	cmd := exec.Command("nix", args...)
+	command := nixCommandString(args...)
 
 	var stdout bytes.Buffer
+	stderr := newTailBuffer(nixDiagnosticLimit)
 	cmd.Stdout = &stdout
 	if os.Getenv("DEBUG") != "" {
 		cmd.Stderr = os.Stderr
 	} else {
-		cmd.Stderr = io.Discard
+		cmd.Stderr = stderr
 	}
 
-	err := cmd.Run()
-	return strings.TrimRight(stdout.String(), "\n"), err
+	if err := cmd.Run(); err != nil {
+		return "", nixCommandError(command, err, stderr.String())
+	}
+	return strings.TrimRight(stdout.String(), "\n"), nil
 }
 
 func nixCaptureLogged(args ...string) (string, error) {
 	cmd := exec.Command("nix", args...)
+	command := nixCommandString(args...)
 
 	var stdout bytes.Buffer
+	stderr := newTailBuffer(nixDiagnosticLimit)
 	cmd.Stdout = &stdout
 	if os.Getenv("DEBUG") != "" {
-		info(nixCommandString(args...))
+		detail("command: %s", command)
 		cmd.Stderr = os.Stderr
 	} else if os.Getenv("CI") != "" {
-		fmt.Fprintf(os.Stderr, "::group::%s\n", nixCommandString(args...))
+		fmt.Fprintf(os.Stderr, "::group::%s\n", command)
 		defer fmt.Fprintln(os.Stderr, "::endgroup::")
 		cmd.Stderr = os.Stderr
 	} else {
-		cmd.Stderr = io.Discard
+		cmd.Stderr = stderr
 	}
 
-	err := cmd.Run()
-	return strings.TrimRight(stdout.String(), "\n"), err
+	if err := cmd.Run(); err != nil {
+		return "", nixCommandError(command, err, stderr.String())
+	}
+	return strings.TrimRight(stdout.String(), "\n"), nil
+}
+
+func nixCommandError(command string, err error, output string) error {
+	output = strings.TrimSpace(output)
+	if output != "" {
+		return fmt.Errorf("%s failed: %w\n%s", command, err, output)
+	}
+	return fmt.Errorf("%s failed: %w", command, err)
 }
 
 func nixCommandString(args ...string) string {

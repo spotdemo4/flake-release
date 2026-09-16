@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -163,7 +164,7 @@ func (c githubReleaseClient) createRelease(tag string, changelog string) error {
 		return err
 	}
 
-	info("creating release %s at %s", tag, c.cfg.githubRepository)
+	status("creating release %s at %s", tag, c.cfg.githubRepository)
 	endpoint := fmt.Sprintf("%s/repos/%s/releases", c.apiBase(), repo.path())
 	_, err = c.jsonRequest(http.MethodPost, endpoint, createReleaseRequest{
 		TagName: tag,
@@ -207,7 +208,7 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		contentType = "application/octet-stream"
 	}
 
-	info("uploading asset to release %s at %s", tag, c.cfg.githubRepository)
+	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.githubRepository)
 	_, err = c.httpRequest(httpRequestOptions{
 		method:        http.MethodPost,
 		url:           uploadURL,
@@ -242,12 +243,11 @@ func (c githubReleaseClient) cleanupAssets(currentTag releaseTag) error {
 
 	releases, err := c.listReleases(repo)
 	if err != nil {
-		warn("failed to fetch GitHub releases")
 		return err
 	}
 
-	info("deleting old GitHub release assets at %s", c.cfg.githubRepository)
-	failed := false
+	status("deleting old GitHub release assets at %s", c.cfg.githubRepository)
+	var cleanupErr error
 	for _, release := range releases {
 		if release.ID == 0 || !releaseCleanupCandidate(currentTag, release.TagName) {
 			continue
@@ -255,8 +255,7 @@ func (c githubReleaseClient) cleanupAssets(currentTag releaseTag) error {
 
 		assets, err := c.listReleaseAssets(repo, release.ID)
 		if err != nil {
-			warn("failed to fetch GitHub release assets for %s", release.TagName)
-			failed = true
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("fetching assets for release %s: %w", release.TagName, err))
 			continue
 		}
 
@@ -264,22 +263,18 @@ func (c githubReleaseClient) cleanupAssets(currentTag releaseTag) error {
 			if asset.ID == 0 || asset.Name == "" {
 				continue
 			}
-			info("deleting asset %s from release %s", asset.Name, release.TagName)
+			status("deleting asset %s from release %s", asset.Name, release.TagName)
 			endpoint := fmt.Sprintf("%s/repos/%s/releases/assets/%d", c.apiBase(), repo.path(), asset.ID)
 			if _, err := c.httpRequest(httpRequestOptions{
 				method: http.MethodDelete,
 				url:    endpoint,
 			}); err != nil {
-				warn("failed to delete asset %s from release %s", asset.Name, release.TagName)
-				failed = true
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("deleting asset %s from release %s: %w", asset.Name, release.TagName, err))
 			}
 		}
 	}
 
-	if failed {
-		return fmt.Errorf("failed to delete some GitHub release assets")
-	}
-	return nil
+	return cleanupErr
 }
 
 func (c githubReleaseClient) releaseByTag(repo repository, tag string) (githubReleaseResponse, error) {
@@ -377,7 +372,7 @@ func (c giteaReleaseClient) createRelease(tag string, changelog string) error {
 		return err
 	}
 
-	info("creating release %s at %s", tag, c.cfg.githubRepository)
+	status("creating release %s at %s", tag, c.cfg.githubRepository)
 	endpoint := fmt.Sprintf("%s/repos/%s/releases", c.apiBase(), repo.path())
 	_, err = c.jsonRequest(http.MethodPost, endpoint, createReleaseRequest{
 		TagName: tag,
@@ -415,7 +410,7 @@ func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
 		return err
 	}
 
-	info("uploading asset to release %s at %s", tag, c.cfg.githubRepository)
+	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.githubRepository)
 	_, err = c.httpRequest(httpRequestOptions{
 		method:      http.MethodPost,
 		url:         endpoint,
@@ -437,12 +432,11 @@ func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag) error {
 
 	releases, err := c.listReleases(repo)
 	if err != nil {
-		warn("failed to fetch %s releases", c.name)
 		return err
 	}
 
-	failed := false
-	info("deleting old %s release assets at %s", c.name, c.cfg.githubRepository)
+	var cleanupErr error
+	status("deleting old %s release assets at %s", c.name, c.cfg.githubRepository)
 	for _, release := range releases {
 		releaseTag := release.tagName()
 		if release.ID == 0 || !releaseCleanupCandidate(currentTag, releaseTag) {
@@ -451,8 +445,7 @@ func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag) error {
 
 		assets, err := c.listReleaseAssets(repo, release.ID)
 		if err != nil {
-			warn("failed to fetch %s release assets for %s", c.name, releaseTag)
-			failed = true
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("fetching %s release assets for %s: %w", c.name, releaseTag, err))
 			continue
 		}
 
@@ -460,22 +453,18 @@ func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag) error {
 			if asset.ID == 0 {
 				continue
 			}
-			info("deleting asset %s from release %s", asset.Name, releaseTag)
+			status("deleting asset %s from release %s", asset.Name, releaseTag)
 			endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets/%d", c.apiBase(), repo.path(), release.ID, asset.ID)
 			if _, err := c.httpRequest(httpRequestOptions{
 				method: http.MethodDelete,
 				url:    endpoint,
 			}); err != nil {
-				warn("failed to delete asset %s from release %s", asset.Name, releaseTag)
-				failed = true
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("deleting asset %s from release %s: %w", asset.Name, releaseTag, err))
 			}
 		}
 	}
 
-	if failed {
-		return fmt.Errorf("failed to delete some %s release assets", c.name)
-	}
-	return nil
+	return cleanupErr
 }
 
 func (c giteaReleaseClient) releaseByTag(repo repository, tag string) (giteaReleaseResponse, error) {
@@ -559,30 +548,26 @@ func (c giteaReleaseClient) httpRequest(options httpRequestOptions) ([]byte, err
 
 func releaseRepository(cfg config, action string) (repository, error) {
 	if cfg.githubRepository == "" {
-		warn("GITHUB_REPOSITORY is not set, cannot %s", action)
-		return repository{}, fmt.Errorf("GITHUB_REPOSITORY is not set")
+		return repository{}, fmt.Errorf("cannot %s: GITHUB_REPOSITORY is not set", action)
 	}
 
 	repo, err := parseRepository(cfg.githubRepository)
 	if err != nil {
-		warn("GITHUB_REPOSITORY must be owner/repo, cannot %s", action)
-		return repository{}, err
+		return repository{}, fmt.Errorf("cannot %s: GITHUB_REPOSITORY must be owner/repo: %w", action, err)
 	}
 	return repo, nil
 }
 
 func requireServerURL(cfg config, action string) error {
 	if cfg.githubServerURL == "" {
-		warn("GITHUB_SERVER_URL is not set, cannot %s", action)
-		return fmt.Errorf("GITHUB_SERVER_URL is not set")
+		return fmt.Errorf("cannot %s: GITHUB_SERVER_URL is not set", action)
 	}
 	return nil
 }
 
 func requireToken(cfg config, action string) error {
 	if cfg.githubToken == "" {
-		warn("GITHUB_TOKEN is not set, cannot %s", action)
-		return fmt.Errorf("GITHUB_TOKEN is not set")
+		return fmt.Errorf("cannot %s: GITHUB_TOKEN is not set", action)
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -33,6 +34,28 @@ func TestNixCommandString(t *testing.T) {
 	want := "nix build .#default --no-link"
 	if got != want {
 		t.Fatalf("nixCommandString() = %q; want %q", got, want)
+	}
+}
+
+func TestTailBufferKeepsBoundedDiagnosticSuffix(t *testing.T) {
+	buffer := newTailBuffer(5)
+	if _, err := buffer.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buffer.Write([]byte("defg")); err != nil {
+		t.Fatal(err)
+	}
+	want := "[earlier output omitted]\ncdefg"
+	if got := buffer.String(); got != want {
+		t.Fatalf("tailBuffer.String() = %q; want %q", got, want)
+	}
+}
+
+func TestNixCommandErrorIncludesCapturedOutput(t *testing.T) {
+	err := nixCommandError("nix build .#default", errors.New("exit status 1"), "first line\nsecond line\n")
+	want := "nix build .#default failed: exit status 1\nfirst line\nsecond line"
+	if err.Error() != want {
+		t.Fatalf("nixCommandError() = %q; want %q", err, want)
 	}
 }
 

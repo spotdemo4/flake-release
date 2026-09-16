@@ -206,12 +206,22 @@ func TestReleaseSessionDryRunRecordsOutputWithoutCreatingRelease(t *testing.T) {
 }
 
 func TestPrepareReleasePackagesSkipsEvaluationFailuresAndAliases(t *testing.T) {
+	output := captureHumanOutput(t)
 	plans := prepareReleasePackagesWith([]string{"broken", "valid", "alias"}, func(pkg string) (releasePackagePlan, error) {
 		switch pkg {
 		case "broken":
-			return releasePackagePlan{}, errors.New("evaluation failed")
+			return releasePackagePlan{}, errors.New("attribute unavailable")
 		case "valid":
-			return releasePackagePlan{pkg: pkg, storePath: "/nix/store/valid"}, nil
+			return releasePackagePlan{
+				pkg:         pkg,
+				storePath:   "/nix/store/valid",
+				pname:       "example",
+				version:     "1.2.3",
+				mainProgram: "example",
+				platform:    platform{OS: "linux", Arch: "amd64"},
+				imageName:   "example",
+				imageTag:    "1.2.3",
+			}, nil
 		case "alias":
 			return releasePackagePlan{pkg: pkg, storePath: "/nix/store/valid"}, nil
 		default:
@@ -220,6 +230,67 @@ func TestPrepareReleasePackagesSkipsEvaluationFailuresAndAliases(t *testing.T) {
 	})
 	if len(plans) != 1 || plans[0].pkg != "valid" {
 		t.Fatalf("prepareReleasePackagesWith() = %#v; want only valid package", plans)
+	}
+
+	want := "\nEvaluating packages\n" +
+		"  broken\n" +
+		"    warning: evaluation failed: attribute unavailable\n" +
+		"  valid\n" +
+		"    path: /nix/store/valid\n" +
+		"    pname: example\n" +
+		"    version: 1.2.3\n" +
+		"    main program: example\n" +
+		"    platform: linux/amd64\n" +
+		"    image name: example\n" +
+		"    image tag: 1.2.3\n" +
+		"  alias\n" +
+		"    same store path as valid; skipping duplicate\n"
+	if got := output.String(); got != want {
+		t.Fatalf("output = %q; want %q", got, want)
+	}
+}
+
+func TestPrepareReleasePackagesDeduplicatesEmptyStorePaths(t *testing.T) {
+	captureHumanOutput(t)
+	plans := prepareReleasePackagesWith([]string{"first", "second"}, func(pkg string) (releasePackagePlan, error) {
+		return releasePackagePlan{pkg: pkg}, nil
+	})
+	if len(plans) != 1 || plans[0].pkg != "first" {
+		t.Fatalf("prepareReleasePackagesWith() = %#v; want only first package", plans)
+	}
+}
+
+func TestPrepareReleaseImagesReportsBuildFailureOnce(t *testing.T) {
+	output := captureHumanOutput(t)
+	packages := []releasePackagePlan{{
+		pkg:       "images.example",
+		storePath: "/nix/store/example.tar.gz",
+		version:   "1.2.3",
+		platform:  platform{OS: "linux", Arch: "amd64"},
+		imageName: "example",
+		imageTag:  "1.2.3",
+	}}
+
+	root, err := prepareReleaseImagesWith(config{}, "owner/repo", parseReleaseTag("v1.2.3"), packages, func(pkg string, outLink string) error {
+		if pkg != "images.example" || outLink == "" {
+			t.Fatalf("build(%q, %q) called with unexpected arguments", pkg, outLink)
+		}
+		return errors.New("builder failed")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(root)
+	if packages[0].imageBuildErr == nil {
+		t.Fatal("image build error was not retained")
+	}
+
+	want := "\nPreparing container images\n" +
+		"  images.example\n" +
+		"    building linked Nix output\n" +
+		"    warning: image preparation failed: builder failed\n"
+	if got := output.String(); got != want {
+		t.Fatalf("output = %q; want %q", got, want)
 	}
 }
 

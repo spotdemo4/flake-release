@@ -45,7 +45,7 @@ func (session *releaseSession) ensureRelease() error {
 	session.creationAttempted = true
 
 	if session.cfg.dryRun {
-		info("dry run: skipping release creation")
+		status("dry run: skipping release creation")
 		return nil
 	}
 	if err := session.client.createRelease(session.tag.full, session.changelog); err != nil {
@@ -208,6 +208,7 @@ func Run(args []string) error {
 		if systemErr != nil {
 			return systemErr
 		}
+		info(dim("system: %s"), system)
 		packages = append(packages, "packages."+system+".default")
 	}
 	releasePackages := prepareReleasePackages(packages)
@@ -238,10 +239,11 @@ func Run(args []string) error {
 
 	images := false
 	var releaseErr error
+	section("Publishing release artifacts")
 	for _, pkg := range releasePackages {
+		item("%s", pkg.pkg)
 		if err := releasePackage(cfg, imageRepository, release, tag, pkg, session.ensureRelease, &images); err != nil {
-			warn("%v", err)
-			releaseErr = errors.Join(releaseErr, err)
+			releaseErr = errors.Join(releaseErr, fmt.Errorf("%s: %w", pkg.pkg, err))
 		}
 	}
 	if publications != nil {
@@ -256,15 +258,13 @@ func Run(args []string) error {
 		return releaseErr
 	}
 
-	info("")
 	if images {
+		section("Updating image manifest")
+		detail("tag: %s", tag.version)
 		if cfg.dryRun {
-			info("dry run: skipping manifest update")
-		} else {
-			info("updating image manifest for tag %s", bold(tag.version))
-			if err := manifestUpdate(cfg, imageRepository, tag.version); err != nil {
-				return fmt.Errorf("updating image manifest: %w", err)
-			}
+			status("dry run: skipping manifest update")
+		} else if err := manifestUpdate(cfg, imageRepository, tag.version); err != nil {
+			return fmt.Errorf("updating image manifest: %w", err)
 		}
 	}
 
@@ -273,11 +273,12 @@ func Run(args []string) error {
 	}
 
 	if truthy(cfg.deleteOldReleaseArtifacts) {
+		section("Cleaning up old artifacts")
 		switch {
 		case cfg.dryRun:
-			info("dry run: skipping old release artifact cleanup")
+			status("dry run: skipping cleanup")
 		case !session.created:
-			info("old release artifact cleanup requested, but no new release was created")
+			status("skipping cleanup because no new release was created")
 		default:
 			if err := release.cleanupAssets(tag); err != nil {
 				return fmt.Errorf("cleaning up old release assets: %w", err)
@@ -294,16 +295,16 @@ func Run(args []string) error {
 }
 
 type releasePackagePlan struct {
-	pkg              string
-	storePath        string
-	pname            string
-	version          string
-	mainProgram      string
-	platform         platform
-	imageName        string
-	imageTag         string
-	imageBuildFailed bool
-	image            bool
+	pkg           string
+	storePath     string
+	pname         string
+	version       string
+	mainProgram   string
+	platform      platform
+	imageName     string
+	imageTag      string
+	imageBuildErr error
+	image         bool
 }
 
 type releasePackageLoader func(string) (releasePackagePlan, error)
@@ -330,25 +331,61 @@ func prepareReleasePackages(packages []string) []releasePackagePlan {
 }
 
 func prepareReleasePackagesWith(packages []string, load releasePackageLoader) []releasePackagePlan {
-	storePaths := map[string]bool{}
+	section("Evaluating packages")
+	storePaths := map[string]string{}
 	plans := make([]releasePackagePlan, 0, len(packages))
 	for _, pkg := range packages {
-		info("")
-		info("evaluating %s", bold(pkg))
+		item("%s", pkg)
 
 		plan, err := load(pkg)
 		if err != nil {
-			warn("%v", err)
+			itemWarn("evaluation failed: %v", err)
 			continue
 		}
-		if storePaths[plan.storePath] {
-			info("%s: already built, skipping", pkg)
+		if original, exists := storePaths[plan.storePath]; exists {
+			status("same store path as %s; skipping duplicate", original)
 			continue
 		}
-		storePaths[plan.storePath] = true
+		storePaths[plan.storePath] = pkg
+		printReleasePackageDetails(plan)
 		plans = append(plans, plan)
 	}
 	return plans
+}
+
+func printReleasePackageDetails(plan releasePackagePlan) {
+	if plan.storePath != "" {
+		detail("path: %s", plan.storePath)
+	}
+	if plan.pname != "" {
+		detail("pname: %s", plan.pname)
+	}
+	if plan.version != "" {
+		detail("version: %s", plan.version)
+	}
+	if plan.mainProgram != "" {
+		detail("main program: %s", plan.mainProgram)
+	}
+	if value := platformDisplay(plan.platform); value != "" {
+		detail("platform: %s", value)
+	}
+	if plan.imageName != "" {
+		detail("image name: %s", plan.imageName)
+	}
+	if plan.imageTag != "" {
+		detail("image tag: %s", plan.imageTag)
+	}
+}
+
+func platformDisplay(value platform) string {
+	switch {
+	case value.OS != "" && value.Arch != "":
+		return value.OS + "/" + value.Arch
+	case value.OS != "":
+		return value.OS
+	default:
+		return value.Arch
+	}
 }
 
 func containerImageRepository(repository string, tag releaseTag) string {
@@ -359,12 +396,22 @@ func containerImageRepository(repository string, tag releaseTag) string {
 }
 
 func prepareReleaseImages(cfg config, imageRepository string, tag releaseTag, packages []releasePackagePlan) (string, error) {
+	return prepareReleaseImagesWith(cfg, imageRepository, tag, packages, nixBuildLinked)
+}
+
+func prepareReleaseImagesWith(cfg config, imageRepository string, tag releaseTag, packages []releasePackagePlan, build func(string, string) error) (string, error) {
 	rootDir := ""
+	started := false
 	for i := range packages {
 		pkg := &packages[i]
 		if pkg.imageName == "" || pkg.imageTag == "" || pkg.platform.OS != "linux" || !packageMatchesReleaseTag(pkg.version, pkg.imageTag, tag) {
 			continue
 		}
+		if !started {
+			section("Preparing container images")
+			started = true
+		}
+		item("%s", pkg.pkg)
 		if rootDir == "" {
 			var err error
 			rootDir, err = os.MkdirTemp("", "flake-release-roots-*")
@@ -373,11 +420,18 @@ func prepareReleaseImages(cfg config, imageRepository string, tag releaseTag, pa
 			}
 		}
 		root := filepath.Join(rootDir, fmt.Sprintf("%d", i))
-		if err := nixBuildLinked(pkg.pkg, root); err != nil {
-			pkg.imageBuildFailed = true
+		status("building linked Nix output")
+		if err := build(pkg.pkg, root); err != nil {
+			pkg.imageBuildErr = err
+			itemWarn("image preparation failed: %v", err)
 			continue
 		}
 		pkg.image = publishableImagePath(pkg.storePath)
+		if !pkg.image {
+			status("built output is not a publishable container image")
+			continue
+		}
+		status("ready for publication")
 		if err := validateImagePackageDestination(cfg, imageRepository, tag, *pkg); err != nil {
 			return rootDir, err
 		}
@@ -386,49 +440,53 @@ func prepareReleaseImages(cfg config, imageRepository string, tag releaseTag, pa
 }
 
 func releasePackage(cfg config, imageRepository string, release releaseClient, tag releaseTag, pkg releasePackagePlan, ensureRelease func() error, images *bool) error {
-	if pkg.imageBuildFailed {
-		warn("build failed")
+	if pkg.imageBuildErr != nil {
+		status("skipping image publication because preparation failed")
 		return nil
 	}
 	if pkg.image {
 		if !imageTagMatchesReleaseTag(pkg.imageTag, tag) {
-			warn("image tag '%s' does not match git tag '%s'", pkg.imageTag, tag.version)
+			itemWarn("image tag %q does not match git tag %q", pkg.imageTag, tag.version)
 			return nil
 		}
 		return releaseImage(cfg, imageRepository, pkg.storePath, pkg.imageName, pkg.imageTag, ensureRelease, images)
 	}
 	if !packageVersionMatchesReleaseTag(pkg.version, tag) {
-		warn("package version '%s' does not match git tag '%s'", firstNonEmpty(pkg.version, pkg.imageTag), tag.version)
+		itemWarn("package version %q does not match git tag %q", firstNonEmpty(pkg.version, pkg.imageTag), tag.version)
 		return nil
 	}
 	if pkg.pname == "" {
-		warn("unknown package type")
+		itemWarn("unknown package type")
 		return nil
 	}
 
+	status("building package outputs")
 	outputs, err := nixBuildOutputs(pkg.pkg)
 	if err != nil {
-		warn("building package outputs failed")
+		itemWarn("building package outputs failed: %v", err)
 		return nil
+	}
+	for _, output := range outputs {
+		detail("output %s: %s", output.Name, output.Path)
 	}
 
 	if cfg.bundleAppImage && pkg.mainProgram != "" && pkg.platform.OS == "linux" {
 		path := packageMainProgramPath(outputs, pkg.mainProgram)
 		switch {
 		case path == "":
-			warn("main program %q was not found; archiving package outputs", pkg.mainProgram)
+			itemWarn("main program %q was not found; archiving package outputs", pkg.mainProgram)
 		case shouldBundleAppImage(cfg, pkg, path):
-			info("main program is not a native binary, bundling as AppImage")
+			status("bundling main program as AppImage")
 			archivePath, err := nixBundleAppImage(pkg.pkg)
 			if err != nil {
-				warn("bundling failed")
+				itemWarn("AppImage bundling failed: %v", err)
 				return nil
 			}
 			return uploadArchive(cfg, release, tag.full, archivePath, pkg.pname, pkg.version, pkg.platform.OS, pkg.platform.Arch, ensureRelease)
 		}
 	}
 
-	info("archiving all package outputs")
+	status("archiving package outputs")
 	return releasePackageAsset(cfg, release, tag.full, outputs, pkg.pname, pkg.version, pkg.platform.OS, pkg.platform.Arch, ensureRelease)
 }
 
@@ -459,20 +517,21 @@ func publishableImagePath(path string) bool {
 }
 
 func releaseImage(cfg config, imageRepository string, storePath string, imageName string, imageTag string, ensureRelease func() error, images *bool) error {
-	info("detected as image %s", bold(imageName+":"+imageTag))
+	detail("image: %s", imageName+":"+imageTag)
 
 	imagePath := storePath
 	if strings.HasSuffix(storePath, ".tar.gz") {
-		info("image type: buildLayeredImage")
+		detail("type: buildLayeredImage")
 	} else if executable(storePath) {
-		info("image type: streamLayeredImage, zipping")
+		detail("type: streamLayeredImage")
+		status("compressing streamed image")
 		var err error
 		imagePath, err = imageGzip(storePath)
 		if err != nil {
 			return err
 		}
 	} else {
-		warn("could not determine image type")
+		itemWarn("could not determine image type")
 		return nil
 	}
 
@@ -480,7 +539,7 @@ func releaseImage(cfg config, imageRepository string, storePath string, imageNam
 	if err != nil {
 		return err
 	}
-	info("image arch: %s", arch)
+	detail("architecture: %s", arch)
 	if err := validateImageDestination(cfg, imageRepository, imageTag+"-"+arch); err != nil {
 		return fmt.Errorf("validating container image destination for %s:%s: %w", imageName, imageTag, err)
 	}
@@ -490,12 +549,12 @@ func releaseImage(cfg config, imageRepository string, storePath string, imageNam
 	}
 
 	if imageExists(cfg, imageRepository, imageTag, arch) {
-		warn("image already exists, skipping upload")
+		status("image already exists; skipping upload")
 		return nil
 	}
 
 	if cfg.dryRun {
-		info("dry run: skipping image upload")
+		status("dry run: skipping image upload")
 		return nil
 	}
 	if err := imageUpload(cfg, imageRepository, imagePath, imageTag, arch); err != nil {
@@ -507,7 +566,7 @@ func releaseImage(cfg config, imageRepository string, storePath string, imageNam
 func releasePackageAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string, ensureRelease func() error) error {
 	archivePath, err := archiveOutputs(outputs, osName, archName)
 	if err != nil {
-		warn("archiving package outputs failed")
+		itemWarn("archiving package outputs failed: %v", err)
 		return nil
 	}
 	defer deletePath(filepath.Dir(archivePath))
@@ -523,12 +582,13 @@ func uploadArchive(cfg config, release releaseClient, tag string, archivePath st
 		deletePath(asset)
 		_ = os.Remove(filepath.Dir(asset))
 	}()
+	detail("asset: %s", filepath.Base(asset))
 	if err := ensureRelease(); err != nil {
 		return err
 	}
 
 	if cfg.dryRun {
-		info("dry run: skipping upload")
+		status("dry run: skipping asset upload")
 		return nil
 	}
 	if err := release.uploadAsset(tag, asset); err != nil {

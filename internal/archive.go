@@ -267,10 +267,10 @@ func zipDirectory(root string, out string) error {
 
 func renameAsset(filepathName string, name string, version string, osName string, arch string) (string, error) {
 	for label, value := range map[string]string{
-		"name": name,
-		"version": version,
+		"name":             name,
+		"version":          version,
 		"operating system": osName,
-		"architecture": arch,
+		"architecture":     arch,
 	} {
 		if !validAssetComponent(value) {
 			return "", fmt.Errorf("invalid asset %s %q", label, value)
@@ -302,7 +302,6 @@ func renameAsset(filepathName string, name string, version string, osName string
 		final = filepath.Join(outdir, name+"_"+version+"_"+osName+"_"+arch)
 	}
 
-	info(dim("rename: %s -> %s"), filename, final)
 	if err := copyPath(filepathName, final); err != nil {
 		return "", err
 	}

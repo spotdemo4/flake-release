@@ -75,6 +75,28 @@ func TestParsePackageKinds(t *testing.T) {
 	}
 }
 
+func TestPackagePublicationDryRunOutput(t *testing.T) {
+	output := captureHumanOutput(t)
+	set := &packagePublicationSet{
+		cfg: config{dryRun: true},
+		packages: []packagePublication{{
+			kind:    packageNPM,
+			name:    "example",
+			version: "1.2.3",
+		}},
+	}
+
+	if err := set.publish(); err != nil {
+		t.Fatal(err)
+	}
+	want := "\nPublishing packages\n" +
+		"  npm example@1.2.3\n" +
+		"    dry run: validated package; skipping publish\n"
+	if got := output.String(); got != want {
+		t.Fatalf("output = %q; want %q", got, want)
+	}
+}
+
 func TestPackageMatchesScopedReleaseTagVersion(t *testing.T) {
 	tag := parseReleaseTag("packages/cli/v1.2.3")
 	if !packageMatchesReleaseTag("1.2.3", "", tag) {

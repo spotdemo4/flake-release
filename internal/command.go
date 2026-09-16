@@ -55,7 +55,7 @@ func captureCommand(options commandOptions) (string, error) {
 	}
 
 	display := redactSecrets(commandString(options.name, options.args...), options.secrets)
-	info(dim("command: %s"), display)
+	detail("command: %s", display)
 
 	cmd := exec.Command(options.name, options.args...)
 	cmd.Dir = options.dir
@@ -74,8 +74,8 @@ func captureCommand(options commandOptions) (string, error) {
 		text += stderrText
 	}
 	text = redactSecrets(text, options.secrets)
-	if text != "" && (err != nil || os.Getenv("DEBUG") != "") {
-		info("%s", text)
+	if text != "" && os.Getenv("DEBUG") != "" {
+		detailBlock(text)
 	}
 	if err != nil {
 		if text != "" {

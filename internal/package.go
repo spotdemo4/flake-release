@@ -23,11 +23,11 @@ const (
 )
 
 var packageManifests = map[packageKind]string{
-	packageGo:    "go.mod",
-	packageCargo: "Cargo.toml",
-	packageNPM:   "package.json",
-	packagePyPI:  "pyproject.toml",
-	packageMaven: "pom.xml",
+	packageGo:     "go.mod",
+	packageCargo:  "Cargo.toml",
+	packageNPM:    "package.json",
+	packagePyPI:   "pyproject.toml",
+	packageMaven:  "pom.xml",
 	packageGradle: "build.gradle",
 }
 
@@ -115,16 +115,20 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		}
 	}()
 
+	section("Discovering package publications")
 	seenSources := map[string]bool{}
 	foundKinds := map[packageKind]bool{}
 	for index, nixPackage := range nixPackages {
+		item("%s", nixPackage)
 		source, err := packageSource(nixPackage)
 		if err != nil {
 			return nil, err
 		}
 		if source == "" {
+			detail("source: unavailable")
 			continue
 		}
+		detail("source: %s", source)
 		source, err = filepath.EvalSymlinks(source)
 		if err != nil {
 			return nil, fmt.Errorf("resolving source for %s: %w", nixPackage, err)
@@ -134,7 +138,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 			return nil, err
 		}
 		if seenSources[source] {
-			info(dim("source already staged: %s"), source)
+			status("source already staged; skipping duplicate")
 			continue
 		}
 		seenSources[source] = true
@@ -191,15 +195,17 @@ func (set *packagePublicationSet) Close() {
 }
 
 func (set *packagePublicationSet) preflight() error {
-	info("")
-	info("preflighting package publications")
+	section("Preflighting package publications")
 	identities := map[string]string{}
 	for index := range set.packages {
 		publication := &set.packages[index]
-		info("validating %s package from %s", publication.kind, publication.source)
+		item("%s from %s", publication.kind, publication.source)
+		status("validating package")
 		if err := publication.preflight(set); err != nil {
 			return fmt.Errorf("preflighting %s package at %s: %w", publication.kind, publication.source, err)
 		}
+		detail("name: %s", publication.name)
+		detail("version: %s", publication.version)
 		expectedVersion := set.releaseTag.version
 		if publication.kind == packageGo {
 			expectedVersion = set.releaseTag.versionTag
@@ -228,15 +234,15 @@ func (set *packagePublicationSet) publish() error {
 	if set == nil {
 		return nil
 	}
-	info("")
-	info("publishing packages")
+	section("Publishing packages")
 	for index := range set.packages {
 		publication := &set.packages[index]
+		item("%s %s@%s", publication.kind, publication.name, publication.version)
 		if set.cfg.dryRun {
-			info("dry run: validated %s package %s@%s; skipping publish", publication.kind, publication.name, publication.version)
+			status("dry run: validated package; skipping publish")
 			continue
 		}
-		info("publishing %s package %s@%s", publication.kind, publication.name, publication.version)
+		status("publishing package")
 		if err := publication.publish(set); err != nil {
 			return fmt.Errorf("publishing %s package %s@%s: %w", publication.kind, publication.name, publication.version, err)
 		}
