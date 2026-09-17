@@ -11,7 +11,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.2-0.20260709172216-af26a05fba5e
 	github.com/sirupsen/logrus v1.10.2
 	go.podman.io/image/v5 v5.41.2
-	go.podman.io/skopeo v1.24.0
+	go.podman.io/skopeo v1.24.1
 )
 
 require (
