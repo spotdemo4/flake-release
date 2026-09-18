@@ -8,7 +8,7 @@ require (
 	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260907214542-7ff1d72c5bac
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-alpha.5
-	github.com/opencontainers/image-spec v1.1.2-0.20260709172216-af26a05fba5e
+	github.com/opencontainers/image-spec v1.1.2-0.20260917170902-ca68a05fad73
 	github.com/sirupsen/logrus v1.10.2
 	go.podman.io/image/v5 v5.41.2
 	go.podman.io/skopeo v1.24.1
