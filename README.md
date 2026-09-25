@@ -119,7 +119,7 @@ Package versions are strict: Go publishes the exact release tag, including a lea
 
 ```yaml
 - name: Release
-  uses: spotdemo4/flake-release@v0.17.0
+  uses: spotdemo4/flake-release@v0.26.4
   with:
     packages: # default: all
     github_repository: # default: ${{ github.repository }}
@@ -180,7 +180,7 @@ docker run -it \
   -e PUBLISH_PACKAGES=... \
   -e PACKAGE_REGISTRY_TOKEN=... \
   -e BUNDLE_APPIMAGE=true \
-  ghcr.io/spotdemo4/flake-release:0.17.0
+  ghcr.io/spotdemo4/flake-release:0.26.4
 ```
 
 ### Downloads
