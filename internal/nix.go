@@ -76,14 +76,6 @@ func (buffer *tailBuffer) String() string {
 }
 
 func setupNixConfig() {
-	if os.Getenv("DOCKER") == "true" && os.Getenv("CI") != "" {
-		userName := os.Getenv("USER")
-		home := os.Getenv("HOME")
-		if userName != "" && home != "" {
-			chownRecursive(userName, home)
-		}
-	}
-
 	config := "extra-experimental-features = nix-command flakes\n"
 	config += "accept-flake-config = true\n"
 	config += "warn-dirty = false\n"

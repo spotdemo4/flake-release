@@ -40,6 +40,30 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestRunContainerHelp(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	t.Setenv("DOCKER", "true")
+	t.Setenv("CI", "true")
+	t.Setenv("HOME", filepath.Join(dir, "missing-home"))
+	t.Setenv("TMPDIR", filepath.Join(dir, "missing-temp"))
+	t.Setenv("PATH", dir)
+	if err := Run([]string{"--help"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunContainerSetupFailure(t *testing.T) {
+	home, _ := containerTestRepository(t)
+	t.Setenv("DELETE_OLD_RELEASE_ARTIFACTS", "")
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(nil); err == nil || !strings.Contains(err.Error(), "trusting container workspace") {
+		t.Fatalf("Run() error = %v; want container setup failure before release preparation", err)
+	}
+}
+
 func TestRunRejectsInvalidArtifactRetention(t *testing.T) {
 	t.Setenv("CI", "")
 	t.Setenv("DOCKER", "")

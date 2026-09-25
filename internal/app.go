@@ -120,8 +120,6 @@ func parseRunArgs(cfg *config, args []string) ([]string, bool) {
 }
 
 func Run(args []string) error {
-	setupNixConfig()
-
 	cfg := configFromEnv()
 	packages, help := parseRunArgs(&cfg, args)
 	if help {
@@ -135,6 +133,11 @@ func Run(args []string) error {
 		return err
 	}
 	packages = append(packages, splitPackages(os.Getenv("PACKAGES"))...)
+
+	if err := setupContainerEnvironment(); err != nil {
+		return err
+	}
+	setupNixConfig()
 
 	origin, err := gitOrigin()
 	if err != nil {
