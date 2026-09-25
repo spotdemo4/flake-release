@@ -151,15 +151,12 @@ nix run github:spotdemo4/flake-release
 inputs = {
     flake-release = {
         url = "github:spotdemo4/flake-release";
-        inputs.nixpkgs.follows = "nixpkgs";
     };
 };
 
 outputs = { flake-release, ... }: {
     devShells.x86_64-linux.default = pkgs.mkShell {
-        packages = [
-            flake-release.packages.x86_64-linux.default
-        ];
+        packages = [ flake-release.packages.x86_64-linux.default ];
     };
 }
 ```
@@ -168,7 +165,7 @@ also available from the [nix user repository](https://nur.nix-community.org/repo
 
 ### Docker
 
-```elm
+```sh
 docker run -it \
   -v "$(pwd):/app" \
   -w /app \
@@ -186,4 +183,4 @@ docker run -it \
 
 ### Downloads
 
-Release binaries are available from GitHub releases.
+https://trev.zip/llc/flake-release/releases
