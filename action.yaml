@@ -67,7 +67,7 @@ inputs:
     default: ${{ github.token }}
 
   delete_old_release_artifacts:
-    description: delete release assets and image tags from previous releases after creating a new release
+    description: "cleanup release assets and image tags after publishing: false disables, true keeps current, a positive number keeps that many releases including current"
     required: false
     default: "false"
 

@@ -3,6 +3,7 @@ package flakerelease
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-git/go-git/v6/plumbing"
@@ -38,6 +39,21 @@ func truthy(value string) bool {
 	default:
 		return false
 	}
+}
+
+func parseArtifactRetention(value string) (int, error) {
+	if truthy(value) {
+		return 1, nil
+	}
+	switch strings.ToLower(value) {
+	case "", "false", "no", "off", "0":
+		return 0, nil
+	}
+	retain, err := strconv.Atoi(value)
+	if err != nil || retain <= 0 {
+		return 0, fmt.Errorf("invalid DELETE_OLD_RELEASE_ARTIFACTS %q: expected a boolean or a positive release count", value)
+	}
+	return retain, nil
 }
 
 func deletePath(path string) {

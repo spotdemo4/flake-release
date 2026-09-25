@@ -3,6 +3,7 @@ package flakerelease
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"go.podman.io/image/v5/pkg/sysregistriesv2"
@@ -52,6 +53,33 @@ func TestDockerImageName(t *testing.T) {
 			}
 			if _, err := dockerImageReference(test.registry, test.repository, test.tag); err != nil {
 				t.Fatalf("dockerImageReference() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestImageCleanupCandidates(t *testing.T) {
+	retained := []releaseTag{parseReleaseTag("packages/api/v1.9.0"), parseReleaseTag("packages/api/v1.8.0-rc.1")}
+	tags := []string{"latest", "2.0.0", "2.0.0-amd64", "2.0.0-arm64", "1.9.0", "1.9.0-amd64", "1.9.0-arm64", "1.8.0-rc.1", "1.8.0-rc.1-amd64", "1.7.0", "1.7.0-amd64", "1.9.01"}
+	for _, test := range []struct {
+		name         string
+		tags         []string
+		retained     []releaseTag
+		want         []string
+		currentFound bool
+	}{
+		{name: "retain previous releases", tags: tags, retained: retained, want: []string{"1.7.0", "1.7.0-amd64", "1.9.01"}, currentFound: true},
+		{name: "boolean compatibility", tags: tags, want: tags[4:], currentFound: true},
+		{name: "missing current", tags: []string{"latest", "1.9.0", "1.9.0-amd64", "1.7.0"}, retained: retained},
+		{name: "current architecture only", tags: []string{"2.0.0-amd64", "1.9.0", "1.7.0"}, retained: retained, want: []string{"1.7.0"}, currentFound: true},
+		{name: "empty registry", retained: retained},
+		{name: "nothing to delete", tags: []string{"latest", "2.0.0", "1.9.0"}, retained: retained, currentFound: true},
+		{name: "empty retained version ignored", tags: []string{"2.0.0", "-amd64", "1.0.0"}, retained: []releaseTag{parseReleaseTag("v")}, want: []string{"-amd64", "1.0.0"}, currentFound: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, found := imageCleanupCandidates(test.tags, "2.0.0", test.retained)
+			if found != test.currentFound || !slices.Equal(got, test.want) {
+				t.Fatalf("imageCleanupCandidates() = %v, %t; want %v, %t", got, found, test.want, test.currentFound)
 			}
 		})
 	}

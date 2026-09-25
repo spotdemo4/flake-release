@@ -130,6 +130,10 @@ func Run(args []string) error {
 		info("If no packages are provided as arguments, the command will attempt to get packages from the nix flake for the current system.")
 		return nil
 	}
+	retain, err := parseArtifactRetention(cfg.deleteOldReleaseArtifacts)
+	if err != nil {
+		return err
+	}
 	packages = append(packages, splitPackages(os.Getenv("PACKAGES"))...)
 
 	origin, err := gitOrigin()
@@ -272,7 +276,7 @@ func Run(args []string) error {
 		return err
 	}
 
-	if truthy(cfg.deleteOldReleaseArtifacts) {
+	if retain > 0 {
 		section("Cleaning up old artifacts")
 		switch {
 		case cfg.dryRun:
@@ -280,11 +284,12 @@ func Run(args []string) error {
 		case !session.created:
 			status("skipping cleanup because no new release was created")
 		default:
-			if err := release.cleanupAssets(tag); err != nil {
+			retainedTags, err := release.cleanupAssets(tag, retain)
+			if err != nil {
 				return fmt.Errorf("cleaning up old release assets: %w", err)
 			}
 			if images {
-				if err := imageCleanupOld(cfg, imageRepository, tag.version); err != nil {
+				if err := imageCleanupOld(cfg, imageRepository, tag.version, retainedTags); err != nil {
 					return fmt.Errorf("cleaning up old images: %w", err)
 				}
 			}

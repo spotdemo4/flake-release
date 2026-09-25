@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	git "github.com/go-git/go-git/v6"
@@ -25,8 +26,8 @@ func (*recordingReleaseClient) uploadAsset(_ string, _ string) error {
 	return nil
 }
 
-func (*recordingReleaseClient) cleanupAssets(_ releaseTag) error {
-	return nil
+func (*recordingReleaseClient) cleanupAssets(_ releaseTag, _ int) ([]releaseTag, error) {
+	return nil, nil
 }
 
 func TestRunHelp(t *testing.T) {
@@ -36,6 +37,20 @@ func TestRunHelp(t *testing.T) {
 
 	if err := Run([]string{"--help"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunRejectsInvalidArtifactRetention(t *testing.T) {
+	t.Setenv("CI", "")
+	t.Setenv("DOCKER", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("DELETE_OLD_RELEASE_ARTIFACTS", "-2")
+	chdir(t, t.TempDir())
+	if err := Run(nil); err == nil || !strings.Contains(err.Error(), "DELETE_OLD_RELEASE_ARTIFACTS") {
+		t.Fatalf("Run() error = %v; want retention validation before repository access", err)
+	}
+	if err := Run([]string{"--help"}); err != nil {
+		t.Fatalf("Run(--help) error = %v", err)
 	}
 }
 

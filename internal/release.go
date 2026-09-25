@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -63,7 +64,7 @@ type createReleaseRequest struct {
 type releaseClient interface {
 	createRelease(tag string, changelog string) error
 	uploadAsset(tag string, asset string) error
-	cleanupAssets(currentTag releaseTag) error
+	cleanupAssets(currentTag releaseTag, retain int) ([]releaseTag, error)
 }
 
 type noopReleaseClient struct{}
@@ -145,8 +146,8 @@ func (noopReleaseClient) uploadAsset(_ string, _ string) error {
 	return nil
 }
 
-func (noopReleaseClient) cleanupAssets(_ releaseTag) error {
-	return nil
+func (noopReleaseClient) cleanupAssets(_ releaseTag, _ int) ([]releaseTag, error) {
+	return nil, nil
 }
 
 func (c githubReleaseClient) createRelease(tag string, changelog string) error {
@@ -231,25 +232,63 @@ func releaseCleanupCandidate(currentTag releaseTag, candidate string) bool {
 	return candidateTag.namespace == currentTag.namespace && compareVersionTags(candidateTag.versionTag, currentTag.versionTag) < 0
 }
 
-func (c githubReleaseClient) cleanupAssets(currentTag releaseTag) error {
+func retainedReleaseTags(current releaseTag, tags []string, retain int) []releaseTag {
+	if retain <= 1 {
+		return nil
+	}
+	var candidates []releaseTag
+	seen := make(map[string]bool)
+	for _, tag := range tags {
+		if seen[tag] || !releaseCleanupCandidate(current, tag) {
+			continue
+		}
+		parsed := parseReleaseTag(tag)
+		if parsed.version == "" {
+			continue
+		}
+		seen[tag] = true
+		candidates = append(candidates, parsed)
+	}
+	slices.SortFunc(candidates, func(a, b releaseTag) int {
+		if order := compareVersionTags(b.versionTag, a.versionTag); order != 0 {
+			return order
+		}
+		return strings.Compare(a.full, b.full)
+	})
+	return candidates[:min(len(candidates), retain-1)]
+}
+
+func (c githubReleaseClient) cleanupAssets(currentTag releaseTag, retain int) ([]releaseTag, error) {
+	if retain <= 0 {
+		return nil, nil
+	}
 	action := "delete old GitHub release assets"
 	repo, err := c.repository(action)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.requireToken(action); err != nil {
-		return err
+		return nil, err
 	}
 
 	releases, err := c.listReleases(repo)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var tags []string
+	for _, release := range releases {
+		if release.ID != 0 {
+			tags = append(tags, release.TagName)
+		}
+	}
+	retainedTags := retainedReleaseTags(currentTag, tags, retain)
 
 	status("deleting old GitHub release assets at %s", c.cfg.githubRepository)
 	var cleanupErr error
 	for _, release := range releases {
-		if release.ID == 0 || !releaseCleanupCandidate(currentTag, release.TagName) {
+		if release.ID == 0 || !releaseCleanupCandidate(currentTag, release.TagName) || slices.ContainsFunc(retainedTags, func(tag releaseTag) bool {
+			return tag.full == release.TagName
+		}) {
 			continue
 		}
 
@@ -274,7 +313,7 @@ func (c githubReleaseClient) cleanupAssets(currentTag releaseTag) error {
 		}
 	}
 
-	return cleanupErr
+	return retainedTags, cleanupErr
 }
 
 func (c githubReleaseClient) releaseByTag(repo repository, tag string) (githubReleaseResponse, error) {
@@ -424,28 +463,40 @@ func (r giteaReleaseResponse) tagName() string {
 	return firstNonEmpty(r.TagName, r.TagNameAlt, r.Tag)
 }
 
-func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag) error {
+func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag, retain int) ([]releaseTag, error) {
+	if retain <= 0 {
+		return nil, nil
+	}
 	repo, err := c.repository("delete old " + c.name + " release assets")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	releases, err := c.listReleases(repo)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var tags []string
+	for _, release := range releases {
+		if release.ID != 0 {
+			tags = append(tags, release.tagName())
+		}
+	}
+	retainedTags := retainedReleaseTags(currentTag, tags, retain)
 
 	var cleanupErr error
 	status("deleting old %s release assets at %s", c.name, c.cfg.githubRepository)
 	for _, release := range releases {
-		releaseTag := release.tagName()
-		if release.ID == 0 || !releaseCleanupCandidate(currentTag, releaseTag) {
+		tagName := release.tagName()
+		if release.ID == 0 || !releaseCleanupCandidate(currentTag, tagName) || slices.ContainsFunc(retainedTags, func(tag releaseTag) bool {
+			return tag.full == tagName
+		}) {
 			continue
 		}
 
 		assets, err := c.listReleaseAssets(repo, release.ID)
 		if err != nil {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("fetching %s release assets for %s: %w", c.name, releaseTag, err))
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("fetching %s release assets for %s: %w", c.name, tagName, err))
 			continue
 		}
 
@@ -453,18 +504,18 @@ func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag) error {
 			if asset.ID == 0 {
 				continue
 			}
-			status("deleting asset %s from release %s", asset.Name, releaseTag)
+			status("deleting asset %s from release %s", asset.Name, tagName)
 			endpoint := fmt.Sprintf("%s/repos/%s/releases/%d/assets/%d", c.apiBase(), repo.path(), release.ID, asset.ID)
 			if _, err := c.httpRequest(httpRequestOptions{
 				method: http.MethodDelete,
 				url:    endpoint,
 			}); err != nil {
-				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("deleting asset %s from release %s: %w", asset.Name, releaseTag, err))
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("deleting asset %s from release %s: %w", asset.Name, tagName, err))
 			}
 		}
 	}
 
-	return cleanupErr
+	return retainedTags, cleanupErr
 }
 
 func (c giteaReleaseClient) releaseByTag(repo repository, tag string) (giteaReleaseResponse, error) {

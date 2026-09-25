@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 
@@ -157,7 +158,30 @@ func imageExists(cfg config, repository string, tag string, arch string) bool {
 	return err == nil
 }
 
-func imageCleanupOld(cfg config, repository string, currentTag string) error {
+func imageTagMatchesVersion(tag string, version string) bool {
+	return version != "" && (tag == version || strings.HasPrefix(tag, version+"-"))
+}
+
+func imageCleanupCandidates(tags []string, currentTag string, retainedTags []releaseTag) ([]string, bool) {
+	currentFound := slices.ContainsFunc(tags, func(tag string) bool {
+		return imageTagMatchesVersion(tag, currentTag)
+	})
+	if !currentFound {
+		return nil, false
+	}
+	var candidates []string
+	for _, tag := range tags {
+		if tag == "latest" || imageTagMatchesVersion(tag, currentTag) || slices.ContainsFunc(retainedTags, func(retained releaseTag) bool {
+			return imageTagMatchesVersion(tag, retained.version)
+		}) {
+			continue
+		}
+		candidates = append(candidates, tag)
+	}
+	return candidates, true
+}
+
+func imageCleanupOld(cfg config, repository string, currentTag string, retainedTags []releaseTag) error {
 	if cfg.registry == "" {
 		return fmt.Errorf("cannot delete old container images: REGISTRY is not set")
 	}
@@ -176,13 +200,7 @@ func imageCleanupOld(cfg config, repository string, currentTag string) error {
 		return fmt.Errorf("fetching image tags: %w", err)
 	}
 
-	currentFound := false
-	for _, remoteTag := range tags {
-		if remoteTag == currentTag || strings.HasPrefix(remoteTag, currentTag+"-") {
-			currentFound = true
-			break
-		}
-	}
+	cleanupTags, currentFound := imageCleanupCandidates(tags, currentTag, retainedTags)
 	item("container images")
 	if !currentFound {
 		itemWarn("no remote images found for current tag %q; skipping cleanup", currentTag)
@@ -195,11 +213,7 @@ func imageCleanupOld(cfg config, repository string, currentTag string) error {
 
 	status("deleting old tags at %s/%s", strings.ToLower(cfg.registry), strings.ToLower(repository))
 	var cleanupErr error
-	for _, remoteTag := range tags {
-		if remoteTag == "latest" || remoteTag == currentTag || strings.HasPrefix(remoteTag, currentTag+"-") {
-			continue
-		}
-
+	for _, remoteTag := range cleanupTags {
 		status("deleting tag %s", remoteTag)
 		ref, err := dockerImageReference(cfg.registry, repository, remoteTag)
 		if err != nil {

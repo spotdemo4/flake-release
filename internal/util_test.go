@@ -1,6 +1,10 @@
 package flakerelease
 
-import "testing"
+import (
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func TestSplitPackages(t *testing.T) {
 	tests := []struct {
@@ -38,6 +42,33 @@ func TestTruthy(t *testing.T) {
 		if truthy(value) {
 			t.Fatalf("truthy(%q) = true; want false", value)
 		}
+	}
+}
+
+func TestParseArtifactRetention(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  int
+	}{
+		{value: ""}, {value: "false"}, {value: "FALSE"}, {value: "no"}, {value: "off"}, {value: "0"},
+		{value: "true", want: 1}, {value: "TRUE", want: 1}, {value: "yes", want: 1}, {value: "ON", want: 1},
+		{value: "1", want: 1}, {value: "2", want: 2}, {value: "100", want: 100},
+		{value: strconv.Itoa(int(^uint(0) >> 1)), want: int(^uint(0) >> 1)},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			got, err := parseArtifactRetention(test.value)
+			if err != nil || got != test.want {
+				t.Fatalf("parseArtifactRetention(%q) = %d, %v; want %d, nil", test.value, got, err, test.want)
+			}
+		})
+	}
+	for _, value := range []string{"-1", "-2", "2.5", "invalid", "999999999999999999999999999999", "2 releases"} {
+		t.Run(value, func(t *testing.T) {
+			got, err := parseArtifactRetention(value)
+			if got != 0 || err == nil || !strings.Contains(err.Error(), "DELETE_OLD_RELEASE_ARTIFACTS") {
+				t.Fatalf("parseArtifactRetention(%q) = %d, %v; want zero and configuration error", value, got, err)
+			}
+		})
 	}
 }
 

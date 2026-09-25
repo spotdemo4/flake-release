@@ -21,27 +21,41 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 
 ### Environment
 
-| Variable                     | Description                                                                            | Example                          |
-| ---------------------------- | -------------------------------------------------------------------------------------- | -------------------------------- |
-| GIT_TYPE                     | Host type for release                                                                  | `github` / `gitea` / `forgejo`   |
-| GITHUB_REPOSITORY            | Repository to push releases, inferred from `remote.origin.url` when unset              | `spotdemo4/flake-release`        |
-| GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                  | `https://github.com`             |
-| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                               | `github-actions[bot]`            |
-| GITHUB_TOKEN                 | Token used to push releases                                                            |                                  |
-| TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery       | `packages/api/v1.2.3`            |
-| REGISTRY                     | Container registry                                                                     | `ghcr.io`                        |
-| REGISTRY_USERNAME            | Username for container registry                                                        | `github-actions[bot]`            |
-| REGISTRY_PASSWORD            | Password for container registry                                                        |                                  |
-| PUBLISH_PACKAGES             | Package kinds to publish, separated by commas or whitespace                            | `go cargo gradle maven npm pypi` |
-| PACKAGE_REGISTRY_OWNER       | Package owner or namespace, defaulting to the owner from `GITHUB_REPOSITORY`           | `spotdemo4`                      |
-| PACKAGE_REGISTRY_URL         | Registry URL override                                                                  | `https://npm.pkg.github.com`     |
-| PACKAGE_REGISTRY_USERNAME    | Registry username, defaulting to `GITHUB_ACTOR`                                        | `github-actions[bot]`            |
-| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; required outside dry-run                       |                                  |
-| DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                       | `true`                           |
-| DELETE_OLD_RELEASE_ARTIFACTS | Delete release assets and image tags from previous releases after a new release exists | `true`                           |
-| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default                | `true`                           |
+| Variable                     | Description                                                                          | Example                          |
+| ---------------------------- | ------------------------------------------------------------------------------------ | -------------------------------- |
+| GIT_TYPE                     | Host type for release                                                                | `github` / `gitea` / `forgejo`   |
+| GITHUB_REPOSITORY            | Repository to push releases, inferred from `remote.origin.url` when unset            | `spotdemo4/flake-release`        |
+| GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                | `https://github.com`             |
+| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | `github-actions[bot]`            |
+| GITHUB_TOKEN                 | Token used to push releases                                                          |                                  |
+| TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery     | `packages/api/v1.2.3`            |
+| REGISTRY                     | Container registry                                                                   | `ghcr.io`                        |
+| REGISTRY_USERNAME            | Username for container registry                                                      | `github-actions[bot]`            |
+| REGISTRY_PASSWORD            | Password for container registry                                                      |                                  |
+| PUBLISH_PACKAGES             | Package kinds to publish, separated by commas or whitespace                          | `go cargo gradle maven npm pypi` |
+| PACKAGE_REGISTRY_OWNER       | Package owner or namespace, defaulting to the owner from `GITHUB_REPOSITORY`         | `spotdemo4`                      |
+| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | `https://npm.pkg.github.com`     |
+| PACKAGE_REGISTRY_USERNAME    | Registry username, defaulting to `GITHUB_ACTOR`                                      | `github-actions[bot]`            |
+| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; required outside dry-run                     |                                  |
+| DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                     | `true`                           |
+| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `2`                              |
+| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default              | `true`                           |
 
 By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
+
+### Artifact retention
+
+`DELETE_OLD_RELEASE_ARTIFACTS` (or the Action input `delete_old_release_artifacts`) accepts:
+
+- `false`, `0`, or unset: disable cleanup (the default).
+- `true` or `1`: keep the current release's artifacts and clean up previous artifacts.
+- A positive integer such as `2`: keep the current release plus the newest `N-1` older releases in the same exact tag namespace, using version order rather than API listing order.
+
+For example, `DELETE_OLD_RELEASE_ARTIFACTS=2` when publishing `v1.3.0` retains its artifacts and those of `v1.2.0`, while deleting artifacts from `v1.1.0` and older. The count is per hosted release, not per attached file; releases without attachments still count because they may have container images. Retained releases keep all attachments and their container version/platform tags. The `latest` image tag remains protected. Legacy tags with an empty version (`v`) do not consume retention slots.
+
+Cleanup runs only after successful publication and creation of the current release, never during dry runs. It deletes release attachments and, when publishing images, old container tags; it does not delete release records or package registry versions. Hosted releases in other namespaces or with versions equal to or newer than the current release remain untouched.
+
+Boolean aliases `yes`/`on` and `no`/`off` are also accepted, case-insensitively. Invalid values, negative counts, and fractional counts fail before publication instead of silently disabling cleanup.
 
 ### Scoped release tags
 
@@ -120,7 +134,7 @@ Package versions are strict: Go publishes the exact release tag, including a lea
     package_registry_url: # default: host-specific registry
     package_registry_username: # default: ${{ github.actor }}
     package_registry_token: # dedicated package write token
-    delete_old_release_artifacts: # default: false
+    delete_old_release_artifacts: # false (default), true, or a count including current (e.g. "2")
     bundle_appimage: # default: false
 ```
 
