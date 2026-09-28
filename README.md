@@ -105,16 +105,16 @@ Manifests that opt out of publishing are skipped: an npm `package.json` with `"p
 
 #### Tools and versions
 
-Package ecosystem tools must already be available on `PATH`:
+Package ecosystem tools are used from `PATH` when available:
 
 - Go requires `go`
 - Cargo requires `cargo`
 - Gradle requires `gradle` or `gradlew` wrapper
 - Maven requires `mvn` or `mvnw` wrapper
 - npm requires `npm`; when `package-lock.json` exists, `npm ci` installs dependencies before publishing
-- PyPI requires `uv`, or `python3` with the `build` and `twine` modules; `uv` is used when it is on `PATH`
+- PyPI requires `uv`, or `python3` with the `build` and `twine` modules; `uv` is preferred when it is on `PATH`
 
-The stock Docker action does not bundle or inherit these tools from the runner, so package publishing that depends on them is unavailable in that image. Run `flake-release` directly in an environment whose `PATH` contains the selected ecosystem tools, such as a Nix shell. Missing tools are fatal instead of silently skipping publication.
+A tool missing from `PATH` is built from the flake's `nixpkgs` input, or from the `nixpkgs` flake registry entry when the flake has no such input, along with the toolchain it needs (for example, `rustc` and a C compiler for `cargo`, or `python3` for `uv`), so the stock Docker action can publish packages too. Tools that can't be found or built are fatal instead of silently skipping publication.
 
 Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
 
