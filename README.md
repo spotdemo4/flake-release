@@ -105,7 +105,7 @@ Package ecosystem tools must already be available on `PATH`:
 - Cargo requires `cargo`
 - Gradle requires `gradle` or `gradlew` wrapper
 - Maven requires `mvn` or `mvnw` wrapper
-- npm requires `npm`
+- npm requires `npm`; when `package-lock.json` exists, `npm ci` installs dependencies before publishing
 - PyPI requires `python3` with the `build` and `twine` modules
 
 The stock Docker action does not bundle or inherit these tools from the runner, so package publishing that depends on them is unavailable in that image. Run `flake-release` directly in an environment whose `PATH` contains the selected ecosystem tools, such as a Nix shell. Missing tools are fatal instead of silently skipping publication.

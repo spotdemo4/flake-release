@@ -177,6 +177,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	}
 	applyPackageRegistryDefaults(&cfg, releaseGitHub)
 	var published commandOptions
+	var commands [][]string
 	set := &packagePublicationSet{
 		cfg:          cfg,
 		provider:     releaseGitHub,
@@ -191,6 +192,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 			},
 			runFunc: func(options commandOptions) error {
 				published = options
+				commands = append(commands, options.args)
 				return nil
 			},
 			captureFunc: func(commandOptions) (string, error) {
@@ -208,6 +210,18 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	}
 	if !slices.Contains(published.args, "https://npm.pkg.github.com/") || !slices.Contains(published.args, "--dry-run") {
 		t.Fatalf("npm publish args = %q", published.args)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("npm commands without package-lock.json = %q; want publish only", commands)
+	}
+
+	writeTestFile(t, filepath.Join(dir, "package-lock.json"), `{}`)
+	commands = nil
+	if err := preflightNPMPackage(set, publication); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 2 || !slices.Equal(commands[0], []string{"ci"}) || commands[1][0] != "publish" {
+		t.Fatalf("npm commands with package-lock.json = %q; want ci before publish", commands)
 	}
 
 	writeTestFile(t, manifest, `{"name":"@other/project","version":"1.2.3"}`)

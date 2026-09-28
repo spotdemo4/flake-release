@@ -117,6 +117,12 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 	publication.name = manifest.Name
 	publication.version = manifest.Version
 
+	if isFile(filepath.Join(publication.dir, "package-lock.json")) {
+		if err := set.commands.run(commandOptions{name: "npm", args: []string{"ci"}, dir: publication.dir}); err != nil {
+			return err
+		}
+	}
+
 	npmrc, err := set.npmConfig()
 	if err != nil {
 		return err
