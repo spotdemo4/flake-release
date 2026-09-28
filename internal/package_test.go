@@ -683,9 +683,13 @@ func TestPreflightPyPIPackageUsesBuiltArtifactMetadata(t *testing.T) {
 	checked := false
 	runner := fakePackageCommandRunner{
 		requireFunc: func(name string) error {
-			if name != "python3" {
-				t.Fatalf("required command = %q; want python3", name)
+			switch name {
+			case "uv":
+				return errors.New("not found")
+			case "python3":
+				return nil
 			}
+			t.Fatalf("required command = %q; want uv or python3", name)
 			return nil
 		},
 		runFunc: func(options commandOptions) error {
@@ -716,6 +720,94 @@ func TestPreflightPyPIPackageUsesBuiltArtifactMetadata(t *testing.T) {
 	}
 	if !checked || len(publication.artifacts) != 1 {
 		t.Fatalf("twine checked = %v, artifacts = %q", checked, publication.artifacts)
+	}
+}
+
+func TestPyPIPackageUsesUVWhenAvailable(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	writeTestFile(t, filepath.Join(project, "pyproject.toml"), "[build-system]\nrequires = []\n")
+	var commands []commandOptions
+	runner := fakePackageCommandRunner{
+		requireFunc: func(name string) error {
+			if name != "uv" {
+				t.Fatalf("required command = %q; want uv", name)
+			}
+			return nil
+		},
+		runFunc: func(options commandOptions) error {
+			commands = append(commands, options)
+			if options.args[0] == "build" {
+				outdir := options.args[slices.Index(options.args, "--out-dir")+1]
+				writeTestWheel(t, filepath.Join(outdir, "example-1.2.3-py3-none-any.whl"), "Example_Package", "1.2.3")
+				writeTestFile(t, filepath.Join(outdir, ".gitignore"), "*")
+			}
+			return nil
+		},
+		captureFunc: func(commandOptions) (string, error) {
+			t.Fatal("unexpected captured command")
+			return "", nil
+		},
+	}
+	set := &packagePublicationSet{
+		cfg: config{
+			packageRegistryOwner:    "owner",
+			packageRegistryURL:      "https://git.example",
+			packageRegistryUsername: "actor",
+			packageRegistryToken:    "secret",
+		},
+		provider:     releaseForgejo,
+		temporaryDir: root,
+		commands:     runner,
+	}
+	publication := &packagePublication{kind: packagePyPI, source: project, dir: project, manifest: filepath.Join(project, "pyproject.toml")}
+	if err := preflightPyPIPackage(set, publication); err != nil {
+		t.Fatal(err)
+	}
+	if len(publication.artifacts) != 1 || !strings.HasSuffix(publication.artifacts[0], ".whl") {
+		t.Fatalf("artifacts = %q; want only the wheel", publication.artifacts)
+	}
+	if err := publishPyPIPackage(set, publication); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 3 {
+		t.Fatalf("commands = %v", commands)
+	}
+	for _, options := range commands {
+		if options.name != "uv" {
+			t.Fatalf("command = %q; want uv", options.name)
+		}
+	}
+	registry := "https://git.example/api/packages/owner/pypi"
+	check := []string{"publish", "--dry-run", "--trusted-publishing", "never", "--publish-url", registry, publication.artifacts[0]}
+	if !slices.Equal(commands[1].args, check) {
+		t.Fatalf("check args = %q; want %q", commands[1].args, check)
+	}
+	upload := []string{"publish", "--trusted-publishing", "never", "--publish-url", registry, publication.artifacts[0]}
+	if !slices.Equal(commands[2].args, upload) {
+		t.Fatalf("upload args = %q; want %q", commands[2].args, upload)
+	}
+	if !slices.Equal(commands[2].env, []string{"UV_PUBLISH_USERNAME=actor", "UV_PUBLISH_PASSWORD=secret"}) {
+		t.Fatalf("upload env = %q", commands[2].env)
+	}
+	if strings.Contains(strings.Join(commands[2].args, " "), "secret") {
+		t.Fatalf("upload args contain token: %q", commands[2].args)
+	}
+}
+
+func TestPyPIPackageRequiresUVOrPython(t *testing.T) {
+	runner := fakePackageCommandRunner{
+		requireFunc: func(string) error { return errors.New("not found") },
+		runFunc: func(commandOptions) error {
+			t.Fatal("unexpected command")
+			return nil
+		},
+		captureFunc: func(commandOptions) (string, error) { return "", nil },
+	}
+	set := &packagePublicationSet{temporaryDir: t.TempDir(), commands: runner}
+	err := preflightPyPIPackage(set, &packagePublication{kind: packagePyPI})
+	if err == nil || !strings.Contains(err.Error(), "requires uv, or python3") {
+		t.Fatalf("preflight error = %v", err)
 	}
 }
 

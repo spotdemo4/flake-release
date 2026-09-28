@@ -112,7 +112,7 @@ Package ecosystem tools must already be available on `PATH`:
 - Gradle requires `gradle` or `gradlew` wrapper
 - Maven requires `mvn` or `mvnw` wrapper
 - npm requires `npm`; when `package-lock.json` exists, `npm ci` installs dependencies before publishing
-- PyPI requires `python3` with the `build` and `twine` modules
+- PyPI requires `uv`, or `python3` with the `build` and `twine` modules; `uv` is used when it is on `PATH`
 
 The stock Docker action does not bundle or inherit these tools from the runner, so package publishing that depends on them is unavailable in that image. Run `flake-release` directly in an environment whose `PATH` contains the selected ecosystem tools, such as a Nix shell. Missing tools are fatal instead of silently skipping publication.
 
@@ -124,7 +124,7 @@ With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old art
 - validates package metadata and versions
 - prepares Go archives
 - runs `cargo publish --dry-run` and `npm publish --dry-run`
-- builds and checks PyPI distributions
+- builds and checks PyPI distributions with `twine check` or `uv publish --dry-run`
 - generates Maven and Gradle registry authentication
 
 ## Install
