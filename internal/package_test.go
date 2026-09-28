@@ -338,9 +338,25 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 		t.Fatalf("npm commands with package-lock.json = %q; want ci before publish", commands)
 	}
 
-	writeTestFile(t, manifest, `{"name":"@other/project","version":"1.2.3"}`)
-	if err := preflightNPMPackage(set, publication); err == nil {
-		t.Fatal("GitHub npm package with the wrong owner scope was accepted")
+	for _, name := range []string{"project", "@other/project"} {
+		writeTestFile(t, manifest, `{"name":"`+name+`","version":"1.2.3"}`)
+		commands = nil
+		if err := preflightNPMPackage(set, publication); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(commands) < 1 || !slices.Equal(commands[0], []string{"pkg", "set", "name=@owner/project"}) {
+			t.Fatalf("%s: npm commands = %q; want name scoped to owner first", name, commands)
+		}
+		if publication.name != "@owner/project" {
+			t.Fatalf("%s: npm name = %q; want @owner/project", name, publication.name)
+		}
+	}
+
+	for _, name := range []string{"Project", "@owner/Project", "@owner"} {
+		writeTestFile(t, manifest, `{"name":"`+name+`","version":"1.2.3"}`)
+		if err := preflightNPMPackage(set, publication); err == nil {
+			t.Fatalf("GitHub npm package %q without a lowercase name was accepted", name)
+		}
 	}
 }
 
