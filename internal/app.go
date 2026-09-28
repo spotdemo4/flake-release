@@ -3,6 +3,7 @@ package flakerelease
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,18 @@ func deprecatedEnv(name string, deprecated string) string {
 	return old
 }
 
+// defaultContainerRegistry returns ghcr.io on GitHub, otherwise the host of serverURL.
+func defaultContainerRegistry(provider releaseProvider, serverURL string) string {
+	if provider == releaseGitHub {
+		return "ghcr.io"
+	}
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
+}
+
 func parseRunArgs(cfg *config, args []string) ([]string, bool) {
 	var packages []string
 	for _, arg := range args {
@@ -199,10 +212,7 @@ func Run(args []string) error {
 	info("git user: %s", cfg.githubActor)
 
 	if cfg.containerRegistryUsername == "" {
-		cfg.containerRegistryUsername, err = gitUser()
-		if err != nil {
-			return err
-		}
+		cfg.containerRegistryUsername = cfg.githubActor
 		_ = os.Setenv("CONTAINER_REGISTRY_USERNAME", cfg.containerRegistryUsername)
 	}
 	info("container registry user: %s", cfg.containerRegistryUsername)
@@ -212,9 +222,11 @@ func Run(args []string) error {
 		_ = os.Setenv("CONTAINER_REGISTRY_PASSWORD", cfg.containerRegistryPassword)
 	}
 
-	if cfg.containerRegistry == "" && provider == releaseGitHub {
-		cfg.containerRegistry = "ghcr.io"
-		_ = os.Setenv("CONTAINER_REGISTRY", cfg.containerRegistry)
+	if cfg.containerRegistry == "" {
+		if registry := defaultContainerRegistry(provider, cfg.githubServerURL); registry != "" {
+			cfg.containerRegistry = registry
+			_ = os.Setenv("CONTAINER_REGISTRY", cfg.containerRegistry)
+		}
 	}
 	info("container registry: %s", firstNonEmpty(cfg.containerRegistry, "<none>"))
 

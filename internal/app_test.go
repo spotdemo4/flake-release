@@ -146,6 +146,27 @@ func TestConfigFromEnvContainerRegistry(t *testing.T) {
 	}
 }
 
+func TestDefaultContainerRegistry(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		provider  releaseProvider
+		serverURL string
+		want      string
+	}{
+		{name: "github", provider: releaseGitHub, serverURL: "https://github.com", want: "ghcr.io"},
+		{name: "forgejo", provider: releaseForgejo, serverURL: "https://trev.zip/", want: "trev.zip"},
+		{name: "gitea port", provider: releaseGitea, serverURL: "http://gitea.example.com:3000", want: "gitea.example.com:3000"},
+		{name: "empty", provider: releaseForgejo},
+		{name: "invalid", provider: releaseForgejo, serverURL: "://bad"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := defaultContainerRegistry(test.provider, test.serverURL); got != test.want {
+				t.Fatalf("defaultContainerRegistry(%q, %q) = %q; want %q", test.provider, test.serverURL, got, test.want)
+			}
+		})
+	}
+}
+
 func TestParseRunArgsBundleAppImage(t *testing.T) {
 	cfg := config{}
 	packages, help := parseRunArgs(&cfg, []string{"packages.one", "--bundle-appimage", "packages.two"})

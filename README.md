@@ -35,11 +35,11 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 | GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | Git user name                                  | `github-actions[bot]`          |
 | GITHUB_TOKEN                 | Token used to push releases                                                          |                                                |                                |
 | TAG                          | Exact short release tag                                                              | CI tag event, or latest Git tag                | `packages/api/v1.2.3`          |
-| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io` on GitHub                            | `ghcr.io`                      |
-| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | Git user name                                  | `github-actions[bot]`          |
+| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io` on GitHub, `GITHUB_SERVER_URL` host  | `ghcr.io`                      |
+| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `GITHUB_ACTOR`                                 | `github-actions[bot]`          |
 | CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      | `GITHUB_TOKEN`                                 |                                |
 | PACKAGE_REGISTRY_OWNER       | Package owner or namespace                                                           | owner from `GITHUB_REPOSITORY`                 | `spotdemo4`                    |
-| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | host-specific                                  | `https://npm.pkg.github.com`   |
+| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | [host-specific](#package-publishing)           | `https://npm.pkg.github.com`   |
 | PACKAGE_REGISTRY_USERNAME    | Registry username                                                                    | `GITHUB_ACTOR`                                 | `github-actions[bot]`          |
 | PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; enables package publishing                   |                                                |                                |
 | DRY_RUN                      | Validate and prepare releases without publishing or cleanup                          | `false`                                        | `true`                         |
@@ -131,7 +131,14 @@ With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old art
 
 ### Action
 
+Check out the full Git history and tags with `fetch-depth: 0`. flake-release uses them to find the previous release tag for the changelog, and to find the latest tag when the run is not triggered by a tag. A shallow checkout produces an incomplete changelog.
+
 ```yaml
+- name: Checkout
+  uses: actions/checkout@v7
+  with:
+    fetch-depth: 0
+
 - name: Release
   uses: spotdemo4/flake-release@v0.32.1
   with:
@@ -141,7 +148,7 @@ With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old art
     github_server_url: # default: ${{ github.server_url }}
     github_actor: # default: ${{ github.actor }}
     github_token: # default: ${{ github.token }}
-    container_registry: # default: ghcr.io
+    container_registry: # default: ghcr.io on GitHub, server host otherwise
     container_registry_username: # default: ${{ github.actor }}
     container_registry_password: # default: ${{ github.token }}
     package_registry_owner: # default: repository owner

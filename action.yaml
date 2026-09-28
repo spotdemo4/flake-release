@@ -55,7 +55,6 @@ inputs:
   container_registry:
     description: container registry url
     required: false
-    default: ghcr.io
 
   container_registry_username:
     description: container registry username
