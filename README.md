@@ -9,7 +9,8 @@ Generates release artifacts for packages in a nix flake:
 
 - `dockerTools.buildLayeredImage` & `dockerTools.streamLayeredImage` can be uploaded to a container registry
 - packages have every non-empty output bundled into a `.tar.xz`, or a `.zip` on Windows
-- `out` contents are placed at the archive root, while other split outputs keep their names, such as `bin/`, `dev/`, and `doc/`
+- archives contain a single top-level folder named after the asset, such as `app_1.2.3_linux_amd64/`
+- `out` contents are placed in that folder, while other split outputs keep their names, such as `bin/`, `dev/`, and `doc/`
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled

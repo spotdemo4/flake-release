@@ -587,7 +587,11 @@ func releaseImage(cfg config, imageRepository string, storePath string, imageNam
 }
 
 func releasePackageAsset(cfg config, release releaseClient, tag string, outputs []packageOutput, pname string, version string, osName string, archName string, ensureRelease func() error) error {
-	archivePath, err := archiveOutputs(outputs, osName, archName)
+	stem, err := assetStem(pname, version, osName, archName)
+	if err != nil {
+		return err
+	}
+	archivePath, err := archiveOutputs(outputs, stem, osName, archName)
 	if err != nil {
 		itemWarn("archiving package outputs failed: %v", err)
 		return nil

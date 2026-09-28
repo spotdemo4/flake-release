@@ -16,12 +16,15 @@ import (
 	"strings"
 )
 
-func archiveOutputs(outputs []packageOutput, osName string, archName string) (string, error) {
+func archiveOutputs(outputs []packageOutput, archiveRoot string, osName string, archName string) (string, error) {
 	bundle, err := preparePackageBundle(outputs, osName, archName)
 	if err != nil {
 		return "", err
 	}
 	defer deletePath(bundle)
+	if err := os.Chmod(bundle, 0o755); err != nil {
+		return "", err
+	}
 
 	outdir, err := os.MkdirTemp("", "flake-release-archive-*")
 	if err != nil {
@@ -49,7 +52,7 @@ func archiveOutputs(outputs []packageOutput, osName string, archName string) (st
 
 	if osName == "windows" {
 		out := filepath.Join(outdir, "archive.zip")
-		if err := zipDirectory(bundle, out); err != nil {
+		if err := zipDirectory(bundle, out, archiveRoot); err != nil {
 			return "", err
 		}
 		cleanup = false
@@ -57,16 +60,16 @@ func archiveOutputs(outputs []packageOutput, osName string, archName string) (st
 	}
 
 	out := filepath.Join(outdir, "archive.tar.xz")
-	if err := tarXzDirectory(bundle, out); err != nil {
+	if err := tarXzDirectory(bundle, out, archiveRoot); err != nil {
 		return "", err
 	}
 	cleanup = false
 	return out, nil
 }
 
-func tarXzDirectory(root string, out string) error {
+func tarXzDirectory(root string, out string, archiveRoot string) error {
 	return writeTarXz(out, func(writer *tar.Writer) error {
-		return writeTarPath(writer, root, "")
+		return writeTarPath(writer, root, archiveRoot)
 	})
 }
 
@@ -169,7 +172,7 @@ func writeTarPath(writer *tar.Writer, root string, archiveRoot string) error {
 	})
 }
 
-func zipDirectory(root string, out string) error {
+func zipDirectory(root string, out string, archiveRoot string) error {
 	file, err := os.Create(out)
 	if err != nil {
 		return err
@@ -190,7 +193,7 @@ func zipDirectory(root string, out string) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if path == root {
+		if path == root && archiveRoot == "" {
 			return nil
 		}
 
@@ -202,11 +205,11 @@ func zipDirectory(root string, out string) error {
 			return err
 		}
 
-		name, err := filepath.Rel(root, path)
+		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		name = filepath.ToSlash(name)
+		name := filepath.ToSlash(filepath.Join(archiveRoot, relative))
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
 			return err
@@ -265,7 +268,7 @@ func zipDirectory(root string, out string) error {
 	return file.Close()
 }
 
-func renameAsset(filepathName string, name string, version string, osName string, arch string) (string, error) {
+func assetStem(name string, version string, osName string, arch string) (string, error) {
 	for label, value := range map[string]string{
 		"name":             name,
 		"version":          version,
@@ -275,6 +278,14 @@ func renameAsset(filepathName string, name string, version string, osName string
 		if !validAssetComponent(value) {
 			return "", fmt.Errorf("invalid asset %s %q", label, value)
 		}
+	}
+	return name + "_" + version + "_" + osName + "_" + arch, nil
+}
+
+func renameAsset(filepathName string, name string, version string, osName string, arch string) (string, error) {
+	stem, err := assetStem(name, version, osName, arch)
+	if err != nil {
+		return "", err
 	}
 
 	filename := filepath.Base(filepathName)
@@ -296,10 +307,10 @@ func renameAsset(filepathName string, name string, version string, osName string
 		if strings.EqualFold(ext, "appimage") {
 			final = filepath.Join(outdir, name+"_"+version+"_"+arch+"."+ext)
 		} else {
-			final = filepath.Join(outdir, name+"_"+version+"_"+osName+"_"+arch+"."+ext)
+			final = filepath.Join(outdir, stem+"."+ext)
 		}
 	} else {
-		final = filepath.Join(outdir, name+"_"+version+"_"+osName+"_"+arch)
+		final = filepath.Join(outdir, stem)
 	}
 
 	if err := copyPath(filepathName, final); err != nil {

@@ -24,7 +24,7 @@ func TestZipDirectory(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "archive.zip")
-	if err := zipDirectory(root, out); err != nil {
+	if err := zipDirectory(root, out, "app"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,9 +57,10 @@ func TestZipDirectory(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"one.txt":        "one",
-		"nested/":        "",
-		"nested/two.txt": "two",
+		"app/":               "",
+		"app/one.txt":        "one",
+		"app/nested/":        "",
+		"app/nested/two.txt": "two",
 	}
 	for name, wantContent := range want {
 		if got[name] != wantContent {
@@ -81,7 +82,7 @@ func TestZipDirectoryPreservesSymlink(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "archive.zip")
-	if err := zipDirectory(root, out); err != nil {
+	if err := zipDirectory(root, out, ""); err != nil {
 		t.Fatal(err)
 	}
 	reader, err := zip.OpenReader(out)
@@ -124,7 +125,7 @@ func TestTarXzDirectory(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "archive.tar.xz")
-	if err := tarXzDirectory(root, out); err != nil {
+	if err := tarXzDirectory(root, out, "app"); err != nil {
 		if strings.Contains(err.Error(), "requires cgo") {
 			t.Skip(err)
 		}
@@ -359,7 +360,7 @@ func TestArchiveOutputsUsesZipForWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: out}, {Name: "dev", Path: dev}}, "windows", "amd64")
+	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: out}, {Name: "dev", Path: dev}}, "app_1.2.3_windows_amd64", "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,13 +378,16 @@ func TestArchiveOutputsUsesZipForWindows(t *testing.T) {
 	for _, file := range reader.File {
 		entries[file.Name] = true
 	}
-	for _, name := range []string{"share/data", "dev/include/api.h"} {
+	for _, name := range []string{"app_1.2.3_windows_amd64/", "app_1.2.3_windows_amd64/share/data", "app_1.2.3_windows_amd64/dev/include/api.h"} {
 		if !entries[name] {
 			t.Errorf("zip entry %q not found in %v", name, entries)
 		}
 	}
 	for name := range entries {
-		if strings.HasPrefix(name, "out/") {
+		if !strings.HasPrefix(name, "app_1.2.3_windows_amd64/") {
+			t.Errorf("zip entry %q is outside the top-level folder", name)
+		}
+		if strings.HasPrefix(name, "app_1.2.3_windows_amd64/out/") {
 			t.Errorf("unexpected nested out entry %q", name)
 		}
 	}
@@ -414,7 +418,7 @@ func TestWriteTarPathUsesBundleLayout(t *testing.T) {
 
 	var data bytes.Buffer
 	writer := tar.NewWriter(&data)
-	if err := writeTarPath(writer, bundle, ""); err != nil {
+	if err := writeTarPath(writer, bundle, "app"); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
@@ -433,13 +437,16 @@ func TestWriteTarPathUsesBundleLayout(t *testing.T) {
 		}
 		entries[header.Name] = true
 	}
-	for _, name := range []string{"share/data", "dev/include/api.h"} {
+	for _, name := range []string{"app/", "app/share/data", "app/dev/include/api.h"} {
 		if !entries[name] {
 			t.Errorf("tar entry %q not found in %v", name, entries)
 		}
 	}
 	for name := range entries {
-		if strings.HasPrefix(name, "out/") {
+		if !strings.HasPrefix(name, "app/") {
+			t.Errorf("tar entry %q is outside the top-level folder", name)
+		}
+		if strings.HasPrefix(name, "app/out/") {
 			t.Errorf("unexpected nested out entry %q", name)
 		}
 	}
@@ -497,7 +504,7 @@ func TestArchiveOutputsPreservesAppImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: appImage}}, "linux", "amd64")
+	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: appImage}}, "tool_1.2.3_linux_amd64", "linux", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
