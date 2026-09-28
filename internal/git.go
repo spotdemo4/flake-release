@@ -737,10 +737,13 @@ func versionParts(value string) []string {
 func sortChangelog(log string) string {
 	featRE := regexp.MustCompile(`^\* feat(\(.*\))?!?:`)
 	fixRE := regexp.MustCompile(`^\* fix(\(.*\))?!?:`)
+	bumpRE := regexp.MustCompile(`^\* bump(\(.*\))?!?:`)
 
 	var feat, fix, other []string
 	for _, line := range splitLines(log) {
 		switch {
+		case bumpRE.MatchString(line):
+			continue
 		case featRE.MatchString(line):
 			feat = append(feat, line)
 		case fixRE.MatchString(line):

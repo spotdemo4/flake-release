@@ -14,7 +14,7 @@ import (
 )
 
 func TestSortChangelog(t *testing.T) {
-	input := "* chore: one (1)\n* fix: two (2)\n* feat(ui): three (3)\n"
+	input := "* chore: one (1)\n* bump: v1.0.0 -> v1.1.0 (4)\n* fix: two (2)\n* bump(api): v1 -> v2 (5)\n* feat(ui): three (3)\n"
 	want := "* feat(ui): three (3)\n* fix: two (2)\n* chore: one (1)\n"
 
 	if got := sortChangelog(input); got != want {
