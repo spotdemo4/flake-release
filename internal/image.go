@@ -21,6 +21,7 @@ import (
 	"go.podman.io/image/v5/docker"
 	dockerarchive "go.podman.io/image/v5/docker/archive"
 	containerimage "go.podman.io/image/v5/image"
+	"go.podman.io/image/v5/pkg/compression"
 	"go.podman.io/image/v5/signature"
 	"go.podman.io/image/v5/types"
 	skopeoversion "go.podman.io/skopeo/version"
@@ -71,12 +72,13 @@ func imageUpload(cfg config, repository string, path string, tag string, arch st
 	if err != nil {
 		return err
 	}
+	destinationCtx.CompressionFormat = &compression.Zstd
 
 	status("uploading to %s", transportsImageName(destRef))
 	_, err = copy.Image(context.Background(), policyCtx, destRef, srcRef, &copy.Options{
-		SourceCtx:       sourceCtx,
-		DestinationCtx:  destinationCtx,
-		PreserveDigests: true,
+		SourceCtx:              sourceCtx,
+		DestinationCtx:         destinationCtx,
+		ForceCompressionFormat: true,
 	})
 	return err
 }
