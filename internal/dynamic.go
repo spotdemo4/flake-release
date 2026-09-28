@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-type dynamicExecutable struct {
+type bundledFile struct {
 	src string
 	dst string
 }
@@ -160,6 +160,20 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 		}
 	}
 
+	if osName != "windows" {
+		for _, output := range bundled {
+			if output.Name != "out" && output.Name != "bin" {
+				continue
+			}
+			if output.flattenedSource != "" && isAlreadyCompressedFile(output.flattenedSource) {
+				continue
+			}
+			if err := patchScripts(bundle, output, bundled); err != nil {
+				return "", err
+			}
+		}
+	}
+
 	cleanup = false
 	return bundle, nil
 }
@@ -183,7 +197,20 @@ func singleOutputExecutable(outputs []packageOutput) string {
 	return files[0]
 }
 
-func (output bundledOutput) dynamicExecutables() ([]dynamicExecutable, error) {
+func (output bundledOutput) dynamicExecutables() ([]bundledFile, error) {
+	executables, err := output.binFiles(isDynamicELFPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, executable := range executables {
+		if err := output.materialize(executable); err != nil {
+			return nil, err
+		}
+	}
+	return executables, nil
+}
+
+func (output bundledOutput) binFiles(match func(string) bool) ([]bundledFile, error) {
 	stat, err := os.Stat(output.Path)
 	if err != nil {
 		return nil, err
@@ -202,12 +229,12 @@ func (output bundledOutput) dynamicExecutables() ([]dynamicExecutable, error) {
 		files = []string{output.Path}
 	}
 
-	var executables []dynamicExecutable
+	var matched []bundledFile
 	for _, file := range files {
 		if isAlreadyCompressedFile(file) {
 			continue
 		}
-		if !isDynamicELFPath(file) {
+		if !match(file) {
 			continue
 		}
 
@@ -219,22 +246,23 @@ func (output bundledOutput) dynamicExecutables() ([]dynamicExecutable, error) {
 			}
 			dst = filepath.Join(output.root, relative)
 		}
-		relativeParent, err := filepath.Rel(output.root, filepath.Dir(dst))
-		if err != nil {
-			return nil, err
-		}
-		if err := materializeDirectoryTree(output.root, relativeParent); err != nil {
-			return nil, err
-		}
-		if err := materializeDynamicExecutable(file, dst, output.Path); err != nil {
-			return nil, err
-		}
-		executables = append(executables, dynamicExecutable{src: file, dst: dst})
+		matched = append(matched, bundledFile{src: file, dst: dst})
 	}
-	return executables, nil
+	return matched, nil
 }
 
-func bundleDynamicLibraries(bundle string, executables []dynamicExecutable) ([]dynamicLibrary, map[string]string, error) {
+func (output bundledOutput) materialize(file bundledFile) error {
+	relativeParent, err := filepath.Rel(output.root, filepath.Dir(file.dst))
+	if err != nil {
+		return err
+	}
+	if err := materializeDirectoryTree(output.root, relativeParent); err != nil {
+		return err
+	}
+	return materializeDynamicExecutable(file.src, file.dst, output.Path)
+}
+
+func bundleDynamicLibraries(bundle string, executables []bundledFile) ([]dynamicLibrary, map[string]string, error) {
 	libDir := filepath.Join(bundle, "lib")
 	copied := map[string]string{}
 	queued := make([]string, 0, len(executables))
@@ -314,7 +342,7 @@ func libraryBundleName(dependency string) (string, error) {
 	return name, nil
 }
 
-func patchDynamicBundle(root string, executables []dynamicExecutable, libraries []dynamicLibrary, replacements map[string]string, interpreter string) error {
+func patchDynamicBundle(root string, executables []bundledFile, libraries []dynamicLibrary, replacements map[string]string, interpreter string) error {
 	for _, executable := range executables {
 		if err := makeWritable(executable.dst); err != nil {
 			return err

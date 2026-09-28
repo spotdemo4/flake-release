@@ -12,6 +12,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2
 	go.podman.io/image/v5 v5.41.2
 	go.podman.io/skopeo v1.24.1
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (
@@ -52,7 +53,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/go-containerregistry v0.21.6 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

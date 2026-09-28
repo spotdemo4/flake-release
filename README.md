@@ -10,6 +10,7 @@ Generates release artifacts for packages in a nix flake:
 - packages have every non-empty output bundled into a `.tar.xz`, or a `.zip` on Windows
 - `out` contents are placed at the archive root, while other split outputs keep their names, such as `bin/`, `dev/`, and `doc/`
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
+- shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
 - Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests
 
