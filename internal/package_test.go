@@ -378,6 +378,29 @@ func TestNixPkgSrcSkipsUnavailableSources(t *testing.T) {
 	}
 }
 
+func TestNixPkgSrcFallsBackToOutPath(t *testing.T) {
+	root := t.TempDir()
+	var requested []string
+	source, err := nixPkgSrcWithCapture("packages.test", func(args ...string) (string, error) {
+		installable := args[len(args)-1]
+		requested = append(requested, installable)
+		if installable == ".#packages.test.src" {
+			return "", errors.New("expected flake output attribute to be a derivation or path but found a set")
+		}
+		return root, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source != root {
+		t.Fatalf("source = %q; want %q", source, root)
+	}
+	want := []string{".#packages.test.src", ".#packages.test.src.outPath"}
+	if !slices.Equal(requested, want) {
+		t.Fatalf("requested installables = %q; want %q", requested, want)
+	}
+}
+
 func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing.T) {
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "go.mod"), "module example.com/owner/project\n")

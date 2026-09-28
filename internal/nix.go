@@ -148,7 +148,12 @@ func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (
 	// Build rather than eval: with lazy trees, eval prints a store path without copying it to the store.
 	out, err := capture("build", "--no-link", "--print-out-paths", ".#"+pkg+".src")
 	if err != nil {
-		return "", nil
+		// Sources such as lib.fileset.toSource are attribute sets, which nix build
+		// only accepts through their outPath.
+		out, err = capture("build", "--no-link", "--print-out-paths", ".#"+pkg+".src.outPath")
+		if err != nil {
+			return "", nil
+		}
 	}
 	path, _, _ := strings.Cut(out, "\n")
 	if path == "" {
