@@ -32,8 +32,9 @@ inputs:
     default: ${{ github.token }}
 
   publish_packages:
-    description: language package kinds to publish (go, cargo, gradle, maven, npm, pypi)
+    description: deprecated; discovered packages are published when package_registry_token is set
     required: false
+    deprecationMessage: publish_packages is deprecated; discovered packages are published when package_registry_token is set
 
   package_registry_owner:
     description: package registry owner or namespace
@@ -48,7 +49,7 @@ inputs:
     required: false
 
   package_registry_token:
-    description: dedicated package registry write token
+    description: dedicated package registry write token; enables package publishing
     required: false
 
   container_registry:

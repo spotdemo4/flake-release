@@ -32,7 +32,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.DOCTOR_TOKEN }}
           CONTAINER_REGISTRY: trev.zip
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.PACKAGE_TOKEN }}
-          PUBLISH_PACKAGES: go
           PACKAGE_REGISTRY_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
           DELETE_OLD_RELEASE_ARTIFACTS: true
           PACKAGES: |

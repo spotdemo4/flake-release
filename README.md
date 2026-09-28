@@ -22,27 +22,28 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 
 ### Environment
 
-| Variable                     | Description                                                                          | Example                          |
-| ---------------------------- | ------------------------------------------------------------------------------------ | -------------------------------- |
-| GIT_TYPE                     | Host type for release                                                                | `github` / `gitea` / `forgejo`   |
-| GITHUB_REPOSITORY            | Repository to push releases, inferred from `remote.origin.url` when unset            | `spotdemo4/flake-release`        |
-| GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                | `https://github.com`             |
-| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | `github-actions[bot]`            |
-| GITHUB_TOKEN                 | Token used to push releases                                                          |                                  |
-| TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery     | `packages/api/v1.2.3`            |
-| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io`                        |
-| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `github-actions[bot]`            |
-| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      |                                  |
-| PUBLISH_PACKAGES             | Package kinds to publish, separated by commas or whitespace                          | `go cargo gradle maven npm pypi` |
-| PACKAGE_REGISTRY_OWNER       | Package owner or namespace, defaulting to the owner from `GITHUB_REPOSITORY`         | `spotdemo4`                      |
-| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | `https://npm.pkg.github.com`     |
-| PACKAGE_REGISTRY_USERNAME    | Registry username, defaulting to `GITHUB_ACTOR`                                      | `github-actions[bot]`            |
-| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; required outside dry-run                     |                                  |
-| DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                     | `true`                           |
-| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `2`                              |
-| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default              | `true`                           |
+| Variable                     | Description                                                                          | Example                        |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ------------------------------ |
+| GIT_TYPE                     | Host type for release                                                                | `github` / `gitea` / `forgejo` |
+| GITHUB_REPOSITORY            | Repository to push releases, inferred from `remote.origin.url` when unset            | `spotdemo4/flake-release`      |
+| GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                | `https://github.com`           |
+| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | `github-actions[bot]`          |
+| GITHUB_TOKEN                 | Token used to push releases                                                          |                                |
+| TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery     | `packages/api/v1.2.3`          |
+| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io`                      |
+| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `github-actions[bot]`          |
+| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      |                                |
+| PACKAGE_REGISTRY_OWNER       | Package owner or namespace, defaulting to the owner from `GITHUB_REPOSITORY`         | `spotdemo4`                    |
+| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | `https://npm.pkg.github.com`   |
+| PACKAGE_REGISTRY_USERNAME    | Registry username, defaulting to `GITHUB_ACTOR`                                      | `github-actions[bot]`          |
+| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; enables package publishing                   |                                |
+| DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                     | `true`                         |
+| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `2`                            |
+| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default              | `true`                         |
 
 `REGISTRY`, `REGISTRY_USERNAME`, and `REGISTRY_PASSWORD` are deprecated aliases for the `CONTAINER_REGISTRY` variables and will be removed in a future release. They are still honored when the corresponding `CONTAINER_REGISTRY` variable is unset.
+
+`PUBLISH_PACKAGES` is deprecated and will be removed in a future release. Packages are now published whenever `PACKAGE_REGISTRY_TOKEN` is set. While `PUBLISH_PACKAGES` is set, it still restricts publishing to the listed kinds and requires each of them to be found.
 
 By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
 
@@ -72,7 +73,7 @@ Container registry and repository paths are normalized to lowercase, including s
 
 ### Package publishing
 
-Package publishing is disabled unless `PUBLISH_PACKAGES` explicitly lists one or more of `go`, `cargo`, `gradle`, `maven`, `npm`, or `pypi`. Values may be separated by commas, spaces, or newlines. Unknown values are rejected and repeated values are deduplicated.
+Package publishing is enabled by setting `PACKAGE_REGISTRY_TOKEN`. Every package manifest discovered in the selected sources is then published, limited to the kinds the registry host supports:
 
 | Registry host | Go  | Cargo | Gradle | Maven | npm | PyPI |
 | ------------- | --- | ----- | ------ | ----- | --- | ---- |
@@ -97,7 +98,9 @@ For each requested Nix package, flake-release evaluates `.#<package>.src` and lo
 | npm    | `package.json`                       |
 | PyPI   | `pyproject.toml`                     |
 
-Manifest discovery is not recursive. Sources shared by multiple Nix package attributes are published only once per package kind. Evaluated sources are copied to writable temporary staging directories before package tools run. A requested kind that is not discovered in any selected package source is an error.
+Manifest discovery is not recursive. Sources shared by multiple Nix package attributes are published only once per package kind. Evaluated sources are copied to writable temporary staging directories before package tools run.
+
+Manifests that opt out of publishing are skipped: an npm `package.json` with `"private": true`, and a `Cargo.toml` that sets `publish = false` or only defines a workspace. Any other discovered manifest must be publishable and match the release version, so opt out of publishing packages that are not meant for a registry. A Gradle build and a Maven `pom.xml` with the same coordinates in one source are rejected as duplicates.
 
 #### Tools and versions
 
@@ -114,7 +117,7 @@ The stock Docker action does not bundle or inherit these tools from the runner, 
 
 Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
 
-`--dry-run` performs source discovery, required-tool checks, package metadata and version validation, Go archive preparation, Cargo and npm dry-runs, and PyPI build/checks without requiring registry credentials. Maven and Gradle dry-runs validate manifests and versions and generate registry authentication without publishing. It does not write to a registry or clean up old release artifacts. `DRY_RUN=true` provides the same behavior.
+`--dry-run` performs source discovery, required-tool checks, package metadata and version validation, Go archive preparation, Cargo and npm dry-runs, and PyPI build/checks when `PACKAGE_REGISTRY_TOKEN` is set, without using it. Maven and Gradle dry-runs validate manifests and versions and generate registry authentication without publishing. It does not write to a registry or clean up old release artifacts. `DRY_RUN=true` provides the same behavior.
 
 ## Install
 
@@ -132,11 +135,10 @@ Package versions are strict: Go publishes the exact release tag, including a lea
     container_registry: # default: ghcr.io
     container_registry_username: # default: ${{ github.actor }}
     container_registry_password: # default: ${{ github.token }}
-    publish_packages: # go, cargo, gradle, maven, npm, and/or pypi
     package_registry_owner: # default: repository owner
     package_registry_url: # default: host-specific registry
     package_registry_username: # default: ${{ github.actor }}
-    package_registry_token: # dedicated package write token
+    package_registry_token: # dedicated package write token; enables package publishing
     delete_old_release_artifacts: # false (default), true, or a count including current (e.g. "2")
     bundle_appimage: # default: false
 ```
@@ -177,7 +179,6 @@ docker run -it \
   -e CONTAINER_REGISTRY=... \
   -e CONTAINER_REGISTRY_USERNAME=... \
   -e CONTAINER_REGISTRY_PASSWORD=... \
-  -e PUBLISH_PACKAGES=... \
   -e PACKAGE_REGISTRY_TOKEN=... \
   -e BUNDLE_APPIMAGE=true \
   ghcr.io/spotdemo4/flake-release:0.28.0

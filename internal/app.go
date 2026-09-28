@@ -219,7 +219,7 @@ func Run(args []string) error {
 	info("container registry: %s", firstNonEmpty(cfg.containerRegistry, "<none>"))
 
 	applyPackageRegistryDefaults(&cfg, provider)
-	if cfg.publishPackages != "" {
+	if cfg.publishPackages != "" || cfg.packageRegistryToken != "" {
 		info("package registry owner: %s", firstNonEmpty(cfg.packageRegistryOwner, "<none>"))
 		info("package registry: %s", packageRegistryDisplayURL(cfg.packageRegistryURL))
 		info("package registry user: %s", firstNonEmpty(cfg.packageRegistryUsername, "<none>"))

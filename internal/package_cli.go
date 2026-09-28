@@ -13,9 +13,10 @@ const cargoRegistryName = "flake-release"
 
 type cargoMetadata struct {
 	Packages []struct {
-		Name         string `json:"name"`
-		Version      string `json:"version"`
-		ManifestPath string `json:"manifest_path"`
+		Name         string    `json:"name"`
+		Version      string    `json:"version"`
+		ManifestPath string    `json:"manifest_path"`
+		Publish      *[]string `json:"publish"`
 	} `json:"packages"`
 }
 
@@ -51,13 +52,16 @@ func preflightCargoPackage(set *packagePublicationSet, publication *packagePubli
 			continue
 		}
 		if filepath.Clean(pkgManifest) == filepath.Clean(manifest) {
+			if pkg.Publish != nil && len(*pkg.Publish) == 0 {
+				return fmt.Errorf("cargo package %s sets publish = false: %w", pkg.Name, errPackageNotPublishable)
+			}
 			publication.name = pkg.Name
 			publication.version = pkg.Version
 			break
 		}
 	}
 	if publication.name == "" || publication.version == "" {
-		return fmt.Errorf("root cargo manifest does not define a publishable [package]")
+		return fmt.Errorf("root cargo manifest does not define a [package]: %w", errPackageNotPublishable)
 	}
 	if err := requireStrictPackageVersion(publication.version); err != nil {
 		return fmt.Errorf("cargo package: %w", err)
@@ -100,7 +104,7 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 		return fmt.Errorf("parsing package.json: %w", err)
 	}
 	if manifest.Private {
-		return fmt.Errorf("package.json is marked private")
+		return fmt.Errorf("package.json is marked private: %w", errPackageNotPublishable)
 	}
 	if manifest.Name == "" || manifest.Version == "" {
 		return fmt.Errorf("package.json requires name and version")

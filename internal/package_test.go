@@ -166,6 +166,112 @@ func TestValidatePackageRegistryProviderMatrix(t *testing.T) {
 	}
 }
 
+func discoverPackagesForTest(t *testing.T, cfg config, provider releaseProvider, source string) (*packagePublicationSet, error) {
+	t.Helper()
+	cfg.dryRun = true
+	cfg.packageRegistryOwner = "owner"
+	cfg.packageRegistryURL = "https://git.example"
+	set, err := preparePackagePublicationsWith(cfg, provider, parseReleaseTag("v1.2.3"), []string{"pkg"}, func(string) (string, error) { return source, nil }, fakePackageCommandRunner{
+		requireFunc: func(string) error { return nil },
+		runFunc:     func(commandOptions) error { return nil },
+		captureFunc: func(options commandOptions) (string, error) {
+			t.Fatalf("unexpected captured command %q %q", options.name, options.args)
+			return "", nil
+		},
+	})
+	if set != nil {
+		t.Cleanup(set.Close)
+	}
+	return set, err
+}
+
+func writeDiscoveryTestSource(t *testing.T) string {
+	t.Helper()
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "pom.xml"), `<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>my-lib</artifactId>
+  <version>1.2.3</version>
+</project>`)
+	writeTestFile(t, filepath.Join(source, "package.json"), `{"name":"web","version":"0.0.0","private":true}`)
+	return source
+}
+
+func TestPackagePublishingDisabledWithoutToken(t *testing.T) {
+	set, err := discoverPackagesForTest(t, config{}, releaseForgejo, writeDiscoveryTestSource(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set != nil {
+		t.Fatalf("packages prepared without PACKAGE_REGISTRY_TOKEN: %#v", set.packages)
+	}
+}
+
+func TestPackageTokenPublishesDiscoveredPackages(t *testing.T) {
+	set, err := discoverPackagesForTest(t, config{packageRegistryToken: "token"}, releaseForgejo, writeDiscoveryTestSource(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set == nil || len(set.packages) != 1 || set.packages[0].kind != packageMaven {
+		t.Fatalf("prepared packages = %#v; want maven only with private npm skipped", set)
+	}
+}
+
+func TestPackageTokenDiscoversOnlyProviderSupportedKinds(t *testing.T) {
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "go.mod"), "module example.com/owner/project\n")
+	set, err := discoverPackagesForTest(t, config{packageRegistryToken: "token"}, releaseGitHub, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set != nil {
+		t.Fatalf("GitHub discovered unsupported packages: %#v", set.packages)
+	}
+}
+
+func TestPackageTokenSkipsWhenOnlyUnpublishableManifests(t *testing.T) {
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "package.json"), `{"name":"web","version":"0.0.0","private":true}`)
+	set, err := discoverPackagesForTest(t, config{packageRegistryToken: "token"}, releaseForgejo, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set != nil {
+		t.Fatalf("private npm package was prepared: %#v", set.packages)
+	}
+}
+
+func TestCargoPublishFalseIsNotPublishable(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "Cargo.toml")
+	set := &packagePublicationSet{commands: fakePackageCommandRunner{
+		requireFunc: func(string) error { return nil },
+		captureFunc: func(commandOptions) (string, error) {
+			return `{"packages":[{"name":"app","version":"1.2.3","manifest_path":"` + manifest + `","publish":[]}]}`, nil
+		},
+	}}
+	publication := &packagePublication{kind: packageCargo, dir: dir, manifest: manifest}
+	if err := preflightCargoPackage(set, publication); !errors.Is(err, errPackageNotPublishable) {
+		t.Fatalf("error = %v; want not publishable", err)
+	}
+}
+
+func TestDeprecatedPublishPackagesStillRejectsPrivateNPM(t *testing.T) {
+	_, err := discoverPackagesForTest(t, config{publishPackages: "npm"}, releaseForgejo, writeDiscoveryTestSource(t))
+	if err == nil || !errors.Is(err, errPackageNotPublishable) {
+		t.Fatalf("error = %v; want private package rejection", err)
+	}
+}
+
+func TestPackageIdentitySharesMavenRegistryForGradle(t *testing.T) {
+	maven := packagePublication{kind: packageMaven, name: "com.example:my-lib", version: "1.2.3"}
+	gradle := packagePublication{kind: packageGradle, name: "com.example:my-lib", version: "1.2.3"}
+	if publicationIdentity(maven) != publicationIdentity(gradle) {
+		t.Fatal("gradle and maven publications of the same coordinates have different identities")
+	}
+}
+
 func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	dir := t.TempDir()
 	manifest := filepath.Join(dir, "package.json")

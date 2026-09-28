@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -53,6 +54,10 @@ type packagePublication struct {
 	artifacts []string
 }
 
+// errPackageNotPublishable marks a manifest that opts out of publishing, such as a
+// private package.json. Discovered manifests with it are skipped; requested ones fail.
+var errPackageNotPublishable = errors.New("package is not publishable")
+
 type packagePublicationSet struct {
 	cfg          config
 	provider     releaseProvider
@@ -60,6 +65,8 @@ type packagePublicationSet struct {
 	temporaryDir string
 	packages     []packagePublication
 	commands     packageCommandRunner
+	// explicit is set when the deprecated PUBLISH_PACKAGES selected the package kinds.
+	explicit bool
 }
 
 func applyPackageRegistryDefaults(cfg *config, provider releaseProvider) {
@@ -86,15 +93,17 @@ func preparePackagePublications(cfg config, provider releaseProvider, tag releas
 }
 
 func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, packageSource func(string) (string, error), commands packageCommandRunner) (*packagePublicationSet, error) {
-	kinds, err := parsePackageKinds(cfg.publishPackages)
+	kinds, explicit, err := selectPackageKinds(cfg, provider)
 	if err != nil {
 		return nil, err
 	}
 	if len(kinds) == 0 {
 		return nil, nil
 	}
-	if err := validatePackageRegistryConfig(cfg, provider, kinds); err != nil {
-		return nil, err
+	if explicit {
+		if err := validatePackageRegistryConfig(cfg, provider, kinds); err != nil {
+			return nil, err
+		}
 	}
 
 	root, err := os.MkdirTemp("", "flake-release-packages-")
@@ -107,6 +116,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		releaseTag:   tag,
 		temporaryDir: root,
 		commands:     commands,
+		explicit:     explicit,
 	}
 	cleanup := true
 	defer func() {
@@ -169,18 +179,37 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		}
 	}
 
-	for _, kind := range kinds {
-		if !foundKinds[kind] {
-			candidates := packageManifestCandidates(kind)
-			manifestDisplay := strings.Join(candidates, " or ")
-			if manifestDisplay == "" {
-				manifestDisplay = string(kind)
+	if explicit {
+		for _, kind := range kinds {
+			if !foundKinds[kind] {
+				candidates := packageManifestCandidates(kind)
+				manifestDisplay := strings.Join(candidates, " or ")
+				if manifestDisplay == "" {
+					manifestDisplay = string(kind)
+				}
+				return nil, fmt.Errorf("PUBLISH_PACKAGES requested %q, but no %s was found at an evaluated source root", kind, manifestDisplay)
 			}
-			return nil, fmt.Errorf("PUBLISH_PACKAGES requested %q, but no %s was found at an evaluated source root", kind, manifestDisplay)
+		}
+	} else {
+		if len(set.packages) == 0 {
+			status("no package manifests found")
+			return nil, nil
+		}
+		discovered := make([]packageKind, 0, len(foundKinds))
+		for _, kind := range kinds {
+			if foundKinds[kind] {
+				discovered = append(discovered, kind)
+			}
+		}
+		if err := validatePackageRegistryConfig(cfg, provider, discovered); err != nil {
+			return nil, err
 		}
 	}
 	if err := set.preflight(); err != nil {
 		return nil, err
+	}
+	if len(set.packages) == 0 {
+		return nil, nil
 	}
 
 	cleanup = false
@@ -197,11 +226,16 @@ func (set *packagePublicationSet) Close() {
 func (set *packagePublicationSet) preflight() error {
 	section("Preflighting package publications")
 	identities := map[string]string{}
+	publishable := set.packages[:0]
 	for index := range set.packages {
 		publication := &set.packages[index]
 		item("%s from %s", publication.kind, publication.source)
 		status("validating package")
 		if err := publication.preflight(set); err != nil {
+			if !set.explicit && errors.Is(err, errPackageNotPublishable) {
+				status("skipping: %v", err)
+				continue
+			}
 			return fmt.Errorf("preflighting %s package at %s: %w", publication.kind, publication.source, err)
 		}
 		detail("name: %s", publication.name)
@@ -218,7 +252,9 @@ func (set *packagePublicationSet) preflight() error {
 			return fmt.Errorf("duplicate %s package %s@%s discovered at %s and %s", publication.kind, publication.name, publication.version, previousSource, publication.source)
 		}
 		identities[identity] = publication.source
+		publishable = append(publishable, *publication)
 	}
+	set.packages = publishable
 	return nil
 }
 
@@ -227,7 +263,12 @@ func publicationIdentity(publication packagePublication) string {
 	if publication.kind == packagePyPI {
 		name = normalizePyPIName(name)
 	}
-	return string(publication.kind) + "\x00" + name + "\x00" + publication.version
+	// Gradle and Maven publish to the same Maven registry.
+	kind := publication.kind
+	if kind == packageGradle {
+		kind = packageMaven
+	}
+	return string(kind) + "\x00" + name + "\x00" + publication.version
 }
 
 func (set *packagePublicationSet) publish() error {
@@ -288,6 +329,32 @@ func (publication *packagePublication) publish(set *packagePublicationSet) error
 	}
 }
 
+// selectPackageKinds returns the package kinds to discover. The deprecated
+// PUBLISH_PACKAGES selects them explicitly; otherwise every kind the provider
+// supports is discovered when PACKAGE_REGISTRY_TOKEN is set.
+func selectPackageKinds(cfg config, provider releaseProvider) ([]packageKind, bool, error) {
+	if strings.TrimSpace(cfg.publishPackages) != "" {
+		warn("PUBLISH_PACKAGES is deprecated; discovered packages are published when PACKAGE_REGISTRY_TOKEN is set")
+		kinds, err := parsePackageKinds(cfg.publishPackages)
+		return kinds, true, err
+	}
+	if cfg.packageRegistryToken == "" {
+		return nil, false, nil
+	}
+	return supportedPackageKinds(provider), false, nil
+}
+
+func supportedPackageKinds(provider releaseProvider) []packageKind {
+	switch provider {
+	case releaseForgejo, releaseGitea:
+		return []packageKind{packageCargo, packageGo, packageGradle, packageMaven, packageNPM, packagePyPI}
+	case releaseGitHub:
+		return []packageKind{packageGradle, packageMaven, packageNPM}
+	default:
+		return nil
+	}
+}
+
 func parsePackageKinds(value string) ([]packageKind, error) {
 	fields := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\t' || r == '\r' || r == '\n'
@@ -312,20 +379,20 @@ func parsePackageKinds(value string) ([]packageKind, error) {
 
 func validatePackageRegistryConfig(cfg config, provider releaseProvider, kinds []packageKind) error {
 	if cfg.packageRegistryOwner == "" {
-		return fmt.Errorf("PACKAGE_REGISTRY_OWNER is required when PUBLISH_PACKAGES is set")
+		return fmt.Errorf("PACKAGE_REGISTRY_OWNER is required to publish packages")
 	}
 	if strings.TrimSpace(cfg.packageRegistryOwner) != cfg.packageRegistryOwner || cfg.packageRegistryOwner == "." || cfg.packageRegistryOwner == ".." || strings.ContainsAny(cfg.packageRegistryOwner, "/\\?#") {
 		return fmt.Errorf("PACKAGE_REGISTRY_OWNER must be a single owner or namespace name")
 	}
 	if cfg.packageRegistryURL == "" {
-		return fmt.Errorf("PACKAGE_REGISTRY_URL is required when PUBLISH_PACKAGES is set")
+		return fmt.Errorf("PACKAGE_REGISTRY_URL is required to publish packages")
 	}
 	parsed, err := url.Parse(cfg.packageRegistryURL)
 	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return fmt.Errorf("PACKAGE_REGISTRY_URL must be an HTTP(S) URL without credentials, query, or fragment")
 	}
 	if !cfg.dryRun && cfg.packageRegistryToken == "" {
-		return fmt.Errorf("PACKAGE_REGISTRY_TOKEN is required when PUBLISH_PACKAGES is set")
+		return fmt.Errorf("PACKAGE_REGISTRY_TOKEN is required to publish packages")
 	}
 
 	for _, kind := range kinds {
