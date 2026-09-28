@@ -84,7 +84,7 @@ func selectedReleaseTag() (string, error) {
 
 func configFromEnv() config {
 	return config{
-		dryRun:                    os.Getenv("DRY_RUN") == "true",
+		dryRun:                    truthy(os.Getenv("DRY_RUN")),
 		bundleAppImage:            truthy(os.Getenv("BUNDLE_APPIMAGE")),
 		deleteOldReleaseArtifacts: os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
 		githubRepository:          os.Getenv("GITHUB_REPOSITORY"),

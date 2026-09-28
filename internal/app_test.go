@@ -98,6 +98,27 @@ func TestConfigFromEnvBundleAppImage(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvDryRun(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "empty", want: false},
+		{name: "false", value: "false", want: false},
+		{name: "true", value: "true", want: true},
+		{name: "one", value: "1", want: true},
+		{name: "yes", value: "YES", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("DRY_RUN", test.value)
+			if got := configFromEnv().dryRun; got != test.want {
+				t.Fatalf("configFromEnv().dryRun = %t; want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestConfigFromEnvContainerRegistry(t *testing.T) {
 	for _, test := range []struct {
 		name       string

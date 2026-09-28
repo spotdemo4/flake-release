@@ -7,12 +7,13 @@
 Generates release artifacts for packages in a nix flake:
 
 - `dockerTools.buildLayeredImage` & `dockerTools.streamLayeredImage` can be uploaded to a container registry
-- packages have every non-empty output bundled into a `.tar.xz`, or a `.zip` on Windows; `out` contents are placed at the archive root while other split outputs retain names such as `bin/`, `dev/`, and `doc/`; runs without any releasable outputs fail without creating a release
+- packages have every non-empty output bundled into a `.tar.xz`, or a `.zip` on Windows
+- `out` contents are placed at the archive root, while other split outputs keep their names, such as `bin/`, `dev/`, and `doc/`
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
 - Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests
 
-Works with GitHub, Gitea & Forgejo
+Runs that produce no releasable outputs fail without creating a release. Works with GitHub, Gitea & Forgejo
 
 ## Usage
 
@@ -22,28 +23,25 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 
 ### Environment
 
-| Variable                     | Description                                                                          | Example                        |
-| ---------------------------- | ------------------------------------------------------------------------------------ | ------------------------------ |
-| GIT_TYPE                     | Host type for release                                                                | `github` / `gitea` / `forgejo` |
-| GITHUB_REPOSITORY            | Repository to push releases, inferred from `remote.origin.url` when unset            | `spotdemo4/flake-release`      |
-| GITHUB_SERVER_URL            | Server to push releases, inferred from `remote.origin.url` when unset                | `https://github.com`           |
-| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | `github-actions[bot]`          |
-| GITHUB_TOKEN                 | Token used to push releases                                                          |                                |
-| TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery     | `packages/api/v1.2.3`          |
-| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io`                      |
-| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `github-actions[bot]`          |
-| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      |                                |
-| PACKAGE_REGISTRY_OWNER       | Package owner or namespace, defaulting to the owner from `GITHUB_REPOSITORY`         | `spotdemo4`                    |
-| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | `https://npm.pkg.github.com`   |
-| PACKAGE_REGISTRY_USERNAME    | Registry username, defaulting to `GITHUB_ACTOR`                                      | `github-actions[bot]`          |
-| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; enables package publishing                   |                                |
-| DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                     | `true`                         |
-| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `2`                            |
-| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default              | `true`                         |
-
-`REGISTRY`, `REGISTRY_USERNAME`, and `REGISTRY_PASSWORD` are deprecated aliases for the `CONTAINER_REGISTRY` variables and will be removed in a future release. They are still honored when the corresponding `CONTAINER_REGISTRY` variable is unset.
-
-`PUBLISH_PACKAGES` is deprecated and will be removed in a future release. Packages are now published whenever `PACKAGE_REGISTRY_TOKEN` is set. While `PUBLISH_PACKAGES` is set, it still restricts publishing to the listed kinds and requires each of them to be found.
+| Variable                     | Description                                                                          | Default                                        | Example                        |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------ |
+| PACKAGES                     | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system            | `default api`                  |
+| GIT_TYPE                     | Host type for release                                                                | detected from the CI environment or origin URL | `github` / `gitea` / `forgejo` |
+| GITHUB_REPOSITORY            | Repository to push releases                                                          | from `remote.origin.url`                       | `spotdemo4/flake-release`      |
+| GITHUB_SERVER_URL            | Server to push releases                                                              | from `remote.origin.url`                       | `https://github.com`           |
+| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | Git user name                                  | `github-actions[bot]`          |
+| GITHUB_TOKEN                 | Token used to push releases                                                          |                                                |                                |
+| TAG                          | Exact short release tag                                                              | CI tag event, or latest Git tag                | `packages/api/v1.2.3`          |
+| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io` on GitHub                            | `ghcr.io`                      |
+| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | Git user name                                  | `github-actions[bot]`          |
+| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      | `GITHUB_TOKEN`                                 |                                |
+| PACKAGE_REGISTRY_OWNER       | Package owner or namespace                                                           | owner from `GITHUB_REPOSITORY`                 | `spotdemo4`                    |
+| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | host-specific                                  | `https://npm.pkg.github.com`   |
+| PACKAGE_REGISTRY_USERNAME    | Registry username                                                                    | `GITHUB_ACTOR`                                 | `github-actions[bot]`          |
+| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; enables package publishing                   |                                                |                                |
+| DRY_RUN                      | Validate and prepare releases without publishing or cleanup                          | `false`                                        | `true`                         |
+| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                        | `2`                            |
+| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages                                   | `false`                                        | `true`                         |
 
 By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
 
@@ -51,25 +49,25 @@ By default, packages are released as normal output archives. Enable automatic Ap
 
 `DELETE_OLD_RELEASE_ARTIFACTS` (or the Action input `delete_old_release_artifacts`) accepts:
 
-- `false`, `0`, or unset: disable cleanup (the default).
-- `true` or `1`: keep the current release's artifacts and clean up previous artifacts.
-- A positive integer such as `2`: keep the current release plus the newest `N-1` older releases in the same exact tag namespace, using version order rather than API listing order.
+- `false`, `0`, `no`, `off`, or unset: disable cleanup (the default).
+- `true`, `1`, `yes`, or `on`: keep the current release's artifacts and clean up previous artifacts.
+- A positive integer `N`: keep the current release plus the newest `N-1` older releases in the same tag namespace, ordered by version.
 
-For example, `DELETE_OLD_RELEASE_ARTIFACTS=2` when publishing `v1.3.0` retains its artifacts and those of `v1.2.0`, while deleting artifacts from `v1.1.0` and older. The count is per hosted release, not per attached file; releases without attachments still count because they may have container images. Retained releases keep all attachments and their container version/platform tags. The `latest` image tag remains protected. Legacy tags with an empty version (`v`) do not consume retention slots.
+Values are case-insensitive. Invalid values, negative counts, and fractional counts fail before publication.
 
-Cleanup runs only after successful publication and creation of the current release, never during dry runs. It deletes release attachments and, when publishing images, old container tags; it does not delete release records or package registry versions. Hosted releases in other namespaces or with versions equal to or newer than the current release remain untouched.
+For example, `DELETE_OLD_RELEASE_ARTIFACTS=2` when publishing `v1.3.0` keeps the artifacts of `v1.3.0` and `v1.2.0` and deletes those of `v1.1.0` and older. The count is per release, not per file, and includes releases without attachments since they may still have container images. Retained releases keep all attachments and container tags, the `latest` image tag is never deleted, and legacy tags with an empty version (`v`) don't count toward retention.
 
-Boolean aliases `yes`/`on` and `no`/`off` are also accepted, case-insensitively. Invalid values, negative counts, and fractional counts fail before publication instead of silently disabling cleanup.
+Cleanup runs only after the current release is published successfully, and never during dry runs. It deletes release attachments and old container tags, but not release records or package registry versions. Releases in other namespaces, or with versions equal to or newer than the current release, are left untouched.
 
 ### Scoped release tags
 
-Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The complete tag identifies the hosted release and limits changelog ancestry and old-asset cleanup to that exact namespace. The namespace is also interpreted as a literal, case-sensitive repository path when generating the changelog. A scoped changelog includes only commits that change that path or its descendants relative to their first parent; similarly prefixed sibling paths are excluded, while a commit that also changes unrelated paths is still included. Unscoped tags continue to include changes from the entire repository. Go submodules also verify that the namespace matches the module path beneath the configured repository.
+Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The full tag identifies the release, and changelog history and old-artifact cleanup are limited to that namespace.
 
-A namespace does not infer Nix package attributes or filter requested source manifests. For a scoped release, pass only the package attributes that belong to that namespace.
+The namespace is treated as a case-sensitive repository path: a scoped changelog only includes commits that touch that path (compared to their first parent). Unscoped tags include changes from the entire repository. For Go modules, the namespace must match the module path within the repository.
 
-Container images append the namespace to the repository path while retaining the terminal version as the image tag. For example, `packages/api/v1.2.3` publishes architecture images such as `registry/owner/repo/packages/api:1.2.3-amd64`, the combined manifest as `registry/owner/repo/packages/api:1.2.3`, and `registry/owner/repo/packages/api:latest`. Nested namespaces remain nested repository paths, while unscoped tags continue to publish directly to `registry/owner/repo`. Manifest discovery and old-image cleanup are confined to the derived repository path.
+A namespace does not select Nix packages or filter source manifests, so for a scoped release pass only the packages that belong to that namespace.
 
-Container registry and repository paths are normalized to lowercase, including scoped namespace components. Consequently, Git tag namespaces that differ only by case share the same container repository path.
+Container images append the namespace to the repository path and use the version as the image tag. For example, `packages/api/v1.2.3` publishes `registry/owner/repo/packages/api:1.2.3-amd64` (per architecture), `registry/owner/repo/packages/api:1.2.3` (combined manifest), and `registry/owner/repo/packages/api:latest`. Unscoped tags publish directly to `registry/owner/repo`. Container paths are lowercased, so namespaces that differ only by case share a container repository.
 
 ### Package publishing
 
@@ -117,7 +115,14 @@ The stock Docker action does not bundle or inherit these tools from the runner, 
 
 Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
 
-`--dry-run` performs source discovery, required-tool checks, package metadata and version validation, Go archive preparation, Cargo and npm dry-runs, and PyPI build/checks when `PACKAGE_REGISTRY_TOKEN` is set, without using it. Maven and Gradle dry-runs validate manifests and versions and generate registry authentication without publishing. It does not write to a registry or clean up old release artifacts. `DRY_RUN=true` provides the same behavior.
+With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old artifacts aren't cleaned up. When `PACKAGE_REGISTRY_TOKEN` is set, a dry run still does the following, without using the token:
+
+- discovers sources and checks for required tools
+- validates package metadata and versions
+- prepares Go archives
+- runs `cargo publish --dry-run` and `npm publish --dry-run`
+- builds and checks PyPI distributions
+- generates Maven and Gradle registry authentication
 
 ## Install
 
@@ -128,6 +133,7 @@ Package versions are strict: Go publishes the exact release tag, including a lea
   uses: spotdemo4/flake-release@v0.28.0
   with:
     packages: # default: all
+    git_type: # default: detected
     github_repository: # default: ${{ github.repository }}
     github_server_url: # default: ${{ github.server_url }}
     github_actor: # default: ${{ github.actor }}
@@ -158,8 +164,8 @@ inputs = {
     };
 };
 
-outputs = { flake-release, ... }: {
-    devShells.x86_64-linux.default = pkgs.mkShell {
+outputs = { nixpkgs, flake-release, ... }: {
+    devShells.x86_64-linux.default = nixpkgs.legacyPackages.x86_64-linux.mkShell {
         packages = [ flake-release.packages.x86_64-linux.default ];
     };
 }
