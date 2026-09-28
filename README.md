@@ -41,7 +41,7 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 | PACKAGE_REGISTRY_OWNER       | Package owner or namespace                                                           | owner from `GITHUB_REPOSITORY`                 | `spotdemo4`                    |
 | PACKAGE_REGISTRY_URL         | Registry URL override                                                                | [host-specific](#package-publishing)           | `https://npm.pkg.github.com`   |
 | PACKAGE_REGISTRY_USERNAME    | Registry username                                                                    | `GITHUB_ACTOR`                                 | `github-actions[bot]`          |
-| PACKAGE_REGISTRY_TOKEN       | Dedicated package registry write token; enables package publishing                   |                                                |                                |
+| PACKAGE_REGISTRY_TOKEN       | Package registry write token; enables package publishing                             |                                                |                                |
 | DRY_RUN                      | Validate and prepare releases without publishing or cleanup                          | `false`                                        | `true`                         |
 | DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                        | `2`                            |
 | BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages                                   | `false`                                        | `true`                         |
@@ -84,7 +84,7 @@ Package publishing is enabled by setting `PACKAGE_REGISTRY_TOKEN`. Every package
 
 Forgejo and Gitea use `GITHUB_SERVER_URL` by default. GitHub npm uses `https://npm.pkg.github.com` and GitHub Maven/Gradle use `https://maven.pkg.github.com/{owner}/{repo}` by default. `PACKAGE_REGISTRY_URL` overrides these defaults. GitHub npm packages must have a lowercase scoped name in the form `@owner/name`, and the scope must match `PACKAGE_REGISTRY_OWNER`.
 
-Use a dedicated `PACKAGE_REGISTRY_TOKEN` with package write access rather than reusing `GITHUB_TOKEN`. `PACKAGE_REGISTRY_USERNAME` defaults to `GITHUB_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `CONTAINER_REGISTRY_USERNAME` and `CONTAINER_REGISTRY_PASSWORD`.
+`PACKAGE_REGISTRY_TOKEN` never falls back to `GITHUB_TOKEN`, so publishing stays opt-in. On GitHub, the workflow's `GITHUB_TOKEN` can be passed as `PACKAGE_REGISTRY_TOKEN` when the job has `packages: write` and publishes to packages owned by or linked to the workflow's repository; publishing to another owner or repository requires a personal access token (classic) with `write:packages`. Forgejo and Gitea Actions tokens can't write packages, so they need a dedicated token with package write access. `PACKAGE_REGISTRY_USERNAME` defaults to `GITHUB_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `CONTAINER_REGISTRY_USERNAME` and `CONTAINER_REGISTRY_PASSWORD`.
 
 #### Source discovery
 
