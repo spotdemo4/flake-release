@@ -33,7 +33,7 @@ jobs:
           CONTAINER_REGISTRY: trev.zip
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.PACKAGE_TOKEN }}
           PACKAGE_REGISTRY_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
-          DELETE_OLD_RELEASE_ARTIFACTS: true
+          DELETE_OLD_RELEASE_ARTIFACTS: 2
           PACKAGES: |
             packages.x86_64-linux.default
             appimages.x86_64-linux.default.x86_64-unknown-linux-gnu
