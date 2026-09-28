@@ -42,6 +42,15 @@ func validatePyPIArtifacts(artifacts []string, expectedName string, expectedVers
 	return nil
 }
 
+func isPyPIDistribution(path string) bool {
+	for _, suffix := range []string{".whl", ".zip", ".tar.gz", ".tgz"} {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 func readPyPIArtifactMetadata(path string) (string, string, error) {
 	switch {
 	case strings.HasSuffix(path, ".whl"), strings.HasSuffix(path, ".zip"):

@@ -177,8 +177,21 @@ func (set *packagePublicationSet) npmConfig() (string, error) {
 	return path, nil
 }
 
-func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublication) error {
+// pyPITool reports the tool used to build and upload PyPI distributions: uv when it
+// is on PATH, otherwise python3 with the build and twine modules.
+func pyPITool(set *packagePublicationSet) (string, error) {
+	if set.commands.require("uv") == nil {
+		return "uv", nil
+	}
 	if err := set.commands.require("python3"); err != nil {
+		return "", fmt.Errorf("pypi publishing requires uv, or python3 with the build and twine modules: %w", err)
+	}
+	return "python3", nil
+}
+
+func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublication) error {
+	tool, err := pyPITool(set)
+	if err != nil {
 		return err
 	}
 
@@ -186,16 +199,23 @@ func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublic
 	if err != nil {
 		return err
 	}
-	if err := set.commands.run(commandOptions{
-		name: "python3",
-		args: []string{"-m", "build", "--outdir", artifactDir, publication.dir},
-		dir:  publication.dir,
-	}); err != nil {
+	buildArgs := []string{"-m", "build", "--outdir", artifactDir, publication.dir}
+	if tool == "uv" {
+		buildArgs = []string{"build", "--out-dir", artifactDir, publication.dir}
+	}
+	if err := set.commands.run(commandOptions{name: tool, args: buildArgs, dir: publication.dir}); err != nil {
 		return err
 	}
-	artifacts, err := findFiles(artifactDir)
+	files, err := findFiles(artifactDir)
 	if err != nil {
 		return err
+	}
+	// uv also writes a .gitignore into the output directory.
+	var artifacts []string
+	for _, file := range files {
+		if isPyPIDistribution(file) {
+			artifacts = append(artifacts, file)
+		}
 	}
 	if len(artifacts) == 0 {
 		return fmt.Errorf("python build produced no package artifacts")
@@ -210,24 +230,40 @@ func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublic
 	publication.name = name
 	publication.version = version
 	publication.artifacts = artifacts
-	args := append([]string{"-m", "twine", "check"}, artifacts...)
-	return set.commands.run(commandOptions{name: "python3", args: args, dir: publication.dir})
+	checkArgs := []string{"-m", "twine", "check"}
+	if tool == "uv" {
+		// A dry run validates the distributions without contacting the registry.
+		checkArgs = []string{"publish", "--dry-run", "--trusted-publishing", "never", "--publish-url", strings.TrimRight(set.registryURL(packagePyPI), "/")}
+	}
+	return set.commands.run(commandOptions{name: tool, args: append(checkArgs, artifacts...), dir: publication.dir})
 }
 
 func publishPyPIPackage(set *packagePublicationSet, publication *packagePublication) error {
 	if len(publication.artifacts) == 0 {
 		return fmt.Errorf("pypi package artifacts were not prepared")
 	}
-	args := []string{"-m", "twine", "upload", "--non-interactive", "--repository-url", strings.TrimRight(set.registryURL(packagePyPI), "/")}
-	args = append(args, publication.artifacts...)
+	tool, err := pyPITool(set)
+	if err != nil {
+		return err
+	}
+	registry := strings.TrimRight(set.registryURL(packagePyPI), "/")
+	args := []string{"-m", "twine", "upload", "--non-interactive", "--repository-url", registry}
+	env := []string{
+		"TWINE_USERNAME=" + set.cfg.packageRegistryUsername,
+		"TWINE_PASSWORD=" + set.cfg.packageRegistryToken,
+	}
+	if tool == "uv" {
+		args = []string{"publish", "--trusted-publishing", "never", "--publish-url", registry}
+		env = []string{
+			"UV_PUBLISH_USERNAME=" + set.cfg.packageRegistryUsername,
+			"UV_PUBLISH_PASSWORD=" + set.cfg.packageRegistryToken,
+		}
+	}
 	return set.commands.run(commandOptions{
-		name: "python3",
-		args: args,
-		dir:  publication.dir,
-		env: []string{
-			"TWINE_USERNAME=" + set.cfg.packageRegistryUsername,
-			"TWINE_PASSWORD=" + set.cfg.packageRegistryToken,
-		},
+		name:    tool,
+		args:    append(args, publication.artifacts...),
+		dir:     publication.dir,
+		env:     env,
 		secrets: []string{set.cfg.packageRegistryToken},
 	})
 }
