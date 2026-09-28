@@ -113,9 +113,16 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 		return fmt.Errorf("npm package: %w", err)
 	}
 	if set.provider == releaseGitHub {
-		expectedScope := "@" + strings.ToLower(set.cfg.packageRegistryOwner) + "/"
-		if manifest.Name != strings.ToLower(manifest.Name) || !strings.HasPrefix(manifest.Name, expectedScope) || len(manifest.Name) == len(expectedScope) {
-			return fmt.Errorf("GitHub npm package %q must be lowercase and use the %s scope", manifest.Name, strings.TrimSuffix(expectedScope, "/"))
+		scoped, err := gitHubNPMPackageName(manifest.Name, set.cfg.packageRegistryOwner)
+		if err != nil {
+			return err
+		}
+		if scoped != manifest.Name {
+			status("scoping package %s as %s for GitHub Packages", manifest.Name, scoped)
+			if err := set.commands.run(commandOptions{name: "npm", args: []string{"pkg", "set", "name=" + scoped}, dir: publication.dir}); err != nil {
+				return err
+			}
+			manifest.Name = scoped
 		}
 	}
 	publication.name = manifest.Name
@@ -132,6 +139,19 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 		return err
 	}
 	return set.commands.run(npmCommand(set, publication, npmrc, true))
+}
+
+// gitHubNPMPackageName returns name under the @owner scope that GitHub Packages
+// requires, adding the scope to an unscoped name or replacing a different scope.
+func gitHubNPMPackageName(name string, owner string) (string, error) {
+	bare := name
+	if strings.HasPrefix(bare, "@") {
+		_, bare, _ = strings.Cut(bare, "/")
+	}
+	if bare == "" || bare != strings.ToLower(bare) {
+		return "", fmt.Errorf("GitHub npm package %q must have a lowercase name", name)
+	}
+	return "@" + strings.ToLower(owner) + "/" + bare, nil
 }
 
 func publishNPMPackage(set *packagePublicationSet, publication *packagePublication) error {
