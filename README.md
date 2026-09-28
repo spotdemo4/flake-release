@@ -30,9 +30,9 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 | GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | `github-actions[bot]`            |
 | GITHUB_TOKEN                 | Token used to push releases                                                          |                                  |
 | TAG                          | Exact short release tag; defaults to the CI tag event or local Git tag discovery     | `packages/api/v1.2.3`            |
-| REGISTRY                     | Container registry                                                                   | `ghcr.io`                        |
-| REGISTRY_USERNAME            | Username for container registry                                                      | `github-actions[bot]`            |
-| REGISTRY_PASSWORD            | Password for container registry                                                      |                                  |
+| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io`                        |
+| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `github-actions[bot]`            |
+| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      |                                  |
 | PUBLISH_PACKAGES             | Package kinds to publish, separated by commas or whitespace                          | `go cargo gradle maven npm pypi` |
 | PACKAGE_REGISTRY_OWNER       | Package owner or namespace, defaulting to the owner from `GITHUB_REPOSITORY`         | `spotdemo4`                      |
 | PACKAGE_REGISTRY_URL         | Registry URL override                                                                | `https://npm.pkg.github.com`     |
@@ -41,6 +41,8 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 | DRY_RUN                      | Validate and prepare releases without registry writes or cleanup                     | `true`                           |
 | DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `2`                              |
 | BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages; disabled by default              | `true`                           |
+
+`REGISTRY`, `REGISTRY_USERNAME`, and `REGISTRY_PASSWORD` are deprecated aliases for the `CONTAINER_REGISTRY` variables and will be removed in a future release. They are still honored when the corresponding `CONTAINER_REGISTRY` variable is unset.
 
 By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
 
@@ -80,7 +82,7 @@ Package publishing is disabled unless `PUBLISH_PACKAGES` explicitly lists one or
 
 Forgejo and Gitea use `GITHUB_SERVER_URL` by default. GitHub npm uses `https://npm.pkg.github.com` and GitHub Maven/Gradle use `https://maven.pkg.github.com/{owner}/{repo}` by default. `PACKAGE_REGISTRY_URL` overrides these defaults. GitHub npm packages must have a lowercase scoped name in the form `@owner/name`, and the scope must match `PACKAGE_REGISTRY_OWNER`.
 
-Use a dedicated `PACKAGE_REGISTRY_TOKEN` with package write access rather than reusing `GITHUB_TOKEN`. `PACKAGE_REGISTRY_USERNAME` defaults to `GITHUB_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`.
+Use a dedicated `PACKAGE_REGISTRY_TOKEN` with package write access rather than reusing `GITHUB_TOKEN`. `PACKAGE_REGISTRY_USERNAME` defaults to `GITHUB_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `CONTAINER_REGISTRY_USERNAME` and `CONTAINER_REGISTRY_PASSWORD`.
 
 #### Source discovery
 
@@ -127,9 +129,9 @@ Package versions are strict: Go publishes the exact release tag, including a lea
     github_server_url: # default: ${{ github.server_url }}
     github_actor: # default: ${{ github.actor }}
     github_token: # default: ${{ github.token }}
-    registry: # default: ghcr.io
-    registry_username: # default: ${{ github.actor }}
-    registry_password: # default: ${{ github.token }}
+    container_registry: # default: ghcr.io
+    container_registry_username: # default: ${{ github.actor }}
+    container_registry_password: # default: ${{ github.token }}
     publish_packages: # go, cargo, gradle, maven, npm, and/or pypi
     package_registry_owner: # default: repository owner
     package_registry_url: # default: host-specific registry
@@ -172,9 +174,9 @@ docker run -it \
   -v "$HOME/.ssh:/root/.ssh" \
   -e GITHUB_TOKEN=... \
   -e GITHUB_REPOSITORY=... \
-  -e REGISTRY=... \
-  -e REGISTRY_USERNAME=... \
-  -e REGISTRY_PASSWORD=... \
+  -e CONTAINER_REGISTRY=... \
+  -e CONTAINER_REGISTRY_USERNAME=... \
+  -e CONTAINER_REGISTRY_PASSWORD=... \
   -e PUBLISH_PACKAGES=... \
   -e PACKAGE_REGISTRY_TOKEN=... \
   -e BUNDLE_APPIMAGE=true \

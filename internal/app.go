@@ -16,9 +16,9 @@ type config struct {
 	githubServerURL           string
 	githubActor               string
 	githubToken               string
-	registry                  string
-	registryUsername          string
-	registryPassword          string
+	containerRegistry         string
+	containerRegistryUsername string
+	containerRegistryPassword string
 	publishPackages           string
 	packageRegistryOwner      string
 	packageRegistryURL        string
@@ -91,15 +91,30 @@ func configFromEnv() config {
 		githubServerURL:           os.Getenv("GITHUB_SERVER_URL"),
 		githubActor:               os.Getenv("GITHUB_ACTOR"),
 		githubToken:               os.Getenv("GITHUB_TOKEN"),
-		registry:                  os.Getenv("REGISTRY"),
-		registryUsername:          os.Getenv("REGISTRY_USERNAME"),
-		registryPassword:          os.Getenv("REGISTRY_PASSWORD"),
+		containerRegistry:         deprecatedEnv("CONTAINER_REGISTRY", "REGISTRY"),
+		containerRegistryUsername: deprecatedEnv("CONTAINER_REGISTRY_USERNAME", "REGISTRY_USERNAME"),
+		containerRegistryPassword: deprecatedEnv("CONTAINER_REGISTRY_PASSWORD", "REGISTRY_PASSWORD"),
 		publishPackages:           os.Getenv("PUBLISH_PACKAGES"),
 		packageRegistryOwner:      os.Getenv("PACKAGE_REGISTRY_OWNER"),
 		packageRegistryURL:        os.Getenv("PACKAGE_REGISTRY_URL"),
 		packageRegistryToken:      os.Getenv("PACKAGE_REGISTRY_TOKEN"),
 		packageRegistryUsername:   os.Getenv("PACKAGE_REGISTRY_USERNAME"),
 	}
+}
+
+// deprecatedEnv reads name, falling back to the deprecated variable when name is unset.
+func deprecatedEnv(name string, deprecated string) string {
+	value := os.Getenv(name)
+	old := os.Getenv(deprecated)
+	if old == "" {
+		return value
+	}
+	if value != "" && value != old {
+		warn("%s is deprecated and ignored because %s is set", deprecated, name)
+		return value
+	}
+	warn("%s is deprecated; use %s instead", deprecated, name)
+	return old
 }
 
 func parseRunArgs(cfg *config, args []string) ([]string, bool) {
@@ -183,25 +198,25 @@ func Run(args []string) error {
 	}
 	info("git user: %s", cfg.githubActor)
 
-	if cfg.registryUsername == "" {
-		cfg.registryUsername, err = gitUser()
+	if cfg.containerRegistryUsername == "" {
+		cfg.containerRegistryUsername, err = gitUser()
 		if err != nil {
 			return err
 		}
-		_ = os.Setenv("REGISTRY_USERNAME", cfg.registryUsername)
+		_ = os.Setenv("CONTAINER_REGISTRY_USERNAME", cfg.containerRegistryUsername)
 	}
-	info("registry user: %s", cfg.registryUsername)
+	info("container registry user: %s", cfg.containerRegistryUsername)
 
-	if cfg.registryPassword == "" && cfg.githubToken != "" {
-		cfg.registryPassword = cfg.githubToken
-		_ = os.Setenv("REGISTRY_PASSWORD", cfg.registryPassword)
+	if cfg.containerRegistryPassword == "" && cfg.githubToken != "" {
+		cfg.containerRegistryPassword = cfg.githubToken
+		_ = os.Setenv("CONTAINER_REGISTRY_PASSWORD", cfg.containerRegistryPassword)
 	}
 
-	if cfg.registry == "" && provider == releaseGitHub {
-		cfg.registry = "ghcr.io"
-		_ = os.Setenv("REGISTRY", cfg.registry)
+	if cfg.containerRegistry == "" && provider == releaseGitHub {
+		cfg.containerRegistry = "ghcr.io"
+		_ = os.Setenv("CONTAINER_REGISTRY", cfg.containerRegistry)
 	}
-	info("registry: %s", firstNonEmpty(cfg.registry, "<none>"))
+	info("container registry: %s", firstNonEmpty(cfg.containerRegistry, "<none>"))
 
 	applyPackageRegistryDefaults(&cfg, provider)
 	if cfg.publishPackages != "" {

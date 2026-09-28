@@ -124,8 +124,8 @@ registries = ["example.com"]
 	t.Cleanup(sysregistriesv2.InvalidateCache)
 
 	sys, err := imageSystemContext(config{
-		registryUsername: "user",
-		registryPassword: "pass",
+		containerRegistryUsername: "user",
+		containerRegistryPassword: "pass",
 	})
 	if err != nil {
 		t.Fatal(err)

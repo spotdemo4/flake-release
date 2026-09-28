@@ -51,20 +51,35 @@ inputs:
     description: dedicated package registry write token
     required: false
 
-  registry:
+  container_registry:
     description: container registry url
     required: false
     default: ghcr.io
 
-  registry_username:
+  container_registry_username:
     description: container registry username
     required: false
     default: ${{ github.actor }}
 
-  registry_password:
+  container_registry_password:
     description: container registry password
     required: false
     default: ${{ github.token }}
+
+  registry:
+    description: deprecated; use container_registry
+    required: false
+    deprecationMessage: registry is deprecated; use container_registry instead
+
+  registry_username:
+    description: deprecated; use container_registry_username
+    required: false
+    deprecationMessage: registry_username is deprecated; use container_registry_username instead
+
+  registry_password:
+    description: deprecated; use container_registry_password
+    required: false
+    deprecationMessage: registry_password is deprecated; use container_registry_password instead
 
   delete_old_release_artifacts:
     description: "cleanup release assets and image tags after publishing: false disables, true keeps current, a positive number keeps that many releases including current"
@@ -86,6 +101,9 @@ runs:
     GITHUB_SERVER_URL: ${{ inputs.github_server_url }}
     GITHUB_ACTOR: ${{ inputs.github_actor }}
     GITHUB_TOKEN: ${{ inputs.github_token }}
+    CONTAINER_REGISTRY: ${{ inputs.registry || inputs.container_registry }}
+    CONTAINER_REGISTRY_USERNAME: ${{ inputs.registry_username || inputs.container_registry_username }}
+    CONTAINER_REGISTRY_PASSWORD: ${{ inputs.registry_password || inputs.container_registry_password }}
     REGISTRY: ${{ inputs.registry }}
     REGISTRY_USERNAME: ${{ inputs.registry_username }}
     REGISTRY_PASSWORD: ${{ inputs.registry_password }}

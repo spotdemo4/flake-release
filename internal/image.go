@@ -33,24 +33,24 @@ var (
 )
 
 func imageUpload(cfg config, repository string, path string, tag string, arch string) error {
-	if cfg.registry == "" {
-		return fmt.Errorf("cannot upload image: REGISTRY is not set")
+	if cfg.containerRegistry == "" {
+		return fmt.Errorf("cannot upload image: CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
 		return fmt.Errorf("cannot upload image: GITHUB_REPOSITORY is not set")
 	}
-	if cfg.registryUsername == "" {
-		return fmt.Errorf("cannot upload image: REGISTRY_USERNAME is not set")
+	if cfg.containerRegistryUsername == "" {
+		return fmt.Errorf("cannot upload image: CONTAINER_REGISTRY_USERNAME is not set")
 	}
-	if cfg.registryPassword == "" {
-		return fmt.Errorf("cannot upload image: REGISTRY_PASSWORD is not set")
+	if cfg.containerRegistryPassword == "" {
+		return fmt.Errorf("cannot upload image: CONTAINER_REGISTRY_PASSWORD is not set")
 	}
 
 	srcRef, err := dockerarchive.ParseReference(path)
 	if err != nil {
 		return err
 	}
-	destRef, err := dockerImageReference(cfg.registry, repository, tag+"-"+arch)
+	destRef, err := dockerImageReference(cfg.containerRegistry, repository, tag+"-"+arch)
 	if err != nil {
 		return err
 	}
@@ -137,20 +137,20 @@ func imageGzip(path string) (string, error) {
 }
 
 func imageExists(cfg config, repository string, tag string, arch string) bool {
-	if cfg.registry == "" {
-		itemWarn("REGISTRY is not set; cannot inspect container registry")
+	if cfg.containerRegistry == "" {
+		itemWarn("CONTAINER_REGISTRY is not set; cannot inspect container registry")
 		return false
 	}
 	if repository == "" {
 		itemWarn("GITHUB_REPOSITORY is not set; cannot inspect container registry")
 		return false
 	}
-	if cfg.registryUsername == "" {
-		itemWarn("REGISTRY_USERNAME is not set; cannot inspect container registry")
+	if cfg.containerRegistryUsername == "" {
+		itemWarn("CONTAINER_REGISTRY_USERNAME is not set; cannot inspect container registry")
 		return false
 	}
-	if cfg.registryPassword == "" {
-		itemWarn("REGISTRY_PASSWORD is not set; cannot inspect container registry")
+	if cfg.containerRegistryPassword == "" {
+		itemWarn("CONTAINER_REGISTRY_PASSWORD is not set; cannot inspect container registry")
 		return false
 	}
 
@@ -182,17 +182,17 @@ func imageCleanupCandidates(tags []string, currentTag string, retainedTags []rel
 }
 
 func imageCleanupOld(cfg config, repository string, currentTag string, retainedTags []releaseTag) error {
-	if cfg.registry == "" {
-		return fmt.Errorf("cannot delete old container images: REGISTRY is not set")
+	if cfg.containerRegistry == "" {
+		return fmt.Errorf("cannot delete old container images: CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
 		return fmt.Errorf("cannot delete old container images: GITHUB_REPOSITORY is not set")
 	}
-	if cfg.registryUsername == "" {
-		return fmt.Errorf("cannot delete old container images: REGISTRY_USERNAME is not set")
+	if cfg.containerRegistryUsername == "" {
+		return fmt.Errorf("cannot delete old container images: CONTAINER_REGISTRY_USERNAME is not set")
 	}
-	if cfg.registryPassword == "" {
-		return fmt.Errorf("cannot delete old container images: REGISTRY_PASSWORD is not set")
+	if cfg.containerRegistryPassword == "" {
+		return fmt.Errorf("cannot delete old container images: CONTAINER_REGISTRY_PASSWORD is not set")
 	}
 
 	tags, err := listImageTags(cfg, repository)
@@ -211,11 +211,11 @@ func imageCleanupOld(cfg config, repository string, currentTag string, retainedT
 		return err
 	}
 
-	status("deleting old tags at %s/%s", strings.ToLower(cfg.registry), strings.ToLower(repository))
+	status("deleting old tags at %s/%s", strings.ToLower(cfg.containerRegistry), strings.ToLower(repository))
 	var cleanupErr error
 	for _, remoteTag := range cleanupTags {
 		status("deleting tag %s", remoteTag)
-		ref, err := dockerImageReference(cfg.registry, repository, remoteTag)
+		ref, err := dockerImageReference(cfg.containerRegistry, repository, remoteTag)
 		if err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parsing image tag %s: %w", remoteTag, err))
 			continue
@@ -229,17 +229,17 @@ func imageCleanupOld(cfg config, repository string, currentTag string, retainedT
 }
 
 func manifestUpdate(cfg config, repository string, tag string) error {
-	if cfg.registry == "" {
-		return fmt.Errorf("cannot update image manifest: REGISTRY is not set")
+	if cfg.containerRegistry == "" {
+		return fmt.Errorf("cannot update image manifest: CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
 		return fmt.Errorf("cannot update image manifest: GITHUB_REPOSITORY is not set")
 	}
-	if cfg.registryUsername == "" {
-		return fmt.Errorf("cannot update image manifest: REGISTRY_USERNAME is not set")
+	if cfg.containerRegistryUsername == "" {
+		return fmt.Errorf("cannot update image manifest: CONTAINER_REGISTRY_USERNAME is not set")
 	}
-	if cfg.registryPassword == "" {
-		return fmt.Errorf("cannot update image manifest: REGISTRY_PASSWORD is not set")
+	if cfg.containerRegistryPassword == "" {
+		return fmt.Errorf("cannot update image manifest: CONTAINER_REGISTRY_PASSWORD is not set")
 	}
 
 	remoteTags, err := listImageTags(cfg, repository)
@@ -269,7 +269,7 @@ func manifestUpdate(cfg config, repository string, tag string) error {
 
 		if inspect.OS != "" && inspect.Architecture != "" {
 			manifests = append(manifests, manifesttypes.ManifestEntry{
-				Image: dockerImageName(cfg.registry, repository, remoteTag),
+				Image: dockerImageName(cfg.containerRegistry, repository, remoteTag),
 				Platform: ocispec.Platform{
 					OS:           inspect.OS,
 					Architecture: inspect.Architecture,
@@ -289,8 +289,8 @@ func manifestUpdate(cfg config, repository string, tag string) error {
 	logrus.SetLevel(logrus.WarnLevel)
 	defer logrus.SetLevel(previousLevel)
 
-	digest, length, err := manifestregistry.PushManifestList(cfg.registryUsername, cfg.registryPassword, manifesttypes.YAMLInput{
-		Image:       dockerImageName(cfg.registry, repository, tag),
+	digest, length, err := manifestregistry.PushManifestList(cfg.containerRegistryUsername, cfg.containerRegistryPassword, manifesttypes.YAMLInput{
+		Image:       dockerImageName(cfg.containerRegistry, repository, tag),
 		Tags:        []string{"latest"},
 		Manifests:   manifests,
 		Annotations: annotations,
@@ -311,7 +311,7 @@ type imageInspect struct {
 }
 
 func listImageTags(cfg config, repository string) ([]string, error) {
-	ref, err := dockerImageReference(cfg.registry, repository, "latest")
+	ref, err := dockerImageReference(cfg.containerRegistry, repository, "latest")
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func listImageTags(cfg config, repository string) ([]string, error) {
 }
 
 func inspectImage(cfg config, repository string, tag string) (imageInspect, error) {
-	ref, err := dockerImageReference(cfg.registry, repository, tag)
+	ref, err := dockerImageReference(cfg.containerRegistry, repository, tag)
 	if err != nil {
 		return imageInspect{}, err
 	}
@@ -378,10 +378,10 @@ func imageSystemContext(cfg config) (*types.SystemContext, error) {
 		SystemRegistriesConfPath:    os.DevNull,
 		SystemRegistriesConfDirPath: registriesConfDir,
 	}
-	if cfg.registryUsername != "" || cfg.registryPassword != "" {
+	if cfg.containerRegistryUsername != "" || cfg.containerRegistryPassword != "" {
 		sys.DockerAuthConfig = &types.DockerAuthConfig{
-			Username: cfg.registryUsername,
-			Password: cfg.registryPassword,
+			Username: cfg.containerRegistryUsername,
+			Password: cfg.containerRegistryPassword,
 		}
 	}
 	return sys, nil
@@ -395,8 +395,8 @@ func imageSystemContextRegistriesConfDir() (string, error) {
 }
 
 func validateImageDestination(cfg config, repository string, tag string) error {
-	if cfg.registry == "" {
-		return fmt.Errorf("REGISTRY is not set")
+	if cfg.containerRegistry == "" {
+		return fmt.Errorf("CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
 		return fmt.Errorf("GITHUB_REPOSITORY is not set")
@@ -404,8 +404,8 @@ func validateImageDestination(cfg config, repository string, tag string) error {
 	if tag == "" {
 		return fmt.Errorf("container image tag is empty")
 	}
-	if _, err := dockerImageReference(cfg.registry, repository, tag); err != nil {
-		return fmt.Errorf("invalid container image reference %q: %w", dockerImageName(cfg.registry, repository, tag), err)
+	if _, err := dockerImageReference(cfg.containerRegistry, repository, tag); err != nil {
+		return fmt.Errorf("invalid container image reference %q: %w", dockerImageName(cfg.containerRegistry, repository, tag), err)
 	}
 	return nil
 }

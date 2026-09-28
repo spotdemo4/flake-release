@@ -98,6 +98,33 @@ func TestConfigFromEnvBundleAppImage(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvContainerRegistry(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		current    string
+		deprecated string
+		want       string
+	}{
+		{name: "empty"},
+		{name: "current", current: "registry.example.com", want: "registry.example.com"},
+		{name: "deprecated fallback", deprecated: "ghcr.io", want: "ghcr.io"},
+		{name: "current wins", current: "registry.example.com", deprecated: "ghcr.io", want: "registry.example.com"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("CONTAINER_REGISTRY", test.current)
+			t.Setenv("CONTAINER_REGISTRY_USERNAME", test.current)
+			t.Setenv("CONTAINER_REGISTRY_PASSWORD", test.current)
+			t.Setenv("REGISTRY", test.deprecated)
+			t.Setenv("REGISTRY_USERNAME", test.deprecated)
+			t.Setenv("REGISTRY_PASSWORD", test.deprecated)
+			cfg := configFromEnv()
+			if cfg.containerRegistry != test.want || cfg.containerRegistryUsername != test.want || cfg.containerRegistryPassword != test.want {
+				t.Fatalf("container registry config = %q, %q, %q; want %q", cfg.containerRegistry, cfg.containerRegistryUsername, cfg.containerRegistryPassword, test.want)
+			}
+		})
+	}
+}
+
 func TestParseRunArgsBundleAppImage(t *testing.T) {
 	cfg := config{}
 	packages, help := parseRunArgs(&cfg, []string{"packages.one", "--bundle-appimage", "packages.two"})
@@ -438,13 +465,13 @@ func TestValidateImagePackageDestination(t *testing.T) {
 		pkg        releasePackagePlan
 		wantErr    bool
 	}{
-		{name: "unscoped", cfg: config{registry: "ghcr.io"}, repository: "Owner/Repo", pkg: image},
-		{name: "scoped", cfg: config{registry: "ghcr.io"}, repository: "Owner/Repo/packages/api", pkg: image},
-		{name: "mixed case scope", cfg: config{registry: "ghcr.io"}, repository: "Owner/Repo/Packages/API", pkg: image},
-		{name: "invalid scope", cfg: config{registry: "ghcr.io"}, repository: "owner/repo/packages/@api", pkg: image, wantErr: true},
+		{name: "unscoped", cfg: config{containerRegistry: "ghcr.io"}, repository: "Owner/Repo", pkg: image},
+		{name: "scoped", cfg: config{containerRegistry: "ghcr.io"}, repository: "Owner/Repo/packages/api", pkg: image},
+		{name: "mixed case scope", cfg: config{containerRegistry: "ghcr.io"}, repository: "Owner/Repo/Packages/API", pkg: image},
+		{name: "invalid scope", cfg: config{containerRegistry: "ghcr.io"}, repository: "owner/repo/packages/@api", pkg: image, wantErr: true},
 		{name: "missing registry", cfg: config{}, repository: "owner/repo/packages/api", pkg: image, wantErr: true},
-		{name: "missing repository", cfg: config{registry: "ghcr.io"}, repository: "", pkg: image, wantErr: true},
-		{name: "dry run still validates", cfg: config{registry: "ghcr.io", dryRun: true}, repository: "owner/repo/packages/@api", pkg: image, wantErr: true},
+		{name: "missing repository", cfg: config{containerRegistry: "ghcr.io"}, repository: "", pkg: image, wantErr: true},
+		{name: "dry run still validates", cfg: config{containerRegistry: "ghcr.io", dryRun: true}, repository: "owner/repo/packages/@api", pkg: image, wantErr: true},
 		{name: "mismatched image tag", cfg: config{}, repository: "", pkg: mismatchedImage},
 		{name: "archive only", cfg: config{}, repository: "", pkg: releasePackagePlan{pkg: "packages.archive"}},
 	} {
@@ -456,7 +483,7 @@ func TestValidateImagePackageDestination(t *testing.T) {
 		})
 	}
 
-	if err := validateImageDestination(config{registry: "ghcr.io"}, "owner/repo/packages/api", "1.2.3/bad"); err == nil {
+	if err := validateImageDestination(config{containerRegistry: "ghcr.io"}, "owner/repo/packages/api", "1.2.3/bad"); err == nil {
 		t.Fatal("invalid container image tag was accepted")
 	}
 }

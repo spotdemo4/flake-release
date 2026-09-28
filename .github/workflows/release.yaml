@@ -29,9 +29,9 @@ jobs:
         run: flake-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REGISTRY: ghcr.io
-          REGISTRY_USERNAME: ${{ github.actor }}
-          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          CONTAINER_REGISTRY: ghcr.io
+          CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
+          CONTAINER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           PACKAGES: |
             appimages.x86_64-linux.default.x86_64-unknown-linux-gnu
             appimages.x86_64-linux.default.aarch64-unknown-linux-gnu
