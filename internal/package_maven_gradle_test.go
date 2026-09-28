@@ -107,6 +107,41 @@ func TestGradleParseSimple(t *testing.T) {
 	}
 }
 
+func TestGradleParseSkipsPluginVersions(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "build.gradle.kts"), `plugins {
+    kotlin("jvm") version "2.4.20"
+    id("org.example.plugin") version "9.9.9"
+    `+"`maven-publish`"+`
+}
+
+// version = "0.0.1"
+group = "com.example"
+version = "0.4.0"
+`)
+	writeTestFile(t, filepath.Join(dir, "settings.gradle.kts"), `rootProject.name = "my-lib"`)
+	group, name, version, err := parseGradleCoordinates(dir, filepath.Join(dir, "build.gradle.kts"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group != "com.example" || name != "my-lib" || version != "0.4.0" {
+		t.Fatalf("got %s %s %s", group, name, version)
+	}
+}
+
+func TestGradleParseGroovyVersionWithoutAssignment(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "build.gradle"), "plugins {\n    id 'org.example.plugin' version '9.9.9'\n}\ngroup 'com.example'\nversion '1.2.3'\n")
+	writeTestFile(t, filepath.Join(dir, "settings.gradle"), "rootProject.name = 'my-lib'\n")
+	group, _, version, err := parseGradleCoordinates(dir, filepath.Join(dir, "build.gradle"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group != "com.example" || version != "1.2.3" {
+		t.Fatalf("got %s %s", group, version)
+	}
+}
+
 func TestGradleParseFromProperties(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "build.gradle"), "// no version here\n")

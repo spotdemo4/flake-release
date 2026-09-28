@@ -140,16 +140,14 @@ func parseGradleCoordinates(dir string, manifest string, source string) (string,
 	}
 	// group
 	group := findGradleString(buildContent, []string{
-		`(?:project\.)?group\s*(?:=\s*)?["']([^"']+)["']`,
-		`group\s+["']([^"']+)["']`,
+		`(?m)^\s*(?:project\.)?group\s*(?:=\s*)?["']([^"']+)["']`,
 	})
 	if group == "" {
 		group = strings.TrimSpace(props["group"])
 	}
-	// version
+	// version; anchored so plugin declarations like `kotlin("jvm") version "x"` are skipped
 	version := findGradleString(buildContent, []string{
-		`(?:project\.)?version\s*(?:=\s*)?["']([^"']+)["']`,
-		`version\s+["']([^"']+)["']`,
+		`(?m)^\s*(?:project\.)?version\s*(?:=\s*)?["']([^"']+)["']`,
 	})
 	if version == "" {
 		version = strings.TrimSpace(props["version"])
@@ -159,14 +157,14 @@ func parseGradleCoordinates(dir string, manifest string, source string) (string,
 	// try settings first
 	if settingsContent != "" {
 		name = findGradleString(settingsContent, []string{
-			`rootProject\.name\s*(?:=\s*)?["']([^"']+)["']`,
+			`(?m)^\s*rootProject\.name\s*(?:=\s*)?["']([^"']+)["']`,
 		})
 	}
 	if name == "" {
 		name = findGradleString(buildContent, []string{
-			`archivesBaseName\s*(?:=\s*)?["']([^"']+)["']`,
-			`artifactId\s*(?:=\s*)?["']([^"']+)["']`,
-			`archivesName\s*(?:=\s*)?["']([^"']+)["']`,
+			`(?m)^\s*archivesBaseName\s*(?:=\s*)?["']([^"']+)["']`,
+			`(?m)^\s*artifactId\s*(?:=\s*)?["']([^"']+)["']`,
+			`(?m)^\s*archivesName\s*(?:=\s*)?["']([^"']+)["']`,
 		})
 	}
 	if name == "" {
