@@ -178,15 +178,18 @@ func (set *packagePublicationSet) npmConfig() (string, error) {
 }
 
 // pyPITool reports the tool used to build and upload PyPI distributions: uv when it
-// is on PATH, otherwise python3 with the build and twine modules.
+// is on PATH, then python3 when it has the build and twine modules, then uv from nixpkgs.
 func pyPITool(set *packagePublicationSet) (string, error) {
-	if set.commands.require("uv") == nil {
+	if set.commands.available("uv") {
 		return "uv", nil
 	}
-	if err := set.commands.require("python3"); err != nil {
+	if set.commands.available("python3") && set.commands.run(commandOptions{name: "python3", args: []string{"-c", "import build, twine"}}) == nil {
+		return "python3", nil
+	}
+	if err := set.commands.require("uv"); err != nil {
 		return "", fmt.Errorf("pypi publishing requires uv, or python3 with the build and twine modules: %w", err)
 	}
-	return "python3", nil
+	return "uv", nil
 }
 
 func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublication) error {

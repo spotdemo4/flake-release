@@ -145,12 +145,13 @@ func nixPkgSrc(pkg string) (string, error) {
 }
 
 func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (string, error) {
-	out, err := capture("eval", "--json", ".#"+pkg+".src")
-	if err != nil || out == "" || out == "null" {
+	// Build rather than eval: with lazy trees, eval prints a store path without copying it to the store.
+	out, err := capture("build", "--no-link", "--print-out-paths", ".#"+pkg+".src")
+	if err != nil {
 		return "", nil
 	}
-	var path string
-	if err := json.Unmarshal([]byte(out), &path); err != nil || path == "" {
+	path, _, _ := strings.Cut(out, "\n")
+	if path == "" {
 		return "", nil
 	}
 	stat, err := os.Stat(path)

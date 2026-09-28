@@ -59,3 +59,48 @@ func TestCaptureCommandShowsIndentedDebugOutput(t *testing.T) {
 		t.Fatalf("debug output = %q; want indented child output", got)
 	}
 }
+
+func TestRequireCommandBuildsMissingCommandFromNixpkgs(t *testing.T) {
+	humanOutput := captureHumanOutput(t)
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	storePath := filepath.Join(root, "store", "go")
+	argsPath := filepath.Join(root, "args")
+	for _, dir := range []string{bin, filepath.Join(storePath, "bin")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nix := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsPath + "\nprintf '%s\\n' " + storePath + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte(nix), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(storePath, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	if err := requireCommand("go"); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "build\n--no-link\n--print-out-paths\n--inputs-from\n.\nnixpkgs#go\n"; string(args) != want {
+		t.Fatalf("nix args = %q; want %q", args, want)
+	}
+	if want := bin + string(filepath.ListSeparator) + filepath.Join(storePath, "bin"); os.Getenv("PATH") != want {
+		t.Fatalf("PATH = %q; want %q", os.Getenv("PATH"), want)
+	}
+	if !strings.Contains(humanOutput.String(), "go is not on PATH, using nixpkgs#go") {
+		t.Fatalf("output = %q; want nixpkgs notice", humanOutput.String())
+	}
+}
+
+func TestRequireCommandRejectsUnknownMissingCommand(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if err := requireCommand("flake-release-missing"); err == nil {
+		t.Fatal("missing command was found")
+	}
+}

@@ -15,9 +15,17 @@ import (
 )
 
 type fakePackageCommandRunner struct {
-	requireFunc func(string) error
+	availableFunc func(string) bool
+	requireFunc   func(string) error
 	runFunc     func(commandOptions) error
 	captureFunc func(commandOptions) (string, error)
+}
+
+func (runner fakePackageCommandRunner) available(name string) bool {
+	if runner.availableFunc == nil {
+		return runner.requireFunc(name) == nil
+	}
+	return runner.availableFunc(name)
 }
 
 func (runner fakePackageCommandRunner) require(name string) error {
@@ -338,7 +346,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 
 func TestNixPkgSrcSkipsUnavailableSources(t *testing.T) {
 	for name, capture := range map[string]func(...string) (string, error){
-		"null": func(...string) (string, error) { return "null", nil },
+		"empty": func(...string) (string, error) { return "", nil },
 		"unevaluable": func(...string) (string, error) {
 			return "", errors.New("attribute has no src")
 		},
@@ -356,11 +364,11 @@ func TestNixPkgSrcSkipsUnavailableSources(t *testing.T) {
 
 	root := t.TempDir()
 	source, err := nixPkgSrcWithCapture("packages.test", func(args ...string) (string, error) {
-		want := []string{"eval", "--json", ".#packages.test.src"}
+		want := []string{"build", "--no-link", "--print-out-paths", ".#packages.test.src"}
 		if !slices.Equal(args, want) {
 			t.Fatalf("nix args = %q; want %q", args, want)
 		}
-		return `"` + root + `"`, nil
+		return root, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -693,6 +701,9 @@ func TestPreflightPyPIPackageUsesBuiltArtifactMetadata(t *testing.T) {
 			return nil
 		},
 		runFunc: func(options commandOptions) error {
+			if slices.Equal(options.args, []string{"-c", "import build, twine"}) {
+				return nil
+			}
 			if slices.Equal(options.args[:min(2, len(options.args))], []string{"-m", "build"}) {
 				outdir := options.args[slices.Index(options.args, "--outdir")+1]
 				writeTestWheel(t, filepath.Join(outdir, "example-1.2.3-py3-none-any.whl"), "Example_Package", "1.2.3")
@@ -792,6 +803,30 @@ func TestPyPIPackageUsesUVWhenAvailable(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(commands[2].args, " "), "secret") {
 		t.Fatalf("upload args contain token: %q", commands[2].args)
+	}
+}
+
+func TestPyPIPackageFallsBackToRequiredUV(t *testing.T) {
+	var required []string
+	runner := fakePackageCommandRunner{
+		availableFunc: func(name string) bool { return name == "python3" },
+		requireFunc: func(name string) error {
+			required = append(required, name)
+			return nil
+		},
+		runFunc: func(options commandOptions) error {
+			if options.name != "python3" || !slices.Equal(options.args, []string{"-c", "import build, twine"}) {
+				t.Fatalf("unexpected command: %q %q", options.name, options.args)
+			}
+			return errors.New("No module named 'build'")
+		},
+	}
+	tool, err := pyPITool(&packagePublicationSet{commands: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool != "uv" || !slices.Equal(required, []string{"uv"}) {
+		t.Fatalf("tool = %q, required = %q; want uv required", tool, required)
 	}
 }
 

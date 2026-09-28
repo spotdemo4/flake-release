@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -18,12 +20,18 @@ type commandOptions struct {
 }
 
 type packageCommandRunner interface {
+	available(name string) bool
 	require(name string) error
 	run(options commandOptions) error
 	capture(options commandOptions) (string, error)
 }
 
 type execPackageCommandRunner struct{}
+
+func (execPackageCommandRunner) available(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
 
 func (execPackageCommandRunner) require(name string) error {
 	return requireCommand(name)
@@ -37,11 +45,58 @@ func (execPackageCommandRunner) capture(options commandOptions) (string, error) 
 	return captureCommand(options)
 }
 
+// nixCommandPackages lists the nixpkgs attributes that provide a command missing from
+// PATH, along with the toolchain the command needs to run.
+var nixCommandPackages = map[string][]string{
+	"cargo":    {"cargo", "rustc", "stdenv.cc"},
+	"go":       {"go"},
+	"gradle":   {"gradle"},
+	"mvn":      {"maven"},
+	"npm":      {"nodejs"},
+	"patchelf": {"patchelf"},
+	"uv":       {"uv", "python3"},
+}
+
+// requireCommand ensures name is on PATH. A command missing from PATH is built from the
+// flake's nixpkgs input, or the registry's nixpkgs when the flake has none, and its
+// bin directories are appended to PATH.
 func requireCommand(name string) error {
-	if _, err := exec.LookPath(name); err != nil {
+	_, err := exec.LookPath(name)
+	if err == nil {
+		return nil
+	}
+	attrs, ok := nixCommandPackages[name]
+	if !ok {
 		return fmt.Errorf("required command %q was not found: %w", name, err)
 	}
+	if err := addNixPackagesToPath(name, attrs); err != nil {
+		return fmt.Errorf("required command %q was not found on PATH or in nixpkgs: %w", name, err)
+	}
+	if _, err := exec.LookPath(name); err != nil {
+		return fmt.Errorf("required command %q was not found in nixpkgs#%s: %w", name, attrs[0], err)
+	}
 	return nil
+}
+
+func addNixPackagesToPath(name string, attrs []string) error {
+	installables := make([]string, 0, len(attrs))
+	for _, attr := range attrs {
+		installables = append(installables, "nixpkgs#"+attr)
+	}
+	info("%s is not on PATH, using %s", name, strings.Join(installables, " "))
+	args := append([]string{"build", "--no-link", "--print-out-paths", "--inputs-from", "."}, installables...)
+	output, err := nixCaptureLogged(args...)
+	if err != nil {
+		return err
+	}
+	path := filepath.SplitList(os.Getenv("PATH"))
+	for storePath := range strings.FieldsSeq(output) {
+		bin := filepath.Join(storePath, "bin")
+		if stat, err := os.Stat(bin); err == nil && stat.IsDir() && !slices.Contains(path, bin) {
+			path = append(path, bin)
+		}
+	}
+	return os.Setenv("PATH", strings.Join(path, string(filepath.ListSeparator)))
 }
 
 func runCommand(options commandOptions) error {

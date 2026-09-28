@@ -718,6 +718,9 @@ func makeWritable(path string) error {
 }
 
 func patchelf(args ...string) error {
+	if err := requireCommand("patchelf"); err != nil {
+		return err
+	}
 	cmd := exec.Command("patchelf", args...)
 	if os.Getenv("DEBUG") != "" {
 		info("patchelf %s", strings.Join(args, " "))
