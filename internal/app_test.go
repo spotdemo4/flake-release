@@ -410,6 +410,60 @@ func TestResolvePackagesKeepsPackageWhenSystemUnavailable(t *testing.T) {
 	}
 }
 
+func TestDefaultPackagesSelectsDefaultPackage(t *testing.T) {
+	captureHumanOutput(t)
+	var checked []string
+	got, err := defaultPackages(func() (string, error) {
+		return "x86_64-linux", nil
+	}, func(system string) (bool, error) {
+		checked = append(checked, system)
+		return true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"packages.x86_64-linux.default"}) {
+		t.Fatalf("defaultPackages() = %#v; want current system default", got)
+	}
+	if !slices.Equal(checked, []string{"x86_64-linux"}) {
+		t.Fatalf("checked systems = %#v; want current system", checked)
+	}
+}
+
+func TestDefaultPackagesReturnsNothingWithoutPackages(t *testing.T) {
+	captureHumanOutput(t)
+	got, err := defaultPackages(func() (string, error) {
+		return "x86_64-linux", nil
+	}, func(string) (bool, error) {
+		return false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("defaultPackages() = %#v; want no packages", got)
+	}
+}
+
+func TestDefaultPackagesPropagatesErrors(t *testing.T) {
+	captureHumanOutput(t)
+	if _, err := defaultPackages(func() (string, error) {
+		return "", errors.New("no system")
+	}, func(string) (bool, error) {
+		t.Fatal("packages checked without a system")
+		return false, nil
+	}); err == nil {
+		t.Fatal("defaultPackages() returned nil error without a system")
+	}
+	if _, err := defaultPackages(func() (string, error) {
+		return "x86_64-linux", nil
+	}, func(string) (bool, error) {
+		return false, errors.New("evaluation failed")
+	}); err == nil {
+		t.Fatal("defaultPackages() returned nil error after evaluation failure")
+	}
+}
+
 func TestPrepareReleasePackagesSkipsEvaluationFailuresAndAliases(t *testing.T) {
 	output := captureHumanOutput(t)
 	plans := prepareReleasePackagesWith([]string{"broken", "valid", "alias"}, func(pkg string) (releasePackagePlan, error) {

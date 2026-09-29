@@ -143,6 +143,19 @@ func nixPkgExists(pkg string) bool {
 	return err == nil
 }
 
+// nixSystemHasPackages reports whether the flake provides any packages for system.
+// A missing packages output is treated the same as an empty one.
+func nixSystemHasPackages(system string) (bool, error) {
+	out, err := nixCapture("eval", "--json", ".#packages."+system, "--apply", "packages: packages != {}")
+	if err != nil {
+		if strings.Contains(err.Error(), "does not provide attribute") {
+			return false, nil
+		}
+		return false, err
+	}
+	return out == "true", nil
+}
+
 func nixPkgPath(pkg string) (string, error) {
 	return nixCapture("eval", "--raw", ".#"+pkg)
 }
