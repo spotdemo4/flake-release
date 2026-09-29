@@ -137,6 +137,12 @@ func nixSystem() (string, error) {
 	return nixCapture("eval", "--impure", "--raw", "--expr", "builtins.currentSystem")
 }
 
+// nixPkgExists reports whether pkg resolves to a flake attribute without forcing its outputs.
+func nixPkgExists(pkg string) bool {
+	_, err := nixCapture("eval", ".#"+pkg, "--apply", "_: true")
+	return err == nil
+}
+
 func nixPkgPath(pkg string) (string, error) {
 	return nixCapture("eval", "--raw", ".#"+pkg)
 }

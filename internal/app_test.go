@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -340,6 +341,72 @@ func TestReleaseSessionDryRunRecordsOutputWithoutCreatingRelease(t *testing.T) {
 	}
 	if session.created {
 		t.Fatal("dry-run release session recorded a created release")
+	}
+}
+
+func TestResolvePackagesInsertsSystemWhenMissing(t *testing.T) {
+	captureHumanOutput(t)
+	existing := map[string]bool{
+		"packages.x86_64-linux.server.x86_64-unknown-linux-musl": true,
+		"packages.x86_64-linux.default":                          true,
+		"default":                                                true,
+		"packages.found.here":                                    true,
+		"packages.x86_64-linux.found.here":                       true,
+	}
+	var checked []string
+	exists := func(pkg string) bool {
+		checked = append(checked, pkg)
+		return existing[pkg]
+	}
+	lookups := 0
+	system := cachedNixSystem(func() (string, error) {
+		lookups++
+		return "x86_64-linux", nil
+	})
+
+	got := resolvePackages([]string{
+		"packages.server.x86_64-unknown-linux-musl",
+		"packages.x86_64-linux.default",
+		"default",
+		"packages.found.here",
+		"packages.x86_64-linux.missing",
+		"packages.missing",
+	}, exists, system)
+	want := []string{
+		"packages.x86_64-linux.server.x86_64-unknown-linux-musl",
+		"packages.x86_64-linux.default",
+		"default",
+		"packages.found.here",
+		"packages.x86_64-linux.missing",
+		"packages.missing",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("resolvePackages() = %#v; want %#v", got, want)
+	}
+	if lookups != 1 {
+		t.Fatalf("system lookups = %d; want 1", lookups)
+	}
+	wantChecked := []string{
+		"packages.server.x86_64-unknown-linux-musl",
+		"packages.x86_64-linux.server.x86_64-unknown-linux-musl",
+		"packages.x86_64-linux.default",
+		"packages.found.here",
+		"packages.x86_64-linux.missing",
+		"packages.missing",
+		"packages.x86_64-linux.missing",
+	}
+	if !slices.Equal(checked, wantChecked) {
+		t.Fatalf("checked = %#v; want %#v", checked, wantChecked)
+	}
+}
+
+func TestResolvePackagesKeepsPackageWhenSystemUnavailable(t *testing.T) {
+	captureHumanOutput(t)
+	got := resolvePackages([]string{"packages.server"}, func(string) bool { return false }, func() (string, error) {
+		return "", errors.New("no system")
+	})
+	if !slices.Equal(got, []string{"packages.server"}) {
+		t.Fatalf("resolvePackages() = %#v; want unchanged package", got)
 	}
 }
 

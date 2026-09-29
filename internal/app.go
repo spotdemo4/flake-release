@@ -262,13 +262,15 @@ func Run(args []string) error {
 		info("package registry user: %s", firstNonEmpty(cfg.packageRegistryUsername, "<none>"))
 	}
 
+	system := cachedNixSystem(nixSystem)
 	if len(packages) == 0 {
-		system, systemErr := nixSystem()
+		currentSystem, systemErr := system()
 		if systemErr != nil {
 			return systemErr
 		}
-		info(dim("system: %s"), system)
-		packages = append(packages, "packages."+system+".default")
+		packages = append(packages, "packages."+currentSystem+".default")
+	} else {
+		packages = resolvePackages(packages, nixPkgExists, system)
 	}
 	releasePackages := prepareReleasePackages(packages)
 
@@ -352,6 +354,52 @@ func Run(args []string) error {
 	}
 
 	return nil
+}
+
+// cachedNixSystem evaluates the current system at most once, logging it when first found.
+func cachedNixSystem(lookup func() (string, error)) func() (string, error) {
+	var system string
+	var err error
+	done := false
+	return func() (string, error) {
+		if !done {
+			done = true
+			system, err = lookup()
+			if err == nil {
+				info(dim("system: %s"), system)
+			}
+		}
+		return system, err
+	}
+}
+
+// resolvePackages allows the system to be omitted from package attribute paths, so
+// packages.server.x86_64-unknown-linux-musl resolves to
+// packages.<system>.server.x86_64-unknown-linux-musl when the former does not exist.
+// Packages that cannot be resolved are returned unchanged so evaluation reports the error.
+func resolvePackages(packages []string, exists func(string) bool, system func() (string, error)) []string {
+	resolved := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		resolved = append(resolved, resolvePackage(pkg, exists, system))
+	}
+	return resolved
+}
+
+func resolvePackage(pkg string, exists func(string) bool, system func() (string, error)) string {
+	output, rest, ok := strings.Cut(pkg, ".")
+	if !ok || output == "" || rest == "" || exists(pkg) {
+		return pkg
+	}
+	currentSystem, err := system()
+	if err != nil || currentSystem == "" || rest == currentSystem || strings.HasPrefix(rest, currentSystem+".") {
+		return pkg
+	}
+	candidate := output + "." + currentSystem + "." + rest
+	if !exists(candidate) {
+		return pkg
+	}
+	info(dim("package: %s -> %s"), pkg, candidate)
+	return candidate
 }
 
 type releasePackagePlan struct {

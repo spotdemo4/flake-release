@@ -24,6 +24,8 @@ Runs that produce no releasable outputs fail without creating a release. Works w
 flake-release [packages...] [--dry-run] [--bundle-appimage]
 ```
 
+Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a package isn't found, the current system is inserted after its first attribute, so `packages.server.x86_64-unknown-linux-musl` resolves to `packages.x86_64-linux.server.x86_64-unknown-linux-musl` on `x86_64-linux`.
+
 ### Environment
 
 | Variable                     | Description                                                                          | Default                                                     | Example                        |
