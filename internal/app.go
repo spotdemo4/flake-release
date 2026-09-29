@@ -264,14 +264,15 @@ func Run(args []string) error {
 
 	system := cachedNixSystem(nixSystem)
 	if len(packages) == 0 {
-		currentSystem, systemErr := system()
-		if systemErr != nil {
-			return systemErr
+		packages, err = defaultPackages(system, nixSystemHasPackages)
+		if err != nil {
+			return err
 		}
-		packages = append(packages, "packages."+currentSystem+".default")
 	} else {
 		packages = resolvePackages(packages, nixPkgExists, system)
 	}
+	// A flake without packages still gets a release carrying the changelog.
+	changelogOnly := len(packages) == 0
 	releasePackages := prepareReleasePackages(packages)
 
 	publications, err := preparePackagePublications(cfg, provider, tag, packages)
@@ -307,7 +308,7 @@ func Run(args []string) error {
 			releaseErr = errors.Join(releaseErr, fmt.Errorf("%s: %w", pkg.pkg, err))
 		}
 	}
-	if publications != nil {
+	if publications != nil || changelogOnly {
 		if err := session.ensureRelease(); err != nil {
 			return err
 		}
@@ -354,6 +355,24 @@ func Run(args []string) error {
 	}
 
 	return nil
+}
+
+// defaultPackages selects the current system's default package, or nothing when the
+// flake provides no packages for the current system.
+func defaultPackages(system func() (string, error), hasPackages func(string) (bool, error)) ([]string, error) {
+	currentSystem, err := system()
+	if err != nil {
+		return nil, err
+	}
+	found, err := hasPackages(currentSystem)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		info("no packages found for %s; releasing changelog only", currentSystem)
+		return nil, nil
+	}
+	return []string{"packages." + currentSystem + ".default"}, nil
 }
 
 // cachedNixSystem evaluates the current system at most once, logging it when first found.
