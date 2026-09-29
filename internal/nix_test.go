@@ -11,6 +11,7 @@ func TestSetupNixConfig(t *testing.T) {
 	t.Setenv("CI", "")
 	t.Setenv("DOCKER", "")
 	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GIT_TOKEN", "git-token")
 
 	setupNixConfig()
 
@@ -26,6 +27,17 @@ func TestSetupNixConfig(t *testing.T) {
 		if !strings.Contains(config, want) {
 			t.Fatalf("NIX_CONFIG = %q; want to contain %q", config, want)
 		}
+	}
+}
+
+func TestSetupNixConfigIgnoresGitToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GIT_TOKEN", "forgejo-token")
+
+	setupNixConfig()
+
+	if config := os.Getenv("NIX_CONFIG"); strings.Contains(config, "access-tokens") {
+		t.Fatalf("NIX_CONFIG = %q; want no access-tokens from GIT_TOKEN", config)
 	}
 }
 

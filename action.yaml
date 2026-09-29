@@ -11,25 +11,44 @@ inputs:
     description: type of git server (github, gitea, forgejo)
     required: false
 
-  github_repository:
-    description: github repository in the form owner/repo
+  git_repository:
+    description: git repository in the form owner/repo
     required: false
     default: ${{ github.repository }}
 
-  github_server_url:
-    description: github server url
+  git_server_url:
+    description: git server url
     required: false
     default: ${{ github.server_url }}
 
-  github_actor:
-    description: github actor
+  git_actor:
+    description: git user
     required: false
     default: ${{ github.actor }}
 
-  github_token:
-    description: github token
+  git_token:
+    description: git token used to push releases
     required: false
     default: ${{ github.token }}
+
+  github_repository:
+    description: deprecated; use git_repository
+    required: false
+    deprecationMessage: github_repository is deprecated; use git_repository instead
+
+  github_server_url:
+    description: deprecated; use git_server_url
+    required: false
+    deprecationMessage: github_server_url is deprecated; use git_server_url instead
+
+  github_actor:
+    description: deprecated; use git_actor
+    required: false
+    deprecationMessage: github_actor is deprecated; use git_actor instead
+
+  github_token:
+    description: github.com token used by Nix; on github.com, also used to push releases instead of git_token
+    required: false
 
   publish_packages:
     description: deprecated; discovered packages are published when package_registry_token is set
@@ -97,10 +116,12 @@ runs:
   env:
     PACKAGES: ${{ inputs.packages }}
     GIT_TYPE: ${{ inputs.git_type }}
-    GITHUB_REPOSITORY: ${{ inputs.github_repository }}
-    GITHUB_SERVER_URL: ${{ inputs.github_server_url }}
-    GITHUB_ACTOR: ${{ inputs.github_actor }}
-    GITHUB_TOKEN: ${{ inputs.github_token }}
+    GIT_REPOSITORY: ${{ inputs.github_repository || inputs.git_repository }}
+    GIT_SERVER_URL: ${{ inputs.github_server_url || inputs.git_server_url }}
+    GIT_ACTOR: ${{ inputs.github_actor || inputs.git_actor }}
+    GIT_TOKEN: ${{ (inputs.github_server_url || inputs.git_server_url) == 'https://github.com' && inputs.github_token || inputs.git_token }}
+    # git_token is only a github.com token when releasing to github.com
+    GITHUB_TOKEN: ${{ inputs.github_token || ((inputs.github_server_url || inputs.git_server_url) == 'https://github.com' && inputs.git_token) || '' }}
     CONTAINER_REGISTRY: ${{ inputs.registry || inputs.container_registry }}
     CONTAINER_REGISTRY_USERNAME: ${{ inputs.registry_username || inputs.container_registry_username }}
     CONTAINER_REGISTRY_PASSWORD: ${{ inputs.registry_password || inputs.container_registry_password }}

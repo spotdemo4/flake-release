@@ -26,25 +26,28 @@ flake-release [packages...] [--dry-run] [--bundle-appimage]
 
 ### Environment
 
-| Variable                     | Description                                                                          | Default                                        | Example                        |
-| ---------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------ |
-| PACKAGES                     | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system            | `default api`                  |
-| GIT_TYPE                     | Host type for release                                                                | detected from the CI environment or origin URL | `github` / `gitea` / `forgejo` |
-| GITHUB_REPOSITORY            | Repository to push releases                                                          | from `remote.origin.url`                       | `spotdemo4/flake-release`      |
-| GITHUB_SERVER_URL            | Server to push releases                                                              | from `remote.origin.url`                       | `https://github.com`           |
-| GITHUB_ACTOR                 | User for Gitea & Forgejo                                                             | Git user name                                  | `github-actions[bot]`          |
-| GITHUB_TOKEN                 | Token used to push releases                                                          |                                                |                                |
-| TAG                          | Exact short release tag                                                              | CI tag event, or latest Git tag                | `packages/api/v1.2.3`          |
-| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io` on GitHub, `GITHUB_SERVER_URL` host  | `ghcr.io`                      |
-| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `GITHUB_ACTOR`                                 | `github-actions[bot]`          |
-| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      | `GITHUB_TOKEN`                                 |                                |
-| PACKAGE_REGISTRY_OWNER       | Package owner or namespace                                                           | owner from `GITHUB_REPOSITORY`                 | `spotdemo4`                    |
-| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | [host-specific](#package-publishing)           | `https://npm.pkg.github.com`   |
-| PACKAGE_REGISTRY_USERNAME    | Registry username                                                                    | `GITHUB_ACTOR`                                 | `github-actions[bot]`          |
-| PACKAGE_REGISTRY_TOKEN       | Package registry write token; enables package publishing                             |                                                |                                |
-| DRY_RUN                      | Validate and prepare releases without publishing or cleanup                          | `false`                                        | `true`                         |
-| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                        | `2`                            |
-| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages                                   | `false`                                        | `true`                         |
+| Variable                     | Description                                                                          | Default                                                     | Example                        |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------ |
+| PACKAGES                     | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system                         | `default api`                  |
+| GIT_TYPE                     | Host type for release                                                                | detected from the CI environment or origin URL              | `github` / `gitea` / `forgejo` |
+| GIT_REPOSITORY               | Repository to push releases                                                          | `GITHUB_REPOSITORY` in Actions, or from `remote.origin.url` | `spotdemo4/flake-release`      |
+| GIT_SERVER_URL               | Server to push releases                                                              | `GITHUB_SERVER_URL` in Actions, or from `remote.origin.url` | `https://github.com`           |
+| GIT_ACTOR                    | User for Gitea & Forgejo                                                             | `GITHUB_ACTOR` in Actions, or Git user name                 | `github-actions[bot]`          |
+| GIT_TOKEN                    | Token used to push releases                                                          | `GITHUB_TOKEN`                                              |                                |
+| GITHUB_TOKEN                 | github.com access token for Nix, and release token when `GIT_TOKEN` is unset         |                                                             |                                |
+| TAG                          | Exact short release tag                                                              | CI tag event, or latest Git tag                             | `packages/api/v1.2.3`          |
+| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io` on GitHub, `GIT_SERVER_URL` host                  | `ghcr.io`                      |
+| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
+| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      | `GIT_TOKEN`                                                 |                                |
+| PACKAGE_REGISTRY_OWNER       | Package owner or namespace                                                           | owner from `GIT_REPOSITORY`                                 | `spotdemo4`                    |
+| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | [host-specific](#package-publishing)                        | `https://npm.pkg.github.com`   |
+| PACKAGE_REGISTRY_USERNAME    | Registry username                                                                    | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
+| PACKAGE_REGISTRY_TOKEN       | Package registry write token; enables package publishing                             |                                                             |                                |
+| DRY_RUN                      | Validate and prepare releases without publishing or cleanup                          | `false`                                                     | `true`                         |
+| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                                     | `2`                            |
+| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages                                   | `false`                                                     | `true`                         |
+
+`GITHUB_REPOSITORY`, `GITHUB_SERVER_URL`, and `GITHUB_ACTOR` are read only as fallbacks, since GitHub, Gitea, and Forgejo Actions runners set them; setting them by hand outside Actions is deprecated. `GITHUB_TOKEN` is always passed to Nix as the `github.com` access token, so on GitHub it can serve as both; on Gitea and Forgejo set the release token as `GIT_TOKEN` and use `GITHUB_TOKEN` only for a real GitHub token.
 
 By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
 
@@ -82,9 +85,9 @@ Package publishing is enabled by setting `PACKAGE_REGISTRY_TOKEN`. Every package
 | Gitea         | yes | yes   | yes    | yes   | yes | yes  |
 | GitHub        | no  | no    | yes    | yes   | yes | no   |
 
-Forgejo and Gitea use `GITHUB_SERVER_URL` by default. GitHub npm uses `https://npm.pkg.github.com` and GitHub Maven/Gradle use `https://maven.pkg.github.com/{owner}/{repo}` by default. `PACKAGE_REGISTRY_URL` overrides these defaults. GitHub npm packages must be published under the `PACKAGE_REGISTRY_OWNER` scope, so the staged `package.json` name is rewritten to `@owner/name`, adding the scope to an unscoped name or replacing a different scope; the name itself must be lowercase.
+Forgejo and Gitea use `GIT_SERVER_URL` by default. GitHub npm uses `https://npm.pkg.github.com` and GitHub Maven/Gradle use `https://maven.pkg.github.com/{owner}/{repo}` by default. `PACKAGE_REGISTRY_URL` overrides these defaults. GitHub npm packages must be published under the `PACKAGE_REGISTRY_OWNER` scope, so the staged `package.json` name is rewritten to `@owner/name`, adding the scope to an unscoped name or replacing a different scope; the name itself must be lowercase.
 
-`PACKAGE_REGISTRY_TOKEN` never falls back to `GITHUB_TOKEN`, so publishing stays opt-in. On GitHub, the workflow's `GITHUB_TOKEN` can be passed as `PACKAGE_REGISTRY_TOKEN` when the job has `packages: write` and publishes to packages owned by or linked to the workflow's repository; publishing to another owner or repository requires a personal access token (classic) with `write:packages`. Forgejo and Gitea Actions tokens can't write packages, so they need a dedicated token with package write access. `PACKAGE_REGISTRY_USERNAME` defaults to `GITHUB_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `CONTAINER_REGISTRY_USERNAME` and `CONTAINER_REGISTRY_PASSWORD`.
+`PACKAGE_REGISTRY_TOKEN` never falls back to `GIT_TOKEN`, so publishing stays opt-in. On GitHub, the workflow's `GITHUB_TOKEN` can be passed as `PACKAGE_REGISTRY_TOKEN` when the job has `packages: write` and publishes to packages owned by or linked to the workflow's repository; publishing to another owner or repository requires a personal access token (classic) with `write:packages`. Forgejo and Gitea Actions tokens can't write packages, so they need a dedicated token with package write access. `PACKAGE_REGISTRY_USERNAME` defaults to `GIT_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `CONTAINER_REGISTRY_USERNAME` and `CONTAINER_REGISTRY_PASSWORD`.
 
 #### Source discovery
 
@@ -144,10 +147,11 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
   with:
     packages: # default: all
     git_type: # default: detected
-    github_repository: # default: ${{ github.repository }}
-    github_server_url: # default: ${{ github.server_url }}
-    github_actor: # default: ${{ github.actor }}
-    github_token: # default: ${{ github.token }}
+    git_repository: # default: ${{ github.repository }}
+    git_server_url: # default: ${{ github.server_url }}
+    git_actor: # default: ${{ github.actor }}
+    git_token: # default: ${{ github.token }}
+    github_token: # github.com token for Nix; default: git_token when releasing to github.com
     container_registry: # default: ghcr.io on GitHub, server host otherwise
     container_registry_username: # default: ${{ github.actor }}
     container_registry_password: # default: ${{ github.token }}
@@ -190,8 +194,8 @@ docker run -it \
   -v "$(pwd):/app" \
   -w /app \
   -v "$HOME/.ssh:/root/.ssh" \
-  -e GITHUB_TOKEN=... \
-  -e GITHUB_REPOSITORY=... \
+  -e GIT_TOKEN=... \
+  -e GIT_REPOSITORY=... \
   -e CONTAINER_REGISTRY=... \
   -e CONTAINER_REGISTRY_USERNAME=... \
   -e CONTAINER_REGISTRY_PASSWORD=... \

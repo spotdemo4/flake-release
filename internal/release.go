@@ -165,7 +165,7 @@ func (c githubReleaseClient) createRelease(tag string, changelog string) error {
 		return err
 	}
 
-	status("creating release %s at %s", tag, c.cfg.githubRepository)
+	status("creating release %s at %s", tag, c.cfg.gitRepository)
 	endpoint := fmt.Sprintf("%s/repos/%s/releases", c.apiBase(), repo.path())
 	_, err = c.jsonRequest(http.MethodPost, endpoint, createReleaseRequest{
 		TagName: tag,
@@ -209,7 +209,7 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		contentType = "application/octet-stream"
 	}
 
-	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.githubRepository)
+	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.gitRepository)
 	_, err = c.httpRequest(httpRequestOptions{
 		method:        http.MethodPost,
 		url:           uploadURL,
@@ -283,7 +283,7 @@ func (c githubReleaseClient) cleanupAssets(currentTag releaseTag, retain int) ([
 	}
 	retainedTags := retainedReleaseTags(currentTag, tags, retain)
 
-	status("deleting old GitHub release assets at %s", c.cfg.githubRepository)
+	status("deleting old GitHub release assets at %s", c.cfg.gitRepository)
 	var cleanupErr error
 	for _, release := range releases {
 		if release.ID == 0 || !releaseCleanupCandidate(currentTag, release.TagName) || slices.ContainsFunc(retainedTags, func(tag releaseTag) bool {
@@ -390,11 +390,11 @@ func (c githubReleaseClient) apiBase() string {
 }
 
 func (c githubReleaseClient) jsonRequest(method string, endpoint string, payload any) ([]byte, error) {
-	return jsonRequest(method, githubAuthScheme, c.cfg.githubToken, githubAccept, endpoint, payload)
+	return jsonRequest(method, githubAuthScheme, c.cfg.gitToken, githubAccept, endpoint, payload)
 }
 
 func (c githubReleaseClient) httpRequest(options httpRequestOptions) ([]byte, error) {
-	options.token = c.cfg.githubToken
+	options.token = c.cfg.gitToken
 	options.authScheme = githubAuthScheme
 	options.accept = githubAccept
 	return httpRequest(options)
@@ -411,7 +411,7 @@ func (c giteaReleaseClient) createRelease(tag string, changelog string) error {
 		return err
 	}
 
-	status("creating release %s at %s", tag, c.cfg.githubRepository)
+	status("creating release %s at %s", tag, c.cfg.gitRepository)
 	endpoint := fmt.Sprintf("%s/repos/%s/releases", c.apiBase(), repo.path())
 	_, err = c.jsonRequest(http.MethodPost, endpoint, createReleaseRequest{
 		TagName: tag,
@@ -449,7 +449,7 @@ func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
 		return err
 	}
 
-	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.githubRepository)
+	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.gitRepository)
 	_, err = c.httpRequest(httpRequestOptions{
 		method:      http.MethodPost,
 		url:         endpoint,
@@ -485,7 +485,7 @@ func (c giteaReleaseClient) cleanupAssets(currentTag releaseTag, retain int) ([]
 	retainedTags := retainedReleaseTags(currentTag, tags, retain)
 
 	var cleanupErr error
-	status("deleting old %s release assets at %s", c.name, c.cfg.githubRepository)
+	status("deleting old %s release assets at %s", c.name, c.cfg.gitRepository)
 	for _, release := range releases {
 		tagName := release.tagName()
 		if release.ID == 0 || !releaseCleanupCandidate(currentTag, tagName) || slices.ContainsFunc(retainedTags, func(tag releaseTag) bool {
@@ -587,38 +587,38 @@ func (c giteaReleaseClient) apiBase() string {
 }
 
 func (c giteaReleaseClient) jsonRequest(method string, endpoint string, payload any) ([]byte, error) {
-	return jsonRequest(method, tokenAuthScheme, c.cfg.githubToken, jsonAccept, endpoint, payload)
+	return jsonRequest(method, tokenAuthScheme, c.cfg.gitToken, jsonAccept, endpoint, payload)
 }
 
 func (c giteaReleaseClient) httpRequest(options httpRequestOptions) ([]byte, error) {
-	options.token = c.cfg.githubToken
+	options.token = c.cfg.gitToken
 	options.authScheme = tokenAuthScheme
 	options.accept = jsonAccept
 	return httpRequest(options)
 }
 
 func releaseRepository(cfg config, action string) (repository, error) {
-	if cfg.githubRepository == "" {
-		return repository{}, fmt.Errorf("cannot %s: GITHUB_REPOSITORY is not set", action)
+	if cfg.gitRepository == "" {
+		return repository{}, fmt.Errorf("cannot %s: GIT_REPOSITORY is not set", action)
 	}
 
-	repo, err := parseRepository(cfg.githubRepository)
+	repo, err := parseRepository(cfg.gitRepository)
 	if err != nil {
-		return repository{}, fmt.Errorf("cannot %s: GITHUB_REPOSITORY must be owner/repo: %w", action, err)
+		return repository{}, fmt.Errorf("cannot %s: GIT_REPOSITORY must be owner/repo: %w", action, err)
 	}
 	return repo, nil
 }
 
 func requireServerURL(cfg config, action string) error {
-	if cfg.githubServerURL == "" {
-		return fmt.Errorf("cannot %s: GITHUB_SERVER_URL is not set", action)
+	if cfg.gitServerURL == "" {
+		return fmt.Errorf("cannot %s: GIT_SERVER_URL is not set", action)
 	}
 	return nil
 }
 
 func requireToken(cfg config, action string) error {
-	if cfg.githubToken == "" {
-		return fmt.Errorf("cannot %s: GITHUB_TOKEN is not set", action)
+	if cfg.gitToken == "" {
+		return fmt.Errorf("cannot %s: GIT_TOKEN is not set", action)
 	}
 	return nil
 }
@@ -645,7 +645,7 @@ func releaseProviderName(provider releaseProvider) string {
 }
 
 func githubAPIBase(cfg config) string {
-	server := strings.TrimRight(cfg.githubServerURL, "/")
+	server := strings.TrimRight(cfg.gitServerURL, "/")
 	if server == "" || server == "https://github.com" || server == "http://github.com" {
 		return "https://api.github.com"
 	}
@@ -653,7 +653,7 @@ func githubAPIBase(cfg config) string {
 }
 
 func giteaAPIBase(cfg config) string {
-	return strings.TrimRight(cfg.githubServerURL, "/") + "/api/v1"
+	return strings.TrimRight(cfg.gitServerURL, "/") + "/api/v1"
 }
 
 func releaseAssetUploadURL(uploadURL string, name string) (string, error) {

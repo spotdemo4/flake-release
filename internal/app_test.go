@@ -146,6 +146,36 @@ func TestConfigFromEnvContainerRegistry(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvGitVariables(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		current  string
+		fallback string
+		actions  string
+		want     string
+	}{
+		{name: "empty"},
+		{name: "current", current: "current", want: "current"},
+		{name: "actions fallback", fallback: "fallback", actions: "true", want: "fallback"},
+		{name: "deprecated fallback", fallback: "fallback", want: "fallback"},
+		{name: "current wins", current: "current", fallback: "fallback", actions: "true", want: "current"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("GITHUB_ACTIONS", test.actions)
+			t.Setenv("GITEA_ACTIONS", "")
+			t.Setenv("FORGEJO_ACTIONS", "")
+			for _, name := range []string{"REPOSITORY", "SERVER_URL", "ACTOR", "TOKEN"} {
+				t.Setenv("GIT_"+name, test.current)
+				t.Setenv("GITHUB_"+name, test.fallback)
+			}
+			cfg := configFromEnv()
+			if cfg.gitRepository != test.want || cfg.gitServerURL != test.want || cfg.gitActor != test.want || cfg.gitToken != test.want {
+				t.Fatalf("git config = %q, %q, %q, %q; want %q", cfg.gitRepository, cfg.gitServerURL, cfg.gitActor, cfg.gitToken, test.want)
+			}
+		})
+	}
+}
+
 func TestDefaultContainerRegistry(t *testing.T) {
 	for _, test := range []struct {
 		name      string

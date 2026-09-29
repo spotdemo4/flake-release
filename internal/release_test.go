@@ -55,9 +55,9 @@ func TestReleaseTypeEnvOverride(t *testing.T) {
 
 func TestNewReleaseClient(t *testing.T) {
 	cfg := config{
-		githubRepository: "owner/repo",
-		githubServerURL:  "https://git.example",
-		githubToken:      "test-token",
+		gitRepository: "owner/repo",
+		gitServerURL:  "https://git.example",
+		gitToken:      "test-token",
 	}
 
 	githubClient := newReleaseClient(releaseGitHub, cfg)
@@ -208,10 +208,10 @@ func TestAPIBaseURLs(t *testing.T) {
 	if got := githubAPIBase(config{}); got != "https://api.github.com" {
 		t.Fatalf("githubAPIBase(empty) = %q; want GitHub API", got)
 	}
-	if got := githubAPIBase(config{githubServerURL: "https://github.example/"}); got != "https://github.example/api/v3" {
+	if got := githubAPIBase(config{gitServerURL: "https://github.example/"}); got != "https://github.example/api/v3" {
 		t.Fatalf("githubAPIBase(custom) = %q; want custom API", got)
 	}
-	if got := giteaAPIBase(config{githubServerURL: "https://git.example/"}); got != "https://git.example/api/v1" {
+	if got := giteaAPIBase(config{gitServerURL: "https://git.example/"}); got != "https://git.example/api/v1" {
 		t.Fatalf("giteaAPIBase() = %q; want Gitea API", got)
 	}
 }
@@ -413,9 +413,9 @@ type cleanupRecorder struct {
 
 func cleanupTestClient(provider releaseProvider, serverURL string) releaseClient {
 	cfg := config{
-		githubRepository: "owner/repo",
-		githubServerURL:  serverURL,
-		githubToken:      "test-token",
+		gitRepository: "owner/repo",
+		gitServerURL:  serverURL,
+		gitToken:      "test-token",
 	}
 	return newReleaseClient(provider, cfg)
 }

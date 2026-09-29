@@ -82,6 +82,7 @@ func setupNixConfig() {
 	config += "always-allow-substitutes = true\n"
 	config += "fallback = true\n"
 
+	// Only GITHUB_TOKEN is a github.com token; GIT_TOKEN may belong to another host.
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		config += "access-tokens = github.com=" + token + "\n"
 	}

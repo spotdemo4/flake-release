@@ -38,7 +38,7 @@ func imageUpload(cfg config, repository string, path string, tag string, arch st
 		return fmt.Errorf("cannot upload image: CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
-		return fmt.Errorf("cannot upload image: GITHUB_REPOSITORY is not set")
+		return fmt.Errorf("cannot upload image: GIT_REPOSITORY is not set")
 	}
 	if cfg.containerRegistryUsername == "" {
 		return fmt.Errorf("cannot upload image: CONTAINER_REGISTRY_USERNAME is not set")
@@ -144,7 +144,7 @@ func imageExists(cfg config, repository string, tag string, arch string) bool {
 		return false
 	}
 	if repository == "" {
-		itemWarn("GITHUB_REPOSITORY is not set; cannot inspect container registry")
+		itemWarn("GIT_REPOSITORY is not set; cannot inspect container registry")
 		return false
 	}
 	if cfg.containerRegistryUsername == "" {
@@ -188,7 +188,7 @@ func imageCleanupOld(cfg config, repository string, currentTag string, retainedT
 		return fmt.Errorf("cannot delete old container images: CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
-		return fmt.Errorf("cannot delete old container images: GITHUB_REPOSITORY is not set")
+		return fmt.Errorf("cannot delete old container images: GIT_REPOSITORY is not set")
 	}
 	if cfg.containerRegistryUsername == "" {
 		return fmt.Errorf("cannot delete old container images: CONTAINER_REGISTRY_USERNAME is not set")
@@ -235,7 +235,7 @@ func manifestUpdate(cfg config, repository string, tag string) error {
 		return fmt.Errorf("cannot update image manifest: CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
-		return fmt.Errorf("cannot update image manifest: GITHUB_REPOSITORY is not set")
+		return fmt.Errorf("cannot update image manifest: GIT_REPOSITORY is not set")
 	}
 	if cfg.containerRegistryUsername == "" {
 		return fmt.Errorf("cannot update image manifest: CONTAINER_REGISTRY_USERNAME is not set")
@@ -401,7 +401,7 @@ func validateImageDestination(cfg config, repository string, tag string) error {
 		return fmt.Errorf("CONTAINER_REGISTRY is not set")
 	}
 	if repository == "" {
-		return fmt.Errorf("GITHUB_REPOSITORY is not set")
+		return fmt.Errorf("GIT_REPOSITORY is not set")
 	}
 	if tag == "" {
 		return fmt.Errorf("container image tag is empty")

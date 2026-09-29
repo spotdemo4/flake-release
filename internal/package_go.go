@@ -89,13 +89,13 @@ func validateGoModuleTagNamespace(cfg config, module string, tag releaseTag) err
 		return nil
 	}
 
-	serverURL, err := url.Parse(cfg.githubServerURL)
+	serverURL, err := url.Parse(cfg.gitServerURL)
 	if err != nil || serverURL.Hostname() == "" {
-		return fmt.Errorf("cannot verify Go module provenance: GITHUB_SERVER_URL must contain a host")
+		return fmt.Errorf("cannot verify Go module provenance: GIT_SERVER_URL must contain a host")
 	}
-	repository, err := parseRepository(cfg.githubRepository)
+	repository, err := parseRepository(cfg.gitRepository)
 	if err != nil {
-		return fmt.Errorf("cannot verify Go module provenance: invalid GITHUB_REPOSITORY: %w", err)
+		return fmt.Errorf("cannot verify Go module provenance: invalid GIT_REPOSITORY: %w", err)
 	}
 	prefix := serverURL.Hostname()
 	if serverPath := strings.Trim(serverURL.Path, "/"); serverPath != "" {

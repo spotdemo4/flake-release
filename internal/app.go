@@ -13,10 +13,10 @@ type config struct {
 	dryRun                    bool
 	bundleAppImage            bool
 	deleteOldReleaseArtifacts string
-	githubRepository          string
-	githubServerURL           string
-	githubActor               string
-	githubToken               string
+	gitRepository          string
+	gitServerURL           string
+	gitActor               string
+	gitToken               string
 	containerRegistry         string
 	containerRegistryUsername string
 	containerRegistryPassword string
@@ -88,10 +88,10 @@ func configFromEnv() config {
 		dryRun:                    truthy(os.Getenv("DRY_RUN")),
 		bundleAppImage:            truthy(os.Getenv("BUNDLE_APPIMAGE")),
 		deleteOldReleaseArtifacts: os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
-		githubRepository:          os.Getenv("GITHUB_REPOSITORY"),
-		githubServerURL:           os.Getenv("GITHUB_SERVER_URL"),
-		githubActor:               os.Getenv("GITHUB_ACTOR"),
-		githubToken:               os.Getenv("GITHUB_TOKEN"),
+		gitRepository:          actionsEnv("GIT_REPOSITORY", "GITHUB_REPOSITORY"),
+		gitServerURL:           actionsEnv("GIT_SERVER_URL", "GITHUB_SERVER_URL"),
+		gitActor:               actionsEnv("GIT_ACTOR", "GITHUB_ACTOR"),
+		gitToken:               gitTokenEnv(),
 		containerRegistry:         deprecatedEnv("CONTAINER_REGISTRY", "REGISTRY"),
 		containerRegistryUsername: deprecatedEnv("CONTAINER_REGISTRY_USERNAME", "REGISTRY_USERNAME"),
 		containerRegistryPassword: deprecatedEnv("CONTAINER_REGISTRY_PASSWORD", "REGISTRY_PASSWORD"),
@@ -116,6 +116,31 @@ func deprecatedEnv(name string, deprecated string) string {
 	}
 	warn("%s is deprecated; use %s instead", deprecated, name)
 	return old
+}
+
+// actionsEnv reads name, falling back to the GITHUB_ variable that Actions runners set.
+// Outside Actions the fallback can only have been set by hand, so it is deprecated there.
+func actionsEnv(name string, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	value := os.Getenv(fallback)
+	if value != "" && !inActions() {
+		warn("%s is deprecated; use %s instead", fallback, name)
+	}
+	return value
+}
+
+// gitTokenEnv reads GIT_TOKEN, falling back to GITHUB_TOKEN.
+func gitTokenEnv() string {
+	if token := os.Getenv("GIT_TOKEN"); token != "" {
+		return token
+	}
+	return os.Getenv("GITHUB_TOKEN")
+}
+
+func inActions() bool {
+	return os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("GITEA_ACTIONS") != "" || os.Getenv("FORGEJO_ACTIONS") != ""
 }
 
 // defaultContainerRegistry returns ghcr.io on GitHub, otherwise the host of serverURL.
@@ -171,20 +196,20 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.githubRepository == "" {
+	if cfg.gitRepository == "" {
 		if repository := gitRepositoryFromOrigin(origin); repository != "" {
-			cfg.githubRepository = repository
-			_ = os.Setenv("GITHUB_REPOSITORY", cfg.githubRepository)
+			cfg.gitRepository = repository
+			_ = os.Setenv("GIT_REPOSITORY", cfg.gitRepository)
 		}
 	}
-	info("git repository: %s", firstNonEmpty(cfg.githubRepository, "<none>"))
-	if cfg.githubServerURL == "" {
+	info("git repository: %s", firstNonEmpty(cfg.gitRepository, "<none>"))
+	if cfg.gitServerURL == "" {
 		if serverURL := gitServerURLFromOrigin(origin); serverURL != "" {
-			cfg.githubServerURL = serverURL
-			_ = os.Setenv("GITHUB_SERVER_URL", cfg.githubServerURL)
+			cfg.gitServerURL = serverURL
+			_ = os.Setenv("GIT_SERVER_URL", cfg.gitServerURL)
 		}
 	}
-	info("git server: %s", firstNonEmpty(cfg.githubServerURL, "<none>"))
+	info("git server: %s", firstNonEmpty(cfg.gitServerURL, "<none>"))
 
 	provider, err := releaseType(origin)
 	if err != nil {
@@ -202,28 +227,28 @@ func Run(args []string) error {
 	}
 	info("git tag: %s", tag.full)
 
-	if cfg.githubActor == "" {
-		cfg.githubActor, err = gitUser()
+	if cfg.gitActor == "" {
+		cfg.gitActor, err = gitUser()
 		if err != nil {
 			return err
 		}
-		_ = os.Setenv("GITHUB_ACTOR", cfg.githubActor)
+		_ = os.Setenv("GIT_ACTOR", cfg.gitActor)
 	}
-	info("git user: %s", cfg.githubActor)
+	info("git user: %s", cfg.gitActor)
 
 	if cfg.containerRegistryUsername == "" {
-		cfg.containerRegistryUsername = cfg.githubActor
+		cfg.containerRegistryUsername = cfg.gitActor
 		_ = os.Setenv("CONTAINER_REGISTRY_USERNAME", cfg.containerRegistryUsername)
 	}
 	info("container registry user: %s", cfg.containerRegistryUsername)
 
-	if cfg.containerRegistryPassword == "" && cfg.githubToken != "" {
-		cfg.containerRegistryPassword = cfg.githubToken
+	if cfg.containerRegistryPassword == "" && cfg.gitToken != "" {
+		cfg.containerRegistryPassword = cfg.gitToken
 		_ = os.Setenv("CONTAINER_REGISTRY_PASSWORD", cfg.containerRegistryPassword)
 	}
 
 	if cfg.containerRegistry == "" {
-		if registry := defaultContainerRegistry(provider, cfg.githubServerURL); registry != "" {
+		if registry := defaultContainerRegistry(provider, cfg.gitServerURL); registry != "" {
 			cfg.containerRegistry = registry
 			_ = os.Setenv("CONTAINER_REGISTRY", cfg.containerRegistry)
 		}
@@ -261,7 +286,7 @@ func Run(args []string) error {
 		return err
 	}
 	defer deletePath(changelog)
-	imageRepository := containerImageRepository(cfg.githubRepository, tag)
+	imageRepository := containerImageRepository(cfg.gitRepository, tag)
 	imageRoots, err := prepareReleaseImages(cfg, imageRepository, tag, releasePackages)
 	if imageRoots != "" {
 		defer deletePath(imageRoots)

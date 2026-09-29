@@ -257,7 +257,7 @@ func TestRegistryURLMavenGitHub(t *testing.T) {
 	set := &packagePublicationSet{
 		cfg: config{
 			packageRegistryOwner: "Owner",
-			githubRepository:     "Owner/repo",
+			gitRepository:     "Owner/repo",
 			packageRegistryURL:   "https://npm.pkg.github.com",
 		},
 		provider: releaseGitHub,
@@ -294,7 +294,7 @@ func TestPublishMavenCommand(t *testing.T) {
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 		packageRegistryToken: "secret",
-		githubRepository:     "owner/repo",
+		gitRepository:     "owner/repo",
 	}
 	set := &packagePublicationSet{
 		cfg:          cfg,

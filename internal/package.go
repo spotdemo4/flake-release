@@ -70,8 +70,8 @@ type packagePublicationSet struct {
 }
 
 func applyPackageRegistryDefaults(cfg *config, provider releaseProvider) {
-	if cfg.packageRegistryOwner == "" && cfg.githubRepository != "" {
-		if repository, err := parseRepository(cfg.githubRepository); err == nil {
+	if cfg.packageRegistryOwner == "" && cfg.gitRepository != "" {
+		if repository, err := parseRepository(cfg.gitRepository); err == nil {
 			cfg.packageRegistryOwner = repository.owner
 		}
 	}
@@ -80,11 +80,11 @@ func applyPackageRegistryDefaults(cfg *config, provider releaseProvider) {
 		case releaseGitHub:
 			cfg.packageRegistryURL = "https://npm.pkg.github.com"
 		case releaseGitea, releaseForgejo:
-			cfg.packageRegistryURL = cfg.githubServerURL
+			cfg.packageRegistryURL = cfg.gitServerURL
 		}
 	}
 	if cfg.packageRegistryUsername == "" {
-		cfg.packageRegistryUsername = cfg.githubActor
+		cfg.packageRegistryUsername = cfg.gitActor
 	}
 }
 
@@ -433,8 +433,8 @@ func (set *packagePublicationSet) registryURL(kind packageKind) string {
 			}
 			owner := set.cfg.packageRegistryOwner
 			repo := ""
-			if set.cfg.githubRepository != "" {
-				if repository, err := parseRepository(set.cfg.githubRepository); err == nil {
+			if set.cfg.gitRepository != "" {
+				if repository, err := parseRepository(set.cfg.gitRepository); err == nil {
 					repo = repository.name
 				}
 			}

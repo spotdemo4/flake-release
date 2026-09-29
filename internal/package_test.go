@@ -42,9 +42,9 @@ func (runner fakePackageCommandRunner) capture(options commandOptions) (string, 
 
 func TestApplyPackageRegistryDefaultsDoesNotReuseGitHubToken(t *testing.T) {
 	cfg := config{
-		githubRepository: "Owner/repository",
-		githubActor:      "actor",
-		githubToken:      "release-token",
+		gitRepository: "Owner/repository",
+		gitActor:      "actor",
+		gitToken:      "release-token",
 	}
 	applyPackageRegistryDefaults(&cfg, releaseGitHub)
 	if cfg.packageRegistryOwner != "Owner" {
@@ -286,7 +286,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	writeTestFile(t, manifest, `{"name":"@owner/project","version":"1.2.3"}`)
 	cfg := config{
 		dryRun:               true,
-		githubRepository:     "Owner/repository",
+		gitRepository:     "Owner/repository",
 		packageRegistryOwner: "Owner",
 	}
 	applyPackageRegistryDefaults(&cfg, releaseGitHub)
@@ -456,8 +456,8 @@ func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing
 	}
 	cfg := config{
 		dryRun:               true,
-		githubRepository:     "owner/project",
-		githubServerURL:      "https://example.com",
+		gitRepository:     "owner/project",
+		gitServerURL:      "https://example.com",
 		publishPackages:      "go",
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
@@ -533,8 +533,8 @@ func TestPreflightGoPackageUsesScopedVersionTagForDownload(t *testing.T) {
 	set := &packagePublicationSet{
 		cfg: config{
 			dryRun:           true,
-			githubServerURL:  "https://example.com",
-			githubRepository: "Owner/Repo",
+			gitServerURL:  "https://example.com",
+			gitRepository: "Owner/Repo",
 		},
 		releaseTag:   parseReleaseTag("modules/api/v1.2.3"),
 		temporaryDir: t.TempDir(),
@@ -592,8 +592,8 @@ func TestPreflightGoPackageRejectsScopedTagForRootModuleBeforeDownload(t *testin
 	set := &packagePublicationSet{
 		cfg: config{
 			dryRun:           true,
-			githubServerURL:  "https://example.com",
-			githubRepository: "owner/repo",
+			gitServerURL:  "https://example.com",
+			gitRepository: "owner/repo",
 		},
 		releaseTag:   parseReleaseTag("modules/api/v1.2.3"),
 		temporaryDir: t.TempDir(),
@@ -616,8 +616,8 @@ func TestPreflightGoPackageRejectsScopedTagForRootModuleBeforeDownload(t *testin
 
 func TestValidateGoModuleTagNamespaceHandlesSemanticMajorSuffix(t *testing.T) {
 	cfg := config{
-		githubServerURL:  "https://example.com",
-		githubRepository: "Owner/Repo",
+		gitServerURL:  "https://example.com",
+		gitRepository: "Owner/Repo",
 	}
 	if err := validateGoModuleTagNamespace(cfg, "example.com/Owner/Repo/modules/api/v2", parseReleaseTag("modules/api/v2.0.0")); err != nil {
 		t.Fatalf("scoped v2 submodule was rejected: %v", err)
@@ -629,8 +629,8 @@ func TestValidateGoModuleTagNamespaceHandlesSemanticMajorSuffix(t *testing.T) {
 
 func TestValidateGoModuleTagNamespaceIncludesServerPath(t *testing.T) {
 	cfg := config{
-		githubServerURL:  "https://example.com/forgejo/",
-		githubRepository: "Owner/Repo",
+		gitServerURL:  "https://example.com/forgejo/",
+		gitRepository: "Owner/Repo",
 	}
 	for _, module := range []string{
 		"example.com/forgejo/Owner/Repo/modules/api/v2",
@@ -644,8 +644,8 @@ func TestValidateGoModuleTagNamespaceIncludesServerPath(t *testing.T) {
 
 func TestValidateGoModuleTagNamespacePreservesUnscopedVanityModules(t *testing.T) {
 	cfg := config{
-		githubServerURL:  "https://example.com",
-		githubRepository: "Owner/Repo",
+		gitServerURL:  "https://example.com",
+		gitRepository: "Owner/Repo",
 	}
 	if err := validateGoModuleTagNamespace(cfg, "go.example.com/library", parseReleaseTag("v1.2.3")); err != nil {
 		t.Fatalf("unscoped vanity module was rejected: %v", err)
