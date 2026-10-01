@@ -5,7 +5,7 @@ go 1.26.6
 toolchain go1.27.1
 
 require (
-	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260921165904-940c72c29293
+	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260930150025-0884fee34cc2
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-alpha.5
 	github.com/opencontainers/image-spec v1.1.2-0.20260917170902-ca68a05fad73
@@ -30,7 +30,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/containerd/containerd/v2 v2.4.0 // indirect
+	github.com/containerd/containerd/v2 v2.4.1 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/log v0.2.0 // indirect
 	github.com/containerd/platforms v1.0.0-rc.5 // indirect
