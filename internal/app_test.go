@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -530,7 +531,7 @@ func TestPrepareReleaseImagesReportsBuildFailureOnce(t *testing.T) {
 		imageTag:  "1.2.3",
 	}}
 
-	root, err := prepareReleaseImagesWith(config{}, "owner/repo", parseReleaseTag("v1.2.3"), packages, func(pkg string, outLink string) error {
+	root, err := prepareReleaseImagesWith(parseReleaseTag("v1.2.3"), releaseTier{packages: packages}, func(pkg string, outLink string) error {
 		if pkg != "images.example" || outLink == "" {
 			t.Fatalf("build(%q, %q) called with unexpected arguments", pkg, outLink)
 		}
@@ -550,6 +551,98 @@ func TestPrepareReleaseImagesReportsBuildFailureOnce(t *testing.T) {
 		"    warning: image preparation failed: builder failed\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q; want %q", got, want)
+	}
+}
+
+func TestPrepareReleaseImagesLabelsCrossTier(t *testing.T) {
+	output := captureHumanOutput(t)
+	packages := []releasePackagePlan{{
+		pkg:       "images.arm",
+		version:   "1.2.3",
+		platform:  platform{OS: "linux", Arch: "arm64"},
+		imageName: "example",
+		imageTag:  "1.2.3",
+	}}
+
+	root, err := prepareReleaseImagesWith(parseReleaseTag("v1.2.3"), releaseTier{distance: 1, packages: packages}, func(string, string) error {
+		return errors.New("builder failed")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(root)
+
+	if got := output.String(); !strings.HasPrefix(got, "\nPreparing container images (cross-arch)\n") {
+		t.Fatalf("output = %q; want cross-arch section", got)
+	}
+}
+
+func TestPlatformDistance(t *testing.T) {
+	runner := platform{OS: "linux", Arch: "amd64"}
+	for _, test := range []struct {
+		name   string
+		target platform
+		want   int
+	}{
+		{name: "native", target: platform{OS: "linux", Arch: "amd64"}, want: 0},
+		{name: "unknown", target: platform{}, want: 0},
+		{name: "unknown arch", target: platform{OS: "linux"}, want: 0},
+		{name: "cross arch", target: platform{OS: "linux", Arch: "arm64"}, want: 1},
+		{name: "cross os", target: platform{OS: "windows", Arch: "amd64"}, want: 2},
+		{name: "cross os and arch", target: platform{OS: "darwin", Arch: "arm64"}, want: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := platformDistance(test.target, runner); got != test.want {
+				t.Fatalf("platformDistance(%v) = %d; want %d", test.target, got, test.want)
+			}
+		})
+	}
+}
+
+func TestReleaseTiersOrdersCrossPlatformsLast(t *testing.T) {
+	runner := platform{OS: "linux", Arch: "amd64"}
+	packages := []releasePackagePlan{
+		{pkg: "darwin-arm64", platform: platform{OS: "darwin", Arch: "arm64"}},
+		{pkg: "linux-arm64-image", platform: platform{OS: "linux", Arch: "arm64"}, imageName: "app"},
+		{pkg: "windows-amd64", platform: platform{OS: "windows", Arch: "amd64"}},
+		{pkg: "linux-amd64", platform: platform{OS: "linux", Arch: "amd64"}},
+		{pkg: "linux-arm64", platform: platform{OS: "linux", Arch: "arm64"}},
+		{pkg: "linux-amd64-image", platform: platform{OS: "linux", Arch: "amd64"}, imageName: "app"},
+	}
+
+	var got [][]string
+	var distances []int
+	for _, tier := range releaseTiers(packages, runner) {
+		distances = append(distances, tier.distance)
+		var names []string
+		for _, pkg := range tier.packages {
+			names = append(names, pkg.pkg)
+		}
+		got = append(got, names)
+	}
+
+	want := [][]string{
+		{"linux-amd64", "linux-amd64-image"},
+		{"linux-arm64-image", "linux-arm64"},
+		{"windows-amd64"},
+		{"darwin-arm64"},
+	}
+	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(distances, []int{0, 1, 2, 3}) {
+		t.Fatalf("releaseTiers() = %v %v; want %v [0 1 2 3]", got, distances, want)
+	}
+}
+
+func TestValidateReleaseImageDestinationsChecksUnbuiltImages(t *testing.T) {
+	tag := parseReleaseTag("v1.2.3")
+	packages := []releasePackagePlan{
+		{pkg: "packages.archive", version: "1.2.3", platform: platform{OS: "linux", Arch: "amd64"}},
+		{pkg: "packages.image", version: "1.2.3", platform: platform{OS: "linux", Arch: "arm64"}, imageName: "app", imageTag: "1.2.3"},
+	}
+	if err := validateReleaseImageDestinations(config{}, "owner/repo", tag, packages); err == nil {
+		t.Fatal("missing container registry was accepted for an unbuilt cross-arch image")
+	}
+	if err := validateReleaseImageDestinations(config{}, "owner/repo", tag, packages[:1]); err != nil {
+		t.Fatalf("archive-only release required container registry: %v", err)
 	}
 }
 

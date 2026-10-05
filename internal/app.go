@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -290,26 +292,56 @@ func Run(args []string) error {
 	}
 	defer deletePath(changelog)
 	imageRepository := containerImageRepository(cfg.gitRepository, tag)
-	imageRoots, err := prepareReleaseImages(cfg, imageRepository, tag, releasePackages)
-	if imageRoots != "" {
-		defer deletePath(imageRoots)
-	}
-	if err != nil {
+	if err := validateReleaseImageDestinations(cfg, imageRepository, tag, releasePackages); err != nil {
 		return err
 	}
 	session := releaseSession{cfg: cfg, client: release, tag: tag, changelog: changelog}
 
+	// Native artifacts and package registries are published before cross-compiled
+	// artifacts, so a slow cross build does not hold up the rest of the release.
 	images := false
 	var releaseErr error
-	section("Publishing release artifacts")
-	for _, pkg := range releasePackages {
-		item("%s", pkg.pkg)
-		if err := releasePackage(cfg, imageRepository, release, tag, pkg, session.ensureRelease, &images); err != nil {
-			releaseErr = errors.Join(releaseErr, fmt.Errorf("%s: %w", pkg.pkg, err))
+	var publishErr error
+	packagesPublished := false
+	// Package publication is skipped after an artifact failure, and its own failure
+	// is reported once the remaining artifacts are released.
+	publishPackages := func() error {
+		packagesPublished = true
+		if publications != nil || changelogOnly {
+			if err := session.ensureRelease(); err != nil {
+				return err
+			}
+		}
+		if releaseErr == nil {
+			publishErr = publications.publish()
+		}
+		return nil
+	}
+	for _, tier := range releaseTiers(releasePackages, runnerPlatform()) {
+		if tier.distance > 0 && !packagesPublished {
+			if err := publishPackages(); err != nil {
+				return err
+			}
+		}
+
+		imageRoots, err := prepareReleaseImages(tag, tier)
+		if imageRoots != "" {
+			defer deletePath(imageRoots)
+		}
+		if err != nil {
+			return err
+		}
+
+		section("Publishing release artifacts%s", tier.suffix())
+		for _, pkg := range tier.packages {
+			item("%s", pkg.pkg)
+			if err := releasePackage(cfg, imageRepository, release, tag, pkg, session.ensureRelease, &images); err != nil {
+				releaseErr = errors.Join(releaseErr, fmt.Errorf("%s: %w", pkg.pkg, err))
+			}
 		}
 	}
-	if publications != nil || changelogOnly {
-		if err := session.ensureRelease(); err != nil {
+	if !packagesPublished {
+		if err := publishPackages(); err != nil {
 			return err
 		}
 	}
@@ -330,8 +362,8 @@ func Run(args []string) error {
 		}
 	}
 
-	if err := publications.publish(); err != nil {
-		return err
+	if publishErr != nil {
+		return publishErr
 	}
 
 	if retain > 0 {
@@ -522,20 +554,93 @@ func containerImageRepository(repository string, tag releaseTag) string {
 	return repository + "/" + tag.namespace
 }
 
-func prepareReleaseImages(cfg config, imageRepository string, tag releaseTag, packages []releasePackagePlan) (string, error) {
-	return prepareReleaseImagesWith(cfg, imageRepository, tag, packages, nixBuildLinked)
+// releaseTier is a group of packages at the same platform distance from the runner.
+type releaseTier struct {
+	distance int
+	packages []releasePackagePlan
 }
 
-func prepareReleaseImagesWith(cfg config, imageRepository string, tag releaseTag, packages []releasePackagePlan, build func(string, string) error) (string, error) {
+func (tier releaseTier) suffix() string {
+	switch tier.distance {
+	case 0:
+		return ""
+	case 1:
+		return " (cross-arch)"
+	case 2:
+		return " (cross-os)"
+	default:
+		return " (cross-os, cross-arch)"
+	}
+}
+
+func runnerPlatform() platform {
+	return platform{OS: runtime.GOOS, Arch: runtime.GOARCH}
+}
+
+// platformDistance orders target platforms by how likely they are to need slow
+// cross-compilation on the runner: native, then same OS on another architecture,
+// then another OS. An unknown OS or architecture is treated as native.
+func platformDistance(target platform, runner platform) int {
+	distance := 0
+	if target.OS != "" && target.OS != runner.OS {
+		distance += 2
+	}
+	if target.Arch != "" && target.Arch != runner.Arch {
+		distance++
+	}
+	return distance
+}
+
+// releaseTiers groups packages by platform distance from the runner, nearest first,
+// keeping the original package order within each tier.
+func releaseTiers(packages []releasePackagePlan, runner platform) []releaseTier {
+	var tiers []releaseTier
+	for _, pkg := range packages {
+		distance := platformDistance(pkg.platform, runner)
+		index := slices.IndexFunc(tiers, func(tier releaseTier) bool { return tier.distance == distance })
+		if index < 0 {
+			tiers = append(tiers, releaseTier{distance: distance})
+			index = len(tiers) - 1
+		}
+		tiers[index].packages = append(tiers[index].packages, pkg)
+	}
+	slices.SortStableFunc(tiers, func(a releaseTier, b releaseTier) int { return a.distance - b.distance })
+	return tiers
+}
+
+func releaseImageCandidate(pkg releasePackagePlan, tag releaseTag) bool {
+	return pkg.imageName != "" && pkg.imageTag != "" && pkg.platform.OS == "linux" && packageMatchesReleaseTag(pkg.version, pkg.imageTag, tag)
+}
+
+// validateReleaseImageDestinations checks every image destination before any
+// package is built, since images in later tiers are built after earlier tiers publish.
+func validateReleaseImageDestinations(cfg config, imageRepository string, tag releaseTag, packages []releasePackagePlan) error {
+	for _, pkg := range packages {
+		if !releaseImageCandidate(pkg, tag) {
+			continue
+		}
+		if err := validateImagePackageDestination(cfg, imageRepository, tag, pkg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func prepareReleaseImages(tag releaseTag, tier releaseTier) (string, error) {
+	return prepareReleaseImagesWith(tag, tier, nixBuildLinked)
+}
+
+func prepareReleaseImagesWith(tag releaseTag, tier releaseTier, build func(string, string) error) (string, error) {
 	rootDir := ""
 	started := false
+	packages := tier.packages
 	for i := range packages {
 		pkg := &packages[i]
-		if pkg.imageName == "" || pkg.imageTag == "" || pkg.platform.OS != "linux" || !packageMatchesReleaseTag(pkg.version, pkg.imageTag, tag) {
+		if !releaseImageCandidate(*pkg, tag) {
 			continue
 		}
 		if !started {
-			section("Preparing container images")
+			section("Preparing container images%s", tier.suffix())
 			started = true
 		}
 		item("%s", pkg.pkg)
@@ -559,9 +664,6 @@ func prepareReleaseImagesWith(cfg config, imageRepository string, tag releaseTag
 			continue
 		}
 		status("ready for publication")
-		if err := validateImagePackageDestination(cfg, imageRepository, tag, *pkg); err != nil {
-			return rootDir, err
-		}
 	}
 	return rootDir, nil
 }
@@ -630,7 +732,7 @@ func imageTagMatchesReleaseTag(imageTag string, tag releaseTag) bool {
 }
 
 func validateImagePackageDestination(cfg config, imageRepository string, tag releaseTag, pkg releasePackagePlan) error {
-	if !pkg.image || !imageTagMatchesReleaseTag(pkg.imageTag, tag) {
+	if !imageTagMatchesReleaseTag(pkg.imageTag, tag) {
 		return nil
 	}
 	if err := validateImageDestination(cfg, imageRepository, pkg.imageTag); err != nil {

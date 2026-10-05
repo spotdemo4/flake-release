@@ -16,6 +16,8 @@ Generates release artifacts for packages in a nix flake:
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
 - Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests
 
+Packages are built and published in order of their platform's distance from the runner, so a slow cross-compiled build doesn't hold up the rest of the release: native packages and container images first, then [package registries](#package-publishing), then packages for another architecture on the same OS, another OS, and finally another OS and architecture. Container image destinations are validated before anything is built, and the combined image manifest is updated once every image is uploaded.
+
 Runs that produce no releasable outputs fail without creating a release, unless no packages were selected and the flake provides no packages for the current system; then a release is created with only the changelog. Works with GitHub, Gitea & Forgejo
 
 ## Usage
