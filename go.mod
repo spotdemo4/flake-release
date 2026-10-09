@@ -2,7 +2,7 @@ module trev.zip/llc/flake-release
 
 go 1.26.6
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 require (
 	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260930150025-0884fee34cc2
