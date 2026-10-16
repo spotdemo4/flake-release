@@ -753,12 +753,29 @@ func sortChangelog(log string) string {
 		}
 	}
 
-	ordered := append(feat, fix...)
-	ordered = append(ordered, other...)
-	if len(ordered) == 0 {
+	var sections []string
+	addSection := func(heading string, lines []string) {
+		if len(lines) == 0 {
+			return
+		}
+		body := strings.Join(lines, "\n")
+		if heading != "" {
+			body = "## " + heading + "\n\n" + body
+		}
+		sections = append(sections, body)
+	}
+	addSection("Features", feat)
+	addSection("Fixes", fix)
+	// Other changes only need a heading to separate them from a preceding section.
+	if len(sections) > 0 {
+		addSection("Other", other)
+	} else {
+		addSection("", other)
+	}
+	if len(sections) == 0 {
 		return ""
 	}
-	return strings.Join(ordered, "\n") + "\n"
+	return strings.Join(sections, "\n\n") + "\n"
 }
 
 func splitLines(value string) []string {

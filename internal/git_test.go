@@ -15,10 +15,31 @@ import (
 
 func TestSortChangelog(t *testing.T) {
 	input := "* chore: one (1)\n* bump: v1.0.0 -> v1.1.0 (4)\n* fix: two (2)\n* bump(api): v1 -> v2 (5)\n* feat(ui): three (3)\n"
-	want := "* feat(ui): three (3)\n* fix: two (2)\n* chore: one (1)\n"
+	want := "## Features\n\n* feat(ui): three (3)\n\n## Fixes\n\n* fix: two (2)\n\n## Other\n\n* chore: one (1)\n"
 
 	if got := sortChangelog(input); got != want {
 		t.Fatalf("sortChangelog() = %q; want %q", got, want)
+	}
+}
+
+func TestSortChangelogSections(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "bump only", input: "* bump: v1.0.0 -> v1.1.0 (1)\n", want: ""},
+		{name: "other only", input: "* chore: one (1)\n* docs: two (2)\n", want: "* chore: one (1)\n* docs: two (2)\n"},
+		{name: "features only", input: "* feat: one (1)\n* feat!: two (2)\n", want: "## Features\n\n* feat: one (1)\n* feat!: two (2)\n"},
+		{name: "fixes and other", input: "* chore: one (1)\n* fix(api): two (2)\n", want: "## Fixes\n\n* fix(api): two (2)\n\n## Other\n\n* chore: one (1)\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := sortChangelog(test.input); got != test.want {
+				t.Fatalf("sortChangelog() = %q; want %q", got, test.want)
+			}
+		})
 	}
 }
 
