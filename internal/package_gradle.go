@@ -9,6 +9,15 @@ import (
 )
 
 func preflightGradlePackage(set *packagePublicationSet, publication *packagePublication) error {
+	if err := gradlePackageIdentity(set, publication); err != nil {
+		return err
+	}
+	_, err := gradleInitScriptPath(set)
+	return err
+}
+
+// gradlePackageIdentity requires Gradle and reads the package coordinates from the build.
+func gradlePackageIdentity(set *packagePublicationSet, publication *packagePublication) error {
 	if err := requireGradle(set, publication); err != nil {
 		return err
 	}
@@ -27,9 +36,6 @@ func preflightGradlePackage(set *packagePublicationSet, publication *packagePubl
 	}
 	publication.name = group + ":" + name
 	publication.version = version
-	if _, err := gradleInitScriptPath(set); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -85,8 +91,19 @@ func gradleInitScriptPath(set *packagePublicationSet) (string, error) {
 }
 
 func generateGradleInitScript(registry string, token string) string {
-	escapedRegistry := gradleEscape(registry)
-	escapedToken := gradleEscape(token)
+	return generateGradleRepositoryInitScript(registry, fmt.Sprintf(`
+                    credentials(org.gradle.api.credentials.HttpHeaderCredentials) {
+                        name = "Authorization"
+                        value = "token %s"
+                    }
+                    authentication {
+                        header(org.gradle.authentication.http.HttpHeaderAuthentication)
+                    }`, gradleEscape(token)))
+}
+
+// generateGradleRepositoryInitScript adds the flakeRelease publishing repository at
+// registry, configured further by the Groovy statements in configuration.
+func generateGradleRepositoryInitScript(registry string, configuration string) string {
 	// Use Groovy init script that works for both Groovy and Kotlin DSL projects
 	return fmt.Sprintf(`allprojects {
     afterEvaluate {
@@ -95,20 +112,13 @@ func generateGradleInitScript(registry string, token string) string {
             publishing.repositories {
                 maven {
                     name = "flakeRelease"
-                    url = uri("%s")
-                    credentials(org.gradle.api.credentials.HttpHeaderCredentials) {
-                        name = "Authorization"
-                        value = "token %s"
-                    }
-                    authentication {
-                        header(org.gradle.authentication.http.HttpHeaderAuthentication)
-                    }
+                    url = uri("%s")%s
                 }
             }
         }
     }
 }
-`, escapedRegistry, escapedToken)
+`, gradleEscape(registry), configuration)
 }
 
 func gradleEscape(value string) string {

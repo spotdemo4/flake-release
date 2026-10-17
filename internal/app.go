@@ -27,6 +27,12 @@ type config struct {
 	packageRegistryURL        string
 	packageRegistryToken      string
 	packageRegistryUsername   string
+	cratesIOToken               string
+	npmjsToken                  string
+	mavenCentralUsername        string
+	mavenCentralToken           string
+	mavenCentralSigningKey      string
+	mavenCentralSigningPassword string
 }
 
 type releaseSession struct {
@@ -102,6 +108,12 @@ func configFromEnv() config {
 		packageRegistryURL:        os.Getenv("PACKAGE_REGISTRY_URL"),
 		packageRegistryToken:      os.Getenv("PACKAGE_REGISTRY_TOKEN"),
 		packageRegistryUsername:   os.Getenv("PACKAGE_REGISTRY_USERNAME"),
+		cratesIOToken:               os.Getenv("CRATES_IO_TOKEN"),
+		npmjsToken:                  os.Getenv("NPMJS_TOKEN"),
+		mavenCentralUsername:        os.Getenv("MAVEN_CENTRAL_USERNAME"),
+		mavenCentralToken:           os.Getenv("MAVEN_CENTRAL_TOKEN"),
+		mavenCentralSigningKey:      os.Getenv("MAVEN_CENTRAL_SIGNING_KEY"),
+		mavenCentralSigningPassword: os.Getenv("MAVEN_CENTRAL_SIGNING_PASSWORD"),
 	}
 }
 
@@ -262,6 +274,13 @@ func Run(args []string) error {
 		info("package registry owner: %s", firstNonEmpty(cfg.packageRegistryOwner, "<none>"))
 		info("package registry: %s", packageRegistryDisplayURL(cfg.packageRegistryURL))
 		info("package registry user: %s", firstNonEmpty(cfg.packageRegistryUsername, "<none>"))
+	}
+	if targets := publicPackageTargets(cfg); len(targets) > 0 {
+		names := make([]string, 0, len(targets))
+		for _, target := range targets {
+			names = append(names, packageRegistryName(target.registry, provider))
+		}
+		info("public package registries: %s", strings.Join(names, ", "))
 	}
 
 	system := cachedNixSystem(nixSystem)
