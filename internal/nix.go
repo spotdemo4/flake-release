@@ -160,11 +160,18 @@ func nixPkgPath(pkg string) (string, error) {
 	return nixCapture("eval", "--raw", ".#"+pkg)
 }
 
-func nixPkgSrc(pkg string) (string, error) {
+// nixSource is a package's src store path and the directory within it that sourceRoot selects.
+type nixSource struct {
+	root string
+	// subdir is relative to root and empty when sourceRoot is unset or names root itself.
+	subdir string
+}
+
+func nixPkgSrc(pkg string) (nixSource, error) {
 	return nixPkgSrcWithCapture(pkg, nixCapture)
 }
 
-func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (string, error) {
+func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (nixSource, error) {
 	// Build rather than eval: with lazy trees, eval prints a store path without copying it to the store.
 	out, err := capture("build", "--no-link", "--print-out-paths", ".#"+pkg+".src")
 	if err != nil {
@@ -172,18 +179,48 @@ func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (
 		// only accepts through their outPath.
 		out, err = capture("build", "--no-link", "--print-out-paths", ".#"+pkg+".src.outPath")
 		if err != nil {
-			return "", nil
+			return nixSource{}, nil
 		}
 	}
 	path, _, _ := strings.Cut(out, "\n")
 	if path == "" {
-		return "", nil
+		return nixSource{}, nil
 	}
 	stat, err := os.Stat(path)
 	if err != nil || !stat.IsDir() {
-		return "", nil
+		return nixSource{}, nil
 	}
-	return path, nil
+
+	source := nixSource{root: path}
+	if sourceRoot, err := capture("eval", "--raw", ".#"+pkg+".sourceRoot"); err == nil {
+		source.subdir = sourceRootSubdir(path, sourceRoot)
+	}
+	return source, nil
+}
+
+// sourceRootSubdir maps sourceRoot to a directory within the src store path at root.
+// unpackPhase copies a directory src to its store name without the hash, so sourceRoot
+// starts with that name; anything that does not resolve to a directory inside root is ignored.
+func sourceRootSubdir(root string, sourceRoot string) string {
+	sourceRoot = filepath.Clean(sourceRoot)
+	first, rest, _ := strings.Cut(sourceRoot, string(filepath.Separator))
+	if first != storePathName(root) || rest == "" || !filepath.IsLocal(rest) {
+		return ""
+	}
+	stat, err := os.Stat(filepath.Join(root, rest))
+	if err != nil || !stat.IsDir() {
+		return ""
+	}
+	return rest
+}
+
+// storePathName returns a store path's name without its hash prefix, like stripHash.
+func storePathName(path string) string {
+	base := filepath.Base(path)
+	if hash, name, ok := strings.Cut(base, "-"); ok && len(hash) == 32 {
+		return name
+	}
+	return base
 }
 
 func nixPkgPname(pkg string) string {

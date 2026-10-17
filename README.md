@@ -95,7 +95,7 @@ Forgejo and Gitea use `GIT_SERVER_URL` by default. GitHub npm uses `https://npm.
 
 #### Source discovery
 
-For each requested Nix package, flake-release evaluates `.#<package>.src` and looks only at that source root for the requested manifests:
+For each requested Nix package, flake-release evaluates `.#<package>.src` and looks only at that source root for the requested manifests. If the package sets `sourceRoot` to a directory within its source, such as `"${src.name}/my-package"`, flake-release looks in that directory instead:
 
 | Kind   | Root manifest                        |
 | ------ | ------------------------------------ |
@@ -106,7 +106,7 @@ For each requested Nix package, flake-release evaluates `.#<package>.src` and lo
 | npm    | `package.json`                       |
 | PyPI   | `pyproject.toml`                     |
 
-Manifest discovery is not recursive. Sources shared by multiple Nix package attributes are published only once per package kind. Evaluated sources are copied to writable temporary staging directories before package tools run.
+Manifest discovery is not recursive. Sources shared by multiple Nix package attributes with the same `sourceRoot` are published only once per package kind. Evaluated sources are copied in full to writable temporary staging directories before package tools run in the manifest's directory, so files outside `sourceRoot` remain available.
 
 Manifests that opt out of publishing are skipped: an npm `package.json` with `"private": true`, and a `Cargo.toml` that sets `publish = false` or only defines a workspace. Any other discovered manifest must be publishable and match the release version, so opt out of publishing packages that are not meant for a registry. A Gradle build and a Maven `pom.xml` with the same coordinates in one source are rejected as duplicates.
 

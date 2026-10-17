@@ -179,7 +179,7 @@ func discoverPackagesForTest(t *testing.T, cfg config, provider releaseProvider,
 	cfg.dryRun = true
 	cfg.packageRegistryOwner = "owner"
 	cfg.packageRegistryURL = "https://git.example"
-	set, err := preparePackagePublicationsWith(cfg, provider, parseReleaseTag("v1.2.3"), []string{"pkg"}, func(string) (string, error) { return source, nil }, fakePackageCommandRunner{
+	set, err := preparePackagePublicationsWith(cfg, provider, parseReleaseTag("v1.2.3"), []string{"pkg"}, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
 		requireFunc: func(string) error { return nil },
 		runFunc:     func(commandOptions) error { return nil },
 		captureFunc: func(options commandOptions) (string, error) {
@@ -223,6 +223,54 @@ func TestPackageTokenPublishesDiscoveredPackages(t *testing.T) {
 	}
 	if set == nil || len(set.packages) != 1 || set.packages[0].kind != packageMaven {
 		t.Fatalf("prepared packages = %#v; want maven only with private npm skipped", set)
+	}
+}
+
+func TestPackageDiscoveryUsesSourceRootWithinSharedSource(t *testing.T) {
+	source := t.TempDir()
+	for _, name := range []string{"lib-a", "lib-b"} {
+		writeTestFile(t, filepath.Join(source, name, "pom.xml"), `<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>`+name+`</artifactId>
+  <version>1.2.3</version>
+</project>`)
+	}
+	writeTestFile(t, filepath.Join(source, "testdata", "fixture"), "shared")
+	cfg := config{
+		dryRun:               true,
+		packageRegistryOwner: "owner",
+		packageRegistryURL:   "https://git.example",
+		packageRegistryToken: "token",
+	}
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"a", "b"}, func(pkg string) (nixSource, error) {
+		return nixSource{root: source, subdir: "lib-" + pkg}, nil
+	}, fakePackageCommandRunner{
+		requireFunc: func(string) error { return nil },
+		runFunc:     func(commandOptions) error { return nil },
+		captureFunc: func(options commandOptions) (string, error) {
+			t.Fatalf("unexpected captured command %q %q", options.name, options.args)
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set == nil || len(set.packages) != 2 {
+		t.Fatalf("prepared packages = %#v; want one per sourceRoot", set)
+	}
+	t.Cleanup(set.Close)
+	for index, name := range []string{"lib-a", "lib-b"} {
+		publication := set.packages[index]
+		if publication.name != "com.example:"+name {
+			t.Errorf("package %d name = %q; want com.example:%s", index, publication.name, name)
+		}
+		if filepath.Base(publication.dir) != name || publication.manifest != filepath.Join(publication.dir, "pom.xml") {
+			t.Errorf("package %d dir = %q, manifest = %q; want staged %s", index, publication.dir, publication.manifest, name)
+		}
+		if !isFile(filepath.Join(publication.dir, "..", "testdata", "fixture")) {
+			t.Errorf("package %d staging is missing files outside sourceRoot", index)
+		}
 	}
 }
 
@@ -372,14 +420,17 @@ func TestNixPkgSrcSkipsUnavailableSources(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if source != "" {
-				t.Fatalf("source = %q; want empty", source)
+			if source != (nixSource{}) {
+				t.Fatalf("source = %#v; want empty", source)
 			}
 		})
 	}
 
 	root := t.TempDir()
 	source, err := nixPkgSrcWithCapture("packages.test", func(args ...string) (string, error) {
+		if slices.Equal(args, []string{"eval", "--raw", ".#packages.test.sourceRoot"}) {
+			return "", errors.New("attribute 'sourceRoot' missing")
+		}
 		want := []string{"build", "--no-link", "--print-out-paths", ".#packages.test.src"}
 		if !slices.Equal(args, want) {
 			t.Fatalf("nix args = %q; want %q", args, want)
@@ -389,8 +440,52 @@ func TestNixPkgSrcSkipsUnavailableSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source != root {
-		t.Fatalf("source = %q; want %q", source, root)
+	if source != (nixSource{root: root}) {
+		t.Fatalf("source = %#v; want root %q", source, root)
+	}
+}
+
+func TestNixPkgSrcReadsSourceRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "0123456789abcdfghijklmnpqrsvwxyz-source")
+	if err := os.MkdirAll(filepath.Join(root, "project-go"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source, err := nixPkgSrcWithCapture("packages.test", func(args ...string) (string, error) {
+		if args[0] == "eval" {
+			return "source/project-go", nil
+		}
+		return root, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source != (nixSource{root: root, subdir: "project-go"}) {
+		t.Fatalf("source = %#v; want subdir project-go", source)
+	}
+}
+
+func TestSourceRootSubdir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "0123456789abcdfghijklmnpqrsvwxyz-source")
+	if err := os.MkdirAll(filepath.Join(root, "nested", "project"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(root, "file"), "")
+	for sourceRoot, want := range map[string]string{
+		"source/nested/project":  "nested/project",
+		"source/nested/project/": "nested/project",
+		"./source/nested":        "nested",
+		"source":                 "",
+		".":                      "",
+		"other/nested":           "",
+		"source/missing":         "",
+		"source/file":            "",
+		"source/../source":       "",
+		"source/nested/../..":    "",
+		"/source/nested":         "",
+	} {
+		if got := sourceRootSubdir(root, sourceRoot); got != want {
+			t.Errorf("sourceRootSubdir(%q) = %q; want %q", sourceRoot, got, want)
+		}
 	}
 }
 
@@ -408,10 +503,10 @@ func TestNixPkgSrcFallsBackToOutPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source != root {
-		t.Fatalf("source = %q; want %q", source, root)
+	if source != (nixSource{root: root}) {
+		t.Fatalf("source = %#v; want root %q", source, root)
 	}
-	want := []string{".#packages.test.src", ".#packages.test.src.outPath"}
+	want := []string{".#packages.test.src", ".#packages.test.src.outPath", ".#packages.test.sourceRoot"}
 	if !slices.Equal(requested, want) {
 		t.Fatalf("requested installables = %q; want %q", requested, want)
 	}
@@ -462,12 +557,12 @@ func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 	}
-	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"null", "unevaluable", "valid"}, func(pkg string) (string, error) {
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"null", "unevaluable", "valid"}, func(pkg string) (nixSource, error) {
 		requested = append(requested, pkg)
 		if pkg == "valid" {
-			return source, nil
+			return nixSource{root: source}, nil
 		}
-		return "", nil
+		return nixSource{}, nil
 	}, runner)
 	if err != nil {
 		t.Fatal(err)

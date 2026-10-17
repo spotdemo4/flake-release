@@ -92,7 +92,7 @@ func preparePackagePublications(cfg config, provider releaseProvider, tag releas
 	return preparePackagePublicationsWith(cfg, provider, tag, nixPackages, nixPkgSrc, execPackageCommandRunner{})
 }
 
-func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, packageSource func(string) (string, error), commands packageCommandRunner) (*packagePublicationSet, error) {
+func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, packageSource func(string) (nixSource, error), commands packageCommandRunner) (*packagePublicationSet, error) {
 	kinds, explicit, err := selectPackageKinds(cfg, provider)
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		}
 	}
 
-	root, err := os.MkdirTemp("", "flake-release-packages-")
+	temporaryDir, err := os.MkdirTemp("", "flake-release-packages-")
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		cfg:          cfg,
 		provider:     provider,
 		releaseTag:   tag,
-		temporaryDir: root,
+		temporaryDir: temporaryDir,
 		commands:     commands,
 		explicit:     explicit,
 	}
@@ -130,23 +130,28 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 	foundKinds := map[packageKind]bool{}
 	for index, nixPackage := range nixPackages {
 		item("%s", nixPackage)
-		source, err := packageSource(nixPackage)
+		src, err := packageSource(nixPackage)
 		if err != nil {
 			return nil, err
 		}
-		if source == "" {
+		if src.root == "" {
 			detail("source: unavailable")
 			continue
 		}
-		detail("source: %s", source)
-		source, err = filepath.EvalSymlinks(source)
+		detail("source: %s", src.root)
+		if src.subdir != "" {
+			detail("source root: %s", src.subdir)
+		}
+		root, err := filepath.EvalSymlinks(src.root)
 		if err != nil {
 			return nil, fmt.Errorf("resolving source for %s: %w", nixPackage, err)
 		}
-		source, err = filepath.Abs(source)
+		root, err = filepath.Abs(root)
 		if err != nil {
 			return nil, err
 		}
+		// Packages often share one repository-wide src and differ only in sourceRoot.
+		source := filepath.Join(root, src.subdir)
 		if seenSources[source] {
 			status("source already staged; skipping duplicate")
 			continue
@@ -165,16 +170,18 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 			if foundManifest == "" {
 				continue
 			}
-			staged := filepath.Join(root, fmt.Sprintf("source-%d-%s", index+1, kind))
-			if err := copyWritableTree(source, staged); err != nil {
-				return nil, fmt.Errorf("staging %s source %s: %w", kind, source, err)
+			// Stage the whole src so paths outside sourceRoot, such as shared test data, still resolve.
+			staged := filepath.Join(set.temporaryDir, fmt.Sprintf("source-%d-%s", index+1, kind))
+			if err := copyWritableTree(root, staged); err != nil {
+				return nil, fmt.Errorf("staging %s source %s: %w", kind, root, err)
 			}
+			dir := filepath.Join(staged, src.subdir)
 			foundKinds[kind] = true
 			set.packages = append(set.packages, packagePublication{
 				kind:     kind,
 				source:   source,
-				dir:      staged,
-				manifest: filepath.Join(staged, foundManifest),
+				dir:      dir,
+				manifest: filepath.Join(dir, foundManifest),
 			})
 		}
 	}
