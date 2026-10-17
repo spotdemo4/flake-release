@@ -302,7 +302,11 @@ func Run(args []string) error {
 	changelogOnly := len(packages) == 0
 	releasePackages := prepareReleasePackages(packages)
 
-	publications, err := preparePackagePublications(cfg, provider, tag, packages)
+	nixVersions := make(map[string]string, len(releasePackages))
+	for _, plan := range releasePackages {
+		nixVersions[plan.pkg] = plan.version
+	}
+	publications, err := preparePackagePublications(cfg, provider, tag, packages, nixVersions)
 	if err != nil {
 		return err
 	}

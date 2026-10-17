@@ -187,7 +187,7 @@ func discoverPackagesForTest(t *testing.T, cfg config, provider releaseProvider,
 	cfg.dryRun = true
 	cfg.packageRegistryOwner = "owner"
 	cfg.packageRegistryURL = "https://git.example"
-	set, err := preparePackagePublicationsWith(cfg, provider, parseReleaseTag("v1.2.3"), []string{"pkg"}, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
+	set, err := preparePackagePublicationsWith(cfg, provider, parseReleaseTag("v1.2.3"), []string{"pkg"}, nil, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
 		requireFunc: func(string) error { return nil },
 		runFunc:     func(commandOptions) error { return nil },
 		captureFunc: func(options commandOptions) (string, error) {
@@ -251,7 +251,7 @@ func TestPackageDiscoveryUsesSourceRootWithinSharedSource(t *testing.T) {
 		packageRegistryURL:   "https://git.example",
 		packageRegistryToken: "token",
 	}
-	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"a", "b"}, func(pkg string) (nixSource, error) {
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"a", "b"}, nil, func(pkg string) (nixSource, error) {
 		return nixSource{root: source, subdir: "lib-" + pkg}, nil
 	}, fakePackageCommandRunner{
 		requireFunc: func(string) error { return nil },
@@ -279,6 +279,44 @@ func TestPackageDiscoveryUsesSourceRootWithinSharedSource(t *testing.T) {
 		if !isFile(filepath.Join(publication.dir, "..", "testdata", "fixture")) {
 			t.Errorf("package %d staging is missing files outside sourceRoot", index)
 		}
+	}
+}
+
+func TestPackageDiscoveryRejectsNixVersionMismatch(t *testing.T) {
+	source := writeDiscoveryTestSource(t)
+	cfg := config{
+		dryRun:               true,
+		packageRegistryOwner: "owner",
+		packageRegistryURL:   "https://git.example",
+		packageRegistryToken: "token",
+	}
+	prepare := func(nixVersions map[string]string) (*packagePublicationSet, error) {
+		set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"a", "b"}, nixVersions, func(string) (nixSource, error) {
+			return nixSource{root: source}, nil
+		}, fakePackageCommandRunner{
+			requireFunc: func(string) error { return nil },
+			runFunc:     func(commandOptions) error { return nil },
+		})
+		if set != nil {
+			t.Cleanup(set.Close)
+		}
+		return set, err
+	}
+
+	if _, err := prepare(map[string]string{"a": "1.2.3", "b": ""}); err != nil {
+		t.Fatalf("matching and unset nix versions were rejected: %v", err)
+	}
+	// b shares a's source, so its version is checked against the publication staged for a.
+	_, err := prepare(map[string]string{"a": "1.2.3", "b": "1.2.4"})
+	if err == nil || !strings.Contains(err.Error(), `nix package b version "1.2.4"`) {
+		t.Fatalf("error = %v; want nix version mismatch for b", err)
+	}
+}
+
+func TestValidateNixVersionsSkipsGoModules(t *testing.T) {
+	publication := packagePublication{kind: packageGo, version: "v1.2.3", nixPackages: []nixPackageVersion{{pkg: "pkg", version: "1.2.3"}}}
+	if err := publication.validateNixVersions(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -565,7 +603,7 @@ func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 	}
-	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"null", "unevaluable", "valid"}, func(pkg string) (nixSource, error) {
+	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"null", "unevaluable", "valid"}, nil, func(pkg string) (nixSource, error) {
 		requested = append(requested, pkg)
 		if pkg == "valid" {
 			return nixSource{root: source}, nil

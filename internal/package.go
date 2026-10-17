@@ -88,8 +88,16 @@ type packagePublication struct {
 	name      string
 	version   string
 	artifacts []string
+	// nixPackages are the flake packages built from this source.
+	nixPackages []nixPackageVersion
 	// publishArgs are extra arguments for the registry's publish command.
 	publishArgs []string
+}
+
+// nixPackageVersion is a flake package and the version it evaluates to, empty when unset.
+type nixPackageVersion struct {
+	pkg     string
+	version string
 }
 
 // errPackageNotPublishable marks a manifest that opts out of publishing, such as a
@@ -127,11 +135,13 @@ func applyPackageRegistryDefaults(cfg *config, provider releaseProvider) {
 	}
 }
 
-func preparePackagePublications(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string) (*packagePublicationSet, error) {
-	return preparePackagePublicationsWith(cfg, provider, tag, nixPackages, nixPkgSrc, execPackageCommandRunner{})
+// preparePackagePublications discovers the package manifests in each flake package's source.
+// nixVersions maps flake packages to their evaluated version, which each manifest must match.
+func preparePackagePublications(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, nixVersions map[string]string) (*packagePublicationSet, error) {
+	return preparePackagePublicationsWith(cfg, provider, tag, nixPackages, nixVersions, nixPkgSrc, execPackageCommandRunner{})
 }
 
-func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, packageSource func(string) (nixSource, error), commands packageCommandRunner) (*packagePublicationSet, error) {
+func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, nixVersions map[string]string, packageSource func(string) (nixSource, error), commands packageCommandRunner) (*packagePublicationSet, error) {
 	targets, explicit, err := selectPackageTargets(cfg, provider)
 	if err != nil {
 		return nil, err
@@ -195,8 +205,14 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		}
 		// Packages often share one repository-wide src and differ only in sourceRoot.
 		source := filepath.Join(root, src.subdir)
+		nixVersion := nixPackageVersion{pkg: nixPackage, version: nixVersions[nixPackage]}
 		if seenSources[source] {
 			status("source already staged; skipping duplicate")
+			for index := range set.packages {
+				if set.packages[index].source == source {
+					set.packages[index].nixPackages = append(set.packages[index].nixPackages, nixVersion)
+				}
+			}
 			continue
 		}
 		seenSources[source] = true
@@ -227,11 +243,12 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 				dir := filepath.Join(staged, src.subdir)
 				foundKinds[registryKind{target.registry, kind}] = true
 				set.packages = append(set.packages, packagePublication{
-					kind:     kind,
-					registry: target.registry,
-					source:   source,
-					dir:      dir,
-					manifest: filepath.Join(dir, foundManifest),
+					kind:        kind,
+					registry:    target.registry,
+					source:      source,
+					dir:         dir,
+					manifest:    filepath.Join(dir, foundManifest),
+					nixPackages: []nixPackageVersion{nixVersion},
 				})
 			}
 		}
@@ -306,6 +323,9 @@ func (set *packagePublicationSet) preflight() error {
 		}
 		detail("name: %s", publication.name)
 		detail("version: %s", publication.version)
+		if err := publication.validateNixVersions(); err != nil {
+			return err
+		}
 		expectedVersion := set.releaseTag.version
 		if publication.kind == packageGo {
 			expectedVersion = set.releaseTag.versionTag
@@ -321,6 +341,21 @@ func (set *packagePublicationSet) preflight() error {
 		publishable = append(publishable, *publication)
 	}
 	set.packages = publishable
+	return nil
+}
+
+// validateNixVersions checks that the flake packages built from the publication's source
+// evaluate to the version its manifest declares. Go modules take their version from the
+// git tag rather than a manifest, so they have nothing to compare.
+func (publication *packagePublication) validateNixVersions() error {
+	if publication.kind == packageGo {
+		return nil
+	}
+	for _, nixPackage := range publication.nixPackages {
+		if nixPackage.version != "" && nixPackage.version != publication.version {
+			return fmt.Errorf("%s package %s version %q does not match nix package %s version %q", publication.kind, publication.name, publication.version, nixPackage.pkg, nixPackage.version)
+		}
+	}
 	return nil
 }
 

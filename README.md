@@ -158,7 +158,7 @@ Package ecosystem tools are used from `PATH` when available:
 
 A tool missing from `PATH` is built from the flake's `nixpkgs` input, or from the `nixpkgs` flake registry entry when the flake has no such input, along with the toolchain it needs (for example, `rustc` and a C compiler for `cargo`, or `python3` for `uv`), so the stock Docker action can publish packages too. Tools that can't be found or built are fatal instead of silently skipping publication.
 
-Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
+Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`, and the `version` of every flake package built from their source, when it sets one. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
 
 With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old artifacts aren't cleaned up. When `PACKAGE_REGISTRY_TOKEN` or a public registry token is set, a dry run still does the following, without uploading anything:
 
