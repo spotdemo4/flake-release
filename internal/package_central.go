@@ -70,7 +70,7 @@ func preflightMavenCentralPackage(set *packagePublicationSet, publication *packa
 		return err
 	}
 	groupID, artifactID, _ := strings.Cut(publication.name, ":")
-	if err := validateMavenCentralRepository(repository, groupID, artifactID, publication.version); err != nil {
+	if err := validateMavenCentralRepository(publication.kind, repository, groupID, artifactID, publication.version); err != nil {
 		return err
 	}
 	bundle := filepath.Join(staging, "bundle.zip")
@@ -175,9 +175,14 @@ type mavenCentralPom struct {
 
 // validateMavenCentralRepository checks the local repository against the Maven
 // Central requirements, so a dry run reports what the Central Portal would reject.
-func validateMavenCentralRepository(repository string, groupID string, artifactID string, version string) error {
-	versionDir := filepath.Join(repository, filepath.FromSlash(strings.ReplaceAll(groupID, ".", "/")), artifactID, version)
-	if !isFile(filepath.Join(versionDir, artifactID+"-"+version+".pom")) {
+func validateMavenCentralRepository(kind packageKind, repository string, groupID string, artifactID string, version string) error {
+	groupDir := filepath.Join(repository, filepath.FromSlash(strings.ReplaceAll(groupID, ".", "/")))
+	if kind == packageGradle {
+		// Multi-project builds may publish only subprojects, none named after the root project.
+		if !hasMavenArtifactPom(groupDir, version) {
+			return fmt.Errorf("build did not publish any %s artifact at version %s with a POM", groupID, version)
+		}
+	} else if !isFile(filepath.Join(groupDir, artifactID, version, artifactID+"-"+version+".pom")) {
 		return fmt.Errorf("build did not publish %s:%s:%s with a POM", groupID, artifactID, version)
 	}
 
@@ -238,6 +243,20 @@ func validateMavenCentralRepository(repository string, groupID string, artifactI
 		return fmt.Errorf("maven central requirements are not met: %s", strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// hasMavenArtifactPom reports whether any artifact in groupDir has a POM at version.
+func hasMavenArtifactPom(groupDir string, version string) bool {
+	entries, err := os.ReadDir(groupDir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && isFile(filepath.Join(groupDir, entry.Name(), version, entry.Name()+"-"+version+".pom")) {
+			return true
+		}
+	}
+	return false
 }
 
 // isMavenRepositoryMetadata reports whether path is a checksum, signature, or

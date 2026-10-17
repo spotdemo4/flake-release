@@ -323,14 +323,22 @@ const centralTestPom = `<project>
 // produces, including metadata and checksums the bundle replaces.
 func writeCentralTestRepository(t *testing.T, repository string, pom string, classifiers ...string) {
 	t.Helper()
-	dir := filepath.Join(repository, "com", "example", "my-lib", "1.2.3")
-	writeTestFile(t, filepath.Join(dir, "my-lib-1.2.3.pom"), pom)
-	writeTestFile(t, filepath.Join(dir, "my-lib-1.2.3.pom.md5"), "stale")
-	writeTestFile(t, filepath.Join(dir, "my-lib-1.2.3.jar"), "jar")
+	writeCentralTestArtifact(t, repository, "my-lib", pom, classifiers...)
+}
+
+// writeCentralTestArtifact writes com.example:artifactID:1.2.3, with the
+// artifactId in pom replaced by artifactID.
+func writeCentralTestArtifact(t *testing.T, repository string, artifactID string, pom string, classifiers ...string) {
+	t.Helper()
+	dir := filepath.Join(repository, "com", "example", artifactID, "1.2.3")
+	base := filepath.Join(dir, artifactID+"-1.2.3")
+	writeTestFile(t, base+".pom", strings.Replace(pom, "<artifactId>my-lib</artifactId>", "<artifactId>"+artifactID+"</artifactId>", 1))
+	writeTestFile(t, base+".pom.md5", "stale")
+	writeTestFile(t, base+".jar", "jar")
 	for _, classifier := range classifiers {
-		writeTestFile(t, filepath.Join(dir, "my-lib-1.2.3-"+classifier+".jar"), classifier)
+		writeTestFile(t, base+"-"+classifier+".jar", classifier)
 	}
-	writeTestFile(t, filepath.Join(repository, "com", "example", "my-lib", "maven-metadata.xml"), "<metadata/>")
+	writeTestFile(t, filepath.Join(repository, "com", "example", artifactID, "maven-metadata.xml"), "<metadata/>")
 }
 
 func newCentralTestSet(t *testing.T, key string, run func(commandOptions) error) *packagePublicationSet {
@@ -454,6 +462,58 @@ func TestPreflightMavenCentralGradleUsesFileRepository(t *testing.T) {
 	}
 	if !strings.Contains(initScript, `url = uri("file:///`) || strings.Contains(initScript, "credentials") {
 		t.Fatalf("init script does not target an unauthenticated file repository:\n%s", initScript)
+	}
+}
+
+func TestPreflightMavenCentralGradleAcceptsSubprojectsOnly(t *testing.T) {
+	key, _ := testSigningKey(t, "")
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "build.gradle"), "group = 'com.example'\nversion = '1.2.3'\n")
+	writeTestFile(t, filepath.Join(source, "settings.gradle"), "rootProject.name = 'trevrpc-kotlin'\ninclude 'core', 'transport-cronet'\n")
+	set := newCentralTestSet(t, key, func(options commandOptions) error {
+		repository := filepath.Join(filepath.Dir(options.args[1]), "repository")
+		for _, module := range []string{"core", "transport-cronet"} {
+			writeCentralTestArtifact(t, repository, module, centralTestPom, "sources", "javadoc")
+		}
+		return nil
+	})
+	publication := &packagePublication{kind: packageGradle, registry: registryMavenCentral, dir: source, manifest: filepath.Join(source, "build.gradle")}
+	if err := publication.preflight(set); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.OpenReader(publication.artifacts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	var poms []string
+	for _, file := range archive.File {
+		if strings.HasSuffix(file.Name, ".pom") {
+			poms = append(poms, file.Name)
+		}
+	}
+	slices.Sort(poms)
+	want := []string{"com/example/core/1.2.3/core-1.2.3.pom", "com/example/transport-cronet/1.2.3/transport-cronet-1.2.3.pom"}
+	if !slices.Equal(poms, want) {
+		t.Fatalf("bundle POMs = %q; want %q", poms, want)
+	}
+}
+
+func TestValidateMavenCentralRepositoryRequiresPublishedPom(t *testing.T) {
+	repository := t.TempDir()
+	writeCentralTestArtifact(t, repository, "core", centralTestPom, "sources", "javadoc")
+	if err := validateMavenCentralRepository(packageGradle, repository, "com.example", "trevrpc-kotlin", "1.2.4"); err == nil {
+		t.Fatal("gradle build without a POM at the release version was accepted")
+	}
+	if err := validateMavenCentralRepository(packageGradle, repository, "org.other", "trevrpc-kotlin", "1.2.3"); err == nil {
+		t.Fatal("gradle build without a POM in the group was accepted")
+	}
+	// Maven deploys the root project, so its own coordinates must be published.
+	if err := validateMavenCentralRepository(packageMaven, repository, "com.example", "trevrpc-kotlin", "1.2.3"); err == nil {
+		t.Fatal("maven build without the root project's POM was accepted")
+	}
+	if err := validateMavenCentralRepository(packageMaven, repository, "com.example", "core", "1.2.3"); err != nil {
+		t.Fatal(err)
 	}
 }
 
