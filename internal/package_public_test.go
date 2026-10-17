@@ -149,6 +149,80 @@ func TestNPMJSConfigUsesNPMJSToken(t *testing.T) {
 	}
 }
 
+// newPyPITestSet returns a set whose uv build writes a wheel with metadata, and
+// records every command it runs.
+func newPyPITestSet(t *testing.T, metadata string, commands *[]commandOptions) *packagePublicationSet {
+	t.Helper()
+	return &packagePublicationSet{
+		cfg: config{
+			packageRegistryOwner:    "owner",
+			packageRegistryURL:      "https://git.example",
+			packageRegistryUsername: "actor",
+			packageRegistryToken:    "host-token",
+			pypiToken:               "pypi-token",
+		},
+		provider:     releaseForgejo,
+		temporaryDir: t.TempDir(),
+		commands: fakePackageCommandRunner{
+			requireFunc: func(string) error { return nil },
+			runFunc: func(options commandOptions) error {
+				*commands = append(*commands, options)
+				if options.args[0] == "build" {
+					outdir := options.args[slices.Index(options.args, "--out-dir")+1]
+					writeTestWheelMetadata(t, filepath.Join(outdir, "example-1.2.3-py3-none-any.whl"), metadata)
+				}
+				return nil
+			},
+			captureFunc: func(commandOptions) (string, error) { return "", nil },
+		},
+	}
+}
+
+func TestPyPIOrgUploadUsesTokenUsername(t *testing.T) {
+	project := t.TempDir()
+	var commands []commandOptions
+	set := newPyPITestSet(t, "Metadata-Version: 2.4\nName: example\nVersion: 1.2.3\n\n", &commands)
+	publication := &packagePublication{kind: packagePyPI, registry: registryPyPI, dir: project, manifest: filepath.Join(project, "pyproject.toml")}
+	if err := publication.preflight(set); err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.publish(set); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 3 {
+		t.Fatalf("commands = %v; want build, check, and upload", commands)
+	}
+	check := []string{"publish", "--dry-run", "--trusted-publishing", "never", "--publish-url", "https://upload.pypi.org/legacy/", publication.artifacts[0]}
+	if !slices.Equal(commands[1].args, check) {
+		t.Fatalf("check args = %q; want %q", commands[1].args, check)
+	}
+	upload := []string{"publish", "--trusted-publishing", "never", "--publish-url", "https://upload.pypi.org/legacy/", publication.artifacts[0]}
+	if !slices.Equal(commands[2].args, upload) {
+		t.Fatalf("upload args = %q; want %q", commands[2].args, upload)
+	}
+	if !slices.Equal(commands[2].env, []string{"UV_PUBLISH_USERNAME=__token__", "UV_PUBLISH_PASSWORD=pypi-token"}) {
+		t.Fatalf("upload env = %q; want pypi.org token credentials", commands[2].env)
+	}
+	if !slices.Equal(commands[2].secrets, []string{"pypi-token"}) {
+		t.Fatalf("upload secrets = %q", commands[2].secrets)
+	}
+}
+
+func TestPyPIPrivateClassifierIsNotPublishableToPyPIOrg(t *testing.T) {
+	project := t.TempDir()
+	metadata := "Metadata-Version: 2.4\nName: example\nVersion: 1.2.3\nClassifier: Programming Language :: Python\nClassifier: Private :: Do Not Upload\n\n"
+	var commands []commandOptions
+	set := newPyPITestSet(t, metadata, &commands)
+	public := &packagePublication{kind: packagePyPI, registry: registryPyPI, dir: project, manifest: filepath.Join(project, "pyproject.toml")}
+	if err := public.preflight(set); !errors.Is(err, errPackageNotPublishable) {
+		t.Fatalf("error = %v; want private package not publishable to pypi.org", err)
+	}
+	host := &packagePublication{kind: packagePyPI, dir: project, manifest: filepath.Join(project, "pyproject.toml")}
+	if err := host.preflight(set); err != nil {
+		t.Fatalf("private classifier blocked the host registry: %v", err)
+	}
+}
+
 func TestValidatePublicRegistryConfig(t *testing.T) {
 	cfg := config{mavenCentralToken: "token", mavenCentralSigningKey: "key"}
 	if err := validatePublicRegistryConfig(cfg, registryMavenCentral); err == nil || !strings.Contains(err.Error(), "MAVEN_CENTRAL_USERNAME") {

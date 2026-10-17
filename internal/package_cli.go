@@ -14,6 +14,7 @@ const (
 	cargoRegistryName    = "flake-release"
 	cratesIORegistryName = "crates-io"
 	npmjsRegistryURL     = "https://registry.npmjs.org/"
+	pyPIUploadURL        = "https://upload.pypi.org/legacy/"
 )
 
 type cargoMetadata struct {
@@ -284,20 +285,24 @@ func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublic
 	if len(artifacts) == 0 {
 		return fmt.Errorf("python build produced no package artifacts")
 	}
-	name, version, err := pyPIArtifactIdentity(artifacts)
+	metadata, err := pyPIArtifactIdentity(artifacts)
 	if err != nil {
 		return err
 	}
-	if err := requireStrictPackageVersion(version); err != nil {
+	if publication.registry == registryPyPI && slices.Contains(metadata.classifiers, pyPIPrivateClassifier) {
+		return fmt.Errorf("pypi package %s is classified %q: %w", metadata.name, pyPIPrivateClassifier, errPackageNotPublishable)
+	}
+	if err := requireStrictPackageVersion(metadata.version); err != nil {
 		return fmt.Errorf("pypi package: %w", err)
 	}
-	publication.name = name
-	publication.version = version
+	publication.name = metadata.name
+	publication.version = metadata.version
 	publication.artifacts = artifacts
 	checkArgs := []string{"-m", "twine", "check"}
 	if tool == "uv" {
 		// A dry run validates the distributions without contacting the registry.
-		checkArgs = []string{"publish", "--dry-run", "--trusted-publishing", "never", "--publish-url", strings.TrimRight(set.registryURL(packagePyPI), "/")}
+		registry, _, _ := set.pyPIRegistry(publication.registry)
+		checkArgs = []string{"publish", "--dry-run", "--trusted-publishing", "never", "--publish-url", registry}
 	}
 	return set.commands.run(commandOptions{name: tool, args: append(checkArgs, artifacts...), dir: publication.dir})
 }
@@ -310,17 +315,17 @@ func publishPyPIPackage(set *packagePublicationSet, publication *packagePublicat
 	if err != nil {
 		return err
 	}
-	registry := strings.TrimRight(set.registryURL(packagePyPI), "/")
+	registry, username, token := set.pyPIRegistry(publication.registry)
 	args := []string{"-m", "twine", "upload", "--non-interactive", "--repository-url", registry}
 	env := []string{
-		"TWINE_USERNAME=" + set.cfg.packageRegistryUsername,
-		"TWINE_PASSWORD=" + set.cfg.packageRegistryToken,
+		"TWINE_USERNAME=" + username,
+		"TWINE_PASSWORD=" + token,
 	}
 	if tool == "uv" {
 		args = []string{"publish", "--trusted-publishing", "never", "--publish-url", registry}
 		env = []string{
-			"UV_PUBLISH_USERNAME=" + set.cfg.packageRegistryUsername,
-			"UV_PUBLISH_PASSWORD=" + set.cfg.packageRegistryToken,
+			"UV_PUBLISH_USERNAME=" + username,
+			"UV_PUBLISH_PASSWORD=" + token,
 		}
 	}
 	return set.commands.run(commandOptions{
@@ -328,6 +333,15 @@ func publishPyPIPackage(set *packagePublicationSet, publication *packagePublicat
 		args:    append(args, publication.artifacts...),
 		dir:     publication.dir,
 		env:     env,
-		secrets: []string{set.cfg.packageRegistryToken},
+		secrets: []string{token},
 	})
+}
+
+// pyPIRegistry returns the PyPI upload URL and credentials for registry. pypi.org
+// API tokens authenticate with the __token__ username.
+func (set *packagePublicationSet) pyPIRegistry(registry packageRegistry) (string, string, string) {
+	if registry == registryPyPI {
+		return pyPIUploadURL, "__token__", set.cfg.pypiToken
+	}
+	return strings.TrimRight(set.registryURL(packagePyPI), "/"), set.cfg.packageRegistryUsername, set.cfg.packageRegistryToken
 }

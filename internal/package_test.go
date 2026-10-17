@@ -1086,6 +1086,11 @@ func TestRedactSecrets(t *testing.T) {
 
 func writeTestWheel(t *testing.T, path string, name string, version string) {
 	t.Helper()
+	writeTestWheelMetadata(t, path, "Metadata-Version: 2.4\nName: "+name+"\nVersion: "+version+"\n\n")
+}
+
+func writeTestWheelMetadata(t *testing.T, path string, contents string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1098,7 +1103,7 @@ func writeTestWheel(t *testing.T, path string, name string, version string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := metadata.Write([]byte("Metadata-Version: 2.4\nName: " + name + "\nVersion: " + version + "\n\n")); err != nil {
+	if _, err := metadata.Write([]byte(contents)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
