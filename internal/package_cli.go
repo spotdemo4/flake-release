@@ -6,10 +6,15 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-const cargoRegistryName = "flake-release"
+const (
+	cargoRegistryName    = "flake-release"
+	cratesIORegistryName = "crates-io"
+	npmjsRegistryURL     = "https://registry.npmjs.org/"
+)
 
 type cargoMetadata struct {
 	Packages []struct {
@@ -21,9 +26,12 @@ type cargoMetadata struct {
 }
 
 type npmPackageDocument struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Private bool   `json:"private"`
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	Private       bool   `json:"private"`
+	PublishConfig struct {
+		Access string `json:"access"`
+	} `json:"publishConfig"`
 }
 
 func preflightCargoPackage(set *packagePublicationSet, publication *packagePublication) error {
@@ -55,6 +63,9 @@ func preflightCargoPackage(set *packagePublicationSet, publication *packagePubli
 			if pkg.Publish != nil && len(*pkg.Publish) == 0 {
 				return fmt.Errorf("cargo package %s sets publish = false: %w", pkg.Name, errPackageNotPublishable)
 			}
+			if publication.registry == registryCratesIO && pkg.Publish != nil && !slices.Contains(*pkg.Publish, cratesIORegistryName) {
+				return fmt.Errorf("cargo package %s does not list %s in publish: %w", pkg.Name, cratesIORegistryName, errPackageNotPublishable)
+			}
 			publication.name = pkg.Name
 			publication.version = pkg.Version
 			break
@@ -74,20 +85,32 @@ func publishCargoPackage(set *packagePublicationSet, publication *packagePublica
 }
 
 func cargoCommand(set *packagePublicationSet, publication *packagePublication, dryRun bool) commandOptions {
-	args := []string{"publish", "--allow-dirty", "--registry", cargoRegistryName, "--manifest-path", publication.manifest}
+	registry := cargoRegistryName
+	token := set.cfg.packageRegistryToken
+	var env []string
+	if publication.registry == registryCratesIO {
+		// Naming crates-io also bypasses source replacement, such as vendored sources.
+		registry = cratesIORegistryName
+		token = set.cfg.cratesIOToken
+		if token != "" {
+			env = append(env, "CARGO_REGISTRY_TOKEN="+token)
+		}
+	} else {
+		env = append(env, "CARGO_REGISTRIES_FLAKE_RELEASE_INDEX=sparse+"+set.registryURL(packageCargo))
+		if token != "" {
+			env = append(env, "CARGO_REGISTRIES_FLAKE_RELEASE_TOKEN=Bearer "+token)
+		}
+	}
+	args := []string{"publish", "--allow-dirty", "--registry", registry, "--manifest-path", publication.manifest}
 	if dryRun {
 		args = append(args, "--dry-run")
-	}
-	env := []string{"CARGO_REGISTRIES_FLAKE_RELEASE_INDEX=sparse+" + set.registryURL(packageCargo)}
-	if set.cfg.packageRegistryToken != "" {
-		env = append(env, "CARGO_REGISTRIES_FLAKE_RELEASE_TOKEN=Bearer "+set.cfg.packageRegistryToken)
 	}
 	return commandOptions{
 		name:    "cargo",
 		args:    args,
 		dir:     publication.dir,
 		env:     env,
-		secrets: []string{set.cfg.packageRegistryToken},
+		secrets: []string{token},
 	}
 }
 
@@ -112,7 +135,7 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 	if err := requireStrictPackageVersion(manifest.Version); err != nil {
 		return fmt.Errorf("npm package: %w", err)
 	}
-	if set.provider == releaseGitHub {
+	if publication.registry == registryHost && set.provider == releaseGitHub {
 		scoped, err := gitHubNPMPackageName(manifest.Name, set.cfg.packageRegistryOwner)
 		if err != nil {
 			return err
@@ -127,6 +150,11 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 	}
 	publication.name = manifest.Name
 	publication.version = manifest.Version
+	// npmjs.com publishes new scoped packages as restricted, which needs a paid plan.
+	publication.publishArgs = nil
+	if publication.registry == registryNPMJS && strings.HasPrefix(manifest.Name, "@") && manifest.PublishConfig.Access == "" {
+		publication.publishArgs = []string{"--access", "public"}
+	}
 
 	if isFile(filepath.Join(publication.dir, "package-lock.json")) {
 		if err := set.commands.run(commandOptions{name: "npm", args: []string{"ci"}, dir: publication.dir}); err != nil {
@@ -134,7 +162,7 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 		}
 	}
 
-	npmrc, err := set.npmConfig()
+	npmrc, err := set.npmConfig(publication.registry)
 	if err != nil {
 		return err
 	}
@@ -155,7 +183,7 @@ func gitHubNPMPackageName(name string, owner string) (string, error) {
 }
 
 func publishNPMPackage(set *packagePublicationSet, publication *packagePublication) error {
-	npmrc, err := set.npmConfig()
+	npmrc, err := set.npmConfig(publication.registry)
 	if err != nil {
 		return err
 	}
@@ -163,7 +191,8 @@ func publishNPMPackage(set *packagePublicationSet, publication *packagePublicati
 }
 
 func npmCommand(set *packagePublicationSet, publication *packagePublication, npmrc string, dryRun bool) commandOptions {
-	args := []string{"publish", "--registry", set.registryURL(packageNPM)}
+	registry, token := set.npmRegistry(publication.registry)
+	args := append([]string{"publish", "--registry", registry}, publication.publishArgs...)
 	if dryRun {
 		args = append(args, "--dry-run")
 	}
@@ -172,24 +201,36 @@ func npmCommand(set *packagePublicationSet, publication *packagePublication, npm
 		args:    args,
 		dir:     publication.dir,
 		env:     []string{"NPM_CONFIG_USERCONFIG=" + npmrc},
-		secrets: []string{set.cfg.packageRegistryToken},
+		secrets: []string{token},
 	}
 }
 
-func (set *packagePublicationSet) npmConfig() (string, error) {
-	path := filepath.Join(set.temporaryDir, ".npmrc")
+// npmRegistry returns the npm registry URL and write token for registry.
+func (set *packagePublicationSet) npmRegistry(registry packageRegistry) (string, string) {
+	if registry == registryNPMJS {
+		return npmjsRegistryURL, set.cfg.npmjsToken
+	}
+	return set.registryURL(packageNPM), set.cfg.packageRegistryToken
+}
+
+func (set *packagePublicationSet) npmConfig(registry packageRegistry) (string, error) {
+	name := ".npmrc"
+	if registry != registryHost {
+		name += "-" + string(registry)
+	}
+	path := filepath.Join(set.temporaryDir, name)
 	if isFile(path) {
 		return path, nil
 	}
-	registry := set.registryURL(packageNPM)
-	parsed, err := url.Parse(registry)
+	registryURL, token := set.npmRegistry(registry)
+	parsed, err := url.Parse(registryURL)
 	if err != nil {
 		return "", err
 	}
-	contents := fmt.Sprintf("registry=%s\n", registry)
-	if set.cfg.packageRegistryToken != "" {
+	contents := fmt.Sprintf("registry=%s\n", registryURL)
+	if token != "" {
 		authPath := strings.TrimRight(parsed.EscapedPath(), "/") + "/"
-		contents += fmt.Sprintf("//%s%s:_authToken=%s\nalways-auth=true\n", parsed.Host, authPath, set.cfg.packageRegistryToken)
+		contents += fmt.Sprintf("//%s%s:_authToken=%s\nalways-auth=true\n", parsed.Host, authPath, token)
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		return "", err

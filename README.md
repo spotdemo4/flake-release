@@ -14,7 +14,7 @@ Generates release artifacts for packages in a nix flake:
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
-- Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests
+- Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, and Maven Central
 
 Packages are built and published in order of their platform's distance from the runner, so a slow cross-compiled build doesn't hold up the rest of the release: native packages and container images first, then [package registries](#package-publishing), then packages for another architecture on the same OS, another OS, and finally another OS and architecture. Container image destinations are validated before anything is built, and the combined image manifest is updated once every image is uploaded.
 
@@ -30,26 +30,32 @@ Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a 
 
 ### Environment
 
-| Variable                     | Description                                                                          | Default                                                     | Example                        |
-| ---------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------ |
-| PACKAGES                     | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system                         | `default api`                  |
-| GIT_TYPE                     | Host type for release                                                                | detected from the CI environment or origin URL              | `github` / `gitea` / `forgejo` |
-| GIT_REPOSITORY               | Repository to push releases                                                          | `GITHUB_REPOSITORY` in Actions, or from `remote.origin.url` | `spotdemo4/flake-release`      |
-| GIT_SERVER_URL               | Server to push releases                                                              | `GITHUB_SERVER_URL` in Actions, or from `remote.origin.url` | `https://github.com`           |
-| GIT_ACTOR                    | User for Gitea & Forgejo                                                             | `GITHUB_ACTOR` in Actions, or Git user name                 | `github-actions[bot]`          |
-| GIT_TOKEN                    | Token used to push releases                                                          | `GITHUB_TOKEN`                                              |                                |
-| GITHUB_TOKEN                 | github.com access token for Nix, and release token when `GIT_TOKEN` is unset         |                                                             |                                |
-| TAG                          | Exact short release tag                                                              | CI tag event, or latest Git tag                             | `packages/api/v1.2.3`          |
-| CONTAINER_REGISTRY           | Container registry                                                                   | `ghcr.io` on GitHub, `GIT_SERVER_URL` host                  | `ghcr.io`                      |
-| CONTAINER_REGISTRY_USERNAME  | Username for container registry                                                      | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
-| CONTAINER_REGISTRY_PASSWORD  | Password for container registry                                                      | `GIT_TOKEN`                                                 |                                |
-| PACKAGE_REGISTRY_OWNER       | Package owner or namespace                                                           | owner from `GIT_REPOSITORY`                                 | `spotdemo4`                    |
-| PACKAGE_REGISTRY_URL         | Registry URL override                                                                | [host-specific](#package-publishing)                        | `https://npm.pkg.github.com`   |
-| PACKAGE_REGISTRY_USERNAME    | Registry username                                                                    | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
-| PACKAGE_REGISTRY_TOKEN       | Package registry write token; enables package publishing                             |                                                             |                                |
-| DRY_RUN                      | Validate and prepare releases without publishing or cleanup                          | `false`                                                     | `true`                         |
-| DELETE_OLD_RELEASE_ARTIFACTS | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                                     | `2`                            |
-| BUNDLE_APPIMAGE              | Bundle eligible Linux script packages as AppImages                                   | `false`                                                     | `true`                         |
+| Variable                       | Description                                                                          | Default                                                     | Example                        |
+| ------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------ |
+| PACKAGES                       | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system                         | `default api`                  |
+| GIT_TYPE                       | Host type for release                                                                | detected from the CI environment or origin URL              | `github` / `gitea` / `forgejo` |
+| GIT_REPOSITORY                 | Repository to push releases                                                          | `GITHUB_REPOSITORY` in Actions, or from `remote.origin.url` | `spotdemo4/flake-release`      |
+| GIT_SERVER_URL                 | Server to push releases                                                              | `GITHUB_SERVER_URL` in Actions, or from `remote.origin.url` | `https://github.com`           |
+| GIT_ACTOR                      | User for Gitea & Forgejo                                                             | `GITHUB_ACTOR` in Actions, or Git user name                 | `github-actions[bot]`          |
+| GIT_TOKEN                      | Token used to push releases                                                          | `GITHUB_TOKEN`                                              |                                |
+| GITHUB_TOKEN                   | github.com access token for Nix, and release token when `GIT_TOKEN` is unset         |                                                             |                                |
+| TAG                            | Exact short release tag                                                              | CI tag event, or latest Git tag                             | `packages/api/v1.2.3`          |
+| CONTAINER_REGISTRY             | Container registry                                                                   | `ghcr.io` on GitHub, `GIT_SERVER_URL` host                  | `ghcr.io`                      |
+| CONTAINER_REGISTRY_USERNAME    | Username for container registry                                                      | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
+| CONTAINER_REGISTRY_PASSWORD    | Password for container registry                                                      | `GIT_TOKEN`                                                 |                                |
+| PACKAGE_REGISTRY_OWNER         | Package owner or namespace                                                           | owner from `GIT_REPOSITORY`                                 | `spotdemo4`                    |
+| PACKAGE_REGISTRY_URL           | Registry URL override                                                                | [host-specific](#package-publishing)                        | `https://npm.pkg.github.com`   |
+| PACKAGE_REGISTRY_USERNAME      | Registry username                                                                    | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
+| PACKAGE_REGISTRY_TOKEN         | Package registry write token; enables package publishing                             |                                                             |                                |
+| CRATES_IO_TOKEN                | crates.io API token; enables [publishing](#public-registries) to crates.io           |                                                             |                                |
+| NPMJS_TOKEN                    | npmjs.com access token; enables publishing to npmjs.com                              |                                                             |                                |
+| MAVEN_CENTRAL_USERNAME         | Maven Central Portal user token username                                             |                                                             |                                |
+| MAVEN_CENTRAL_TOKEN            | Maven Central Portal user token password; enables publishing to Maven Central        |                                                             |                                |
+| MAVEN_CENTRAL_SIGNING_KEY      | ASCII-armored PGP private key that signs Maven Central bundles                       |                                                             |                                |
+| MAVEN_CENTRAL_SIGNING_PASSWORD | Passphrase for `MAVEN_CENTRAL_SIGNING_KEY`, when it is encrypted                     |                                                             |                                |
+| DRY_RUN                        | Validate and prepare releases without publishing or cleanup                          | `false`                                                     | `true`                         |
+| DELETE_OLD_RELEASE_ARTIFACTS   | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                                     | `2`                            |
+| BUNDLE_APPIMAGE                | Bundle eligible Linux script packages as AppImages                                   | `false`                                                     | `true`                         |
 
 `GITHUB_REPOSITORY`, `GITHUB_SERVER_URL`, and `GITHUB_ACTOR` are read only as fallbacks, since GitHub, Gitea, and Forgejo Actions runners set them; setting them by hand outside Actions is deprecated. `GITHUB_TOKEN` is always passed to Nix as the `github.com` access token, so on GitHub it can serve as both; on Gitea and Forgejo set the release token as `GIT_TOKEN` and use `GITHUB_TOKEN` only for a real GitHub token.
 
@@ -91,7 +97,25 @@ Package publishing is enabled by setting `PACKAGE_REGISTRY_TOKEN`. Every package
 
 Forgejo and Gitea use `GIT_SERVER_URL` by default. GitHub npm uses `https://npm.pkg.github.com` and GitHub Maven/Gradle use `https://maven.pkg.github.com/{owner}/{repo}` by default. `PACKAGE_REGISTRY_URL` overrides these defaults. GitHub npm packages must be published under the `PACKAGE_REGISTRY_OWNER` scope, so the staged `package.json` name is rewritten to `@owner/name`, adding the scope to an unscoped name or replacing a different scope; the name itself must be lowercase.
 
+Packages can also be published to [public registries](#public-registries), independently of the git host's registry.
+
 `PACKAGE_REGISTRY_TOKEN` never falls back to `GIT_TOKEN`, so publishing stays opt-in. On GitHub, the workflow's `GITHUB_TOKEN` can be passed as `PACKAGE_REGISTRY_TOKEN` when the job has `packages: write` and publishes to packages owned by or linked to the workflow's repository; publishing to another owner or repository requires a personal access token (classic) with `write:packages`. Forgejo and Gitea Actions tokens can't write packages, so they need a dedicated token with package write access. `PACKAGE_REGISTRY_USERNAME` defaults to `GIT_ACTOR`; Forgejo and Gitea require it for PyPI Basic authentication. Container registry credentials remain separate under `CONTAINER_REGISTRY_USERNAME` and `CONTAINER_REGISTRY_PASSWORD`.
+
+#### Public registries
+
+Each public registry is enabled by its own token, works with any git host, and is published to alongside the git host's registry when `PACKAGE_REGISTRY_TOKEN` is also set:
+
+| Registry      | Packages      | Enabled by            | Also requires                                         |
+| ------------- | ------------- | --------------------- | ----------------------------------------------------- |
+| crates.io     | Cargo         | `CRATES_IO_TOKEN`     |                                                       |
+| npmjs.com     | npm           | `NPMJS_TOKEN`         |                                                       |
+| Maven Central | Gradle, Maven | `MAVEN_CENTRAL_TOKEN` | `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_SIGNING_KEY` |
+
+- crates.io: a Cargo `publish` list must include `crates-io`, or the package is skipped for crates.io.
+- npmjs.com: the token needs write access to the package and must be able to publish without two-factor authentication, such as a granular access token with 2FA bypass. Scoped packages are published with `--access public` unless `package.json` sets `publishConfig.access`, and the name is never rewritten to an owner scope.
+- Maven Central: the token is a [Central Portal user token](https://central.sonatype.org/publish/generate-portal-token/), and the group ID must be a verified namespace. flake-release builds the project into a local Maven repository with `mvn deploy` (passing `-Dgpg.skip=true`) or Gradle's `maven-publish` publications, so no Central-specific plugin is needed. It then adds MD5 and SHA-1 checksums and signs every file with `MAVEN_CENTRAL_SIGNING_KEY`, whose public key must be on a public key server. The bundle is uploaded through the [Publisher API](https://central.sonatype.org/publish/publish-portal-api/) for automatic publishing, and flake-release waits until it passes validation. The build must produce `-sources.jar` and `-javadoc.jar` artifacts for non-`pom` packaging, and the POM must declare `name`, `description`, `url`, `licenses`, `developers`, and `scm`, or inherit them from a parent POM. `SNAPSHOT` versions are rejected.
+
+The same package published to two registries is staged separately for each, so a manifest rewritten for one registry is unchanged for the other.
 
 #### Source discovery
 
@@ -108,7 +132,7 @@ For each requested Nix package, flake-release evaluates `.#<package>.src` and lo
 
 Manifest discovery is not recursive. Sources shared by multiple Nix package attributes with the same `sourceRoot` are published only once per package kind. Evaluated sources are copied in full to writable temporary staging directories before package tools run in the manifest's directory, so files outside `sourceRoot` remain available.
 
-Manifests that opt out of publishing are skipped: an npm `package.json` with `"private": true`, and a `Cargo.toml` that sets `publish = false` or only defines a workspace. Any other discovered manifest must be publishable and match the release version, so opt out of publishing packages that are not meant for a registry. A Gradle build and a Maven `pom.xml` with the same coordinates in one source are rejected as duplicates.
+Manifests that opt out of publishing are skipped: an npm `package.json` with `"private": true`, and a `Cargo.toml` that sets `publish = false`, only defines a workspace, or, for crates.io, has a `publish` list without `crates-io`. Any other discovered manifest must be publishable and match the release version, so opt out of publishing packages that are not meant for a registry. A Gradle build and a Maven `pom.xml` with the same coordinates in one source are rejected as duplicates for the same registry.
 
 #### Tools and versions
 
@@ -116,8 +140,8 @@ Package ecosystem tools are used from `PATH` when available:
 
 - Go requires `go`
 - Cargo requires `cargo`
-- Gradle requires `gradle` or `gradlew` wrapper
-- Maven requires `mvn` or `mvnw` wrapper
+- Gradle requires `gradle` or `gradlew` wrapper, for Maven Central too
+- Maven requires `mvn` or `mvnw` wrapper, for Maven Central too
 - npm requires `npm`; when `package-lock.json` exists, `npm ci` installs dependencies before publishing
 - PyPI requires `uv`, or `python3` with the `build` and `twine` modules; `uv` is preferred when it is on `PATH`
 
@@ -125,7 +149,7 @@ A tool missing from `PATH` is built from the flake's `nixpkgs` input, or from th
 
 Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
 
-With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old artifacts aren't cleaned up. When `PACKAGE_REGISTRY_TOKEN` is set, a dry run still does the following, without using the token:
+With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old artifacts aren't cleaned up. When `PACKAGE_REGISTRY_TOKEN` or a public registry token is set, a dry run still does the following, without uploading anything:
 
 - discovers sources and checks for required tools
 - validates package metadata and versions
@@ -133,6 +157,7 @@ With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old art
 - runs `cargo publish --dry-run` and `npm publish --dry-run`
 - builds and checks PyPI distributions with `twine check` or `uv publish --dry-run`
 - generates Maven and Gradle registry authentication
+- builds, validates, and signs Maven Central bundles, so `MAVEN_CENTRAL_SIGNING_KEY` is required, but `MAVEN_CENTRAL_USERNAME` is not
 
 ## Install
 
@@ -163,6 +188,12 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
     package_registry_url: # default: host-specific registry
     package_registry_username: # default: ${{ github.actor }}
     package_registry_token: # dedicated package write token; enables package publishing
+    crates_io_token: # enables publishing to crates.io
+    npmjs_token: # enables publishing to npmjs.com
+    maven_central_username: # Central Portal user token username
+    maven_central_token: # Central Portal user token password; enables publishing to Maven Central
+    maven_central_signing_key: # ASCII-armored PGP private key
+    maven_central_signing_password: # passphrase for the signing key
     delete_old_release_artifacts: # false (default), true, or a count including current (e.g. "2")
     bundle_appimage: # default: false
 ```

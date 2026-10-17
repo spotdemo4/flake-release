@@ -5,6 +5,7 @@ go 1.26.6
 toolchain go1.27.2
 
 require (
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/estesp/manifest-tool/v2 v2.2.3-0.20260930150025-0884fee34cc2
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-beta.1
@@ -24,7 +25,6 @@ require (
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
-	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

@@ -10,6 +10,15 @@ import (
 )
 
 func preflightMavenPackage(set *packagePublicationSet, publication *packagePublication) error {
+	if err := mavenPackageIdentity(set, publication); err != nil {
+		return err
+	}
+	_, err := mavenSettingsPath(set)
+	return err
+}
+
+// mavenPackageIdentity requires Maven and reads the package coordinates from pom.xml.
+func mavenPackageIdentity(set *packagePublicationSet, publication *packagePublication) error {
 	if err := requireMaven(set, publication); err != nil {
 		return err
 	}
@@ -28,9 +37,6 @@ func preflightMavenPackage(set *packagePublicationSet, publication *packagePubli
 	}
 	publication.name = groupID + ":" + artifactID
 	publication.version = version
-	if _, err := mavenSettingsPath(set); err != nil {
-		return err
-	}
 	return nil
 }
 

@@ -71,6 +71,30 @@ inputs:
     description: dedicated package registry write token; enables package publishing
     required: false
 
+  crates_io_token:
+    description: crates.io API token; enables publishing Cargo packages to crates.io
+    required: false
+
+  npmjs_token:
+    description: npmjs.com access token; enables publishing npm packages to npmjs.com
+    required: false
+
+  maven_central_username:
+    description: Maven Central Portal user token username
+    required: false
+
+  maven_central_token:
+    description: Maven Central Portal user token password; enables publishing Maven and Gradle packages to Maven Central
+    required: false
+
+  maven_central_signing_key:
+    description: ASCII-armored PGP private key used to sign Maven Central bundles
+    required: false
+
+  maven_central_signing_password:
+    description: passphrase for maven_central_signing_key
+    required: false
+
   container_registry:
     description: container registry url
     required: false
@@ -133,5 +157,11 @@ runs:
     PACKAGE_REGISTRY_URL: ${{ inputs.package_registry_url }}
     PACKAGE_REGISTRY_TOKEN: ${{ inputs.package_registry_token }}
     PACKAGE_REGISTRY_USERNAME: ${{ inputs.package_registry_username }}
+    CRATES_IO_TOKEN: ${{ inputs.crates_io_token }}
+    NPMJS_TOKEN: ${{ inputs.npmjs_token }}
+    MAVEN_CENTRAL_USERNAME: ${{ inputs.maven_central_username }}
+    MAVEN_CENTRAL_TOKEN: ${{ inputs.maven_central_token }}
+    MAVEN_CENTRAL_SIGNING_KEY: ${{ inputs.maven_central_signing_key }}
+    MAVEN_CENTRAL_SIGNING_PASSWORD: ${{ inputs.maven_central_signing_password }}
     DELETE_OLD_RELEASE_ARTIFACTS: ${{ inputs.delete_old_release_artifacts }}
     BUNDLE_APPIMAGE: ${{ inputs.bundle_appimage }}

@@ -86,11 +86,17 @@ func TestParsePackageKinds(t *testing.T) {
 func TestPackagePublicationDryRunOutput(t *testing.T) {
 	output := captureHumanOutput(t)
 	set := &packagePublicationSet{
-		cfg: config{dryRun: true},
+		cfg:      config{dryRun: true},
+		provider: releaseForgejo,
 		packages: []packagePublication{{
 			kind:    packageNPM,
 			name:    "example",
 			version: "1.2.3",
+		}, {
+			kind:     packageNPM,
+			registry: registryNPMJS,
+			name:     "example",
+			version:  "1.2.3",
 		}},
 	}
 
@@ -98,7 +104,9 @@ func TestPackagePublicationDryRunOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "\nPublishing packages\n" +
-		"  npm example@1.2.3\n" +
+		"  npm example@1.2.3 to Forgejo\n" +
+		"    dry run: validated package; skipping publish\n" +
+		"  npm example@1.2.3 to npmjs.com\n" +
 		"    dry run: validated package; skipping publish\n"
 	if got := output.String(); got != want {
 		t.Fatalf("output = %q; want %q", got, want)

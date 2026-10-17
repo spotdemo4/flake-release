@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
 type packageKind string
@@ -44,14 +46,47 @@ func packageManifestCandidates(kind packageKind) []string {
 	}
 }
 
+// packageRegistry is a registry that packages are published to. The zero value is the
+// git host's own package registry, configured by PACKAGE_REGISTRY_*.
+type packageRegistry string
+
+const (
+	registryHost         packageRegistry = ""
+	registryCratesIO     packageRegistry = "crates-io"
+	registryNPMJS        packageRegistry = "npmjs"
+	registryMavenCentral packageRegistry = "maven-central"
+)
+
+func packageRegistryName(registry packageRegistry, provider releaseProvider) string {
+	switch registry {
+	case registryCratesIO:
+		return "crates.io"
+	case registryNPMJS:
+		return "npmjs.com"
+	case registryMavenCentral:
+		return "Maven Central"
+	default:
+		return releaseProviderName(provider)
+	}
+}
+
+// packageTarget is a registry and the package kinds discovered for it.
+type packageTarget struct {
+	registry packageRegistry
+	kinds    []packageKind
+}
+
 type packagePublication struct {
 	kind      packageKind
+	registry  packageRegistry
 	source    string
 	dir       string
 	manifest  string
 	name      string
 	version   string
 	artifacts []string
+	// publishArgs are extra arguments for the registry's publish command.
+	publishArgs []string
 }
 
 // errPackageNotPublishable marks a manifest that opts out of publishing, such as a
@@ -65,8 +100,9 @@ type packagePublicationSet struct {
 	temporaryDir string
 	packages     []packagePublication
 	commands     packageCommandRunner
-	// explicit is set when the deprecated PUBLISH_PACKAGES selected the package kinds.
+	// explicit is set when the deprecated PUBLISH_PACKAGES selected the host package kinds.
 	explicit bool
+	signer   *openpgp.Entity
 }
 
 func applyPackageRegistryDefaults(cfg *config, provider releaseProvider) {
@@ -93,15 +129,15 @@ func preparePackagePublications(cfg config, provider releaseProvider, tag releas
 }
 
 func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag releaseTag, nixPackages []string, packageSource func(string) (nixSource, error), commands packageCommandRunner) (*packagePublicationSet, error) {
-	kinds, explicit, err := selectPackageKinds(cfg, provider)
+	targets, explicit, err := selectPackageTargets(cfg, provider)
 	if err != nil {
 		return nil, err
 	}
-	if len(kinds) == 0 {
+	if len(targets) == 0 {
 		return nil, nil
 	}
 	if explicit {
-		if err := validatePackageRegistryConfig(cfg, provider, kinds); err != nil {
+		if err := validatePackageRegistryConfig(cfg, provider, targets[0].kinds); err != nil {
 			return nil, err
 		}
 	}
@@ -126,8 +162,12 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 	}()
 
 	section("Discovering package publications")
+	type registryKind struct {
+		registry packageRegistry
+		kind     packageKind
+	}
 	seenSources := map[string]bool{}
-	foundKinds := map[packageKind]bool{}
+	foundKinds := map[registryKind]bool{}
 	for index, nixPackage := range nixPackages {
 		item("%s", nixPackage)
 		src, err := packageSource(nixPackage)
@@ -158,37 +198,54 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 		}
 		seenSources[source] = true
 
-		for _, kind := range kinds {
-			candidates := packageManifestCandidates(kind)
-			foundManifest := ""
-			for _, candidate := range candidates {
-				if isFile(filepath.Join(source, candidate)) {
-					foundManifest = candidate
-					break
+		for _, target := range targets {
+			for _, kind := range target.kinds {
+				candidates := packageManifestCandidates(kind)
+				foundManifest := ""
+				for _, candidate := range candidates {
+					if isFile(filepath.Join(source, candidate)) {
+						foundManifest = candidate
+						break
+					}
 				}
+				if foundManifest == "" {
+					continue
+				}
+				// Stage the whole src so paths outside sourceRoot, such as shared test data, still resolve.
+				// Each registry gets its own copy, since preflight may rewrite manifests for it.
+				stagedName := fmt.Sprintf("source-%d-%s", index+1, kind)
+				if target.registry != registryHost {
+					stagedName += "-" + string(target.registry)
+				}
+				staged := filepath.Join(set.temporaryDir, stagedName)
+				if err := copyWritableTree(root, staged); err != nil {
+					return nil, fmt.Errorf("staging %s source %s: %w", kind, root, err)
+				}
+				dir := filepath.Join(staged, src.subdir)
+				foundKinds[registryKind{target.registry, kind}] = true
+				set.packages = append(set.packages, packagePublication{
+					kind:     kind,
+					registry: target.registry,
+					source:   source,
+					dir:      dir,
+					manifest: filepath.Join(dir, foundManifest),
+				})
 			}
-			if foundManifest == "" {
-				continue
-			}
-			// Stage the whole src so paths outside sourceRoot, such as shared test data, still resolve.
-			staged := filepath.Join(set.temporaryDir, fmt.Sprintf("source-%d-%s", index+1, kind))
-			if err := copyWritableTree(root, staged); err != nil {
-				return nil, fmt.Errorf("staging %s source %s: %w", kind, root, err)
-			}
-			dir := filepath.Join(staged, src.subdir)
-			foundKinds[kind] = true
-			set.packages = append(set.packages, packagePublication{
-				kind:     kind,
-				source:   source,
-				dir:      dir,
-				manifest: filepath.Join(dir, foundManifest),
-			})
 		}
 	}
 
-	if explicit {
-		for _, kind := range kinds {
-			if !foundKinds[kind] {
+	if !explicit && len(set.packages) == 0 {
+		status("no package manifests found")
+		return nil, nil
+	}
+	for targetIndex, target := range targets {
+		discovered := make([]packageKind, 0, len(target.kinds))
+		for _, kind := range target.kinds {
+			if foundKinds[registryKind{target.registry, kind}] {
+				discovered = append(discovered, kind)
+				continue
+			}
+			if explicit && targetIndex == 0 {
 				candidates := packageManifestCandidates(kind)
 				manifestDisplay := strings.Join(candidates, " or ")
 				if manifestDisplay == "" {
@@ -197,18 +254,15 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 				return nil, fmt.Errorf("PUBLISH_PACKAGES requested %q, but no %s was found at an evaluated source root", kind, manifestDisplay)
 			}
 		}
-	} else {
-		if len(set.packages) == 0 {
-			status("no package manifests found")
-			return nil, nil
+		if len(discovered) == 0 || (explicit && targetIndex == 0) {
+			continue
 		}
-		discovered := make([]packageKind, 0, len(foundKinds))
-		for _, kind := range kinds {
-			if foundKinds[kind] {
-				discovered = append(discovered, kind)
-			}
+		if target.registry == registryHost {
+			err = validatePackageRegistryConfig(cfg, provider, discovered)
+		} else {
+			err = validatePublicRegistryConfig(cfg, target.registry)
 		}
-		if err := validatePackageRegistryConfig(cfg, provider, discovered); err != nil {
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -236,14 +290,16 @@ func (set *packagePublicationSet) preflight() error {
 	publishable := set.packages[:0]
 	for index := range set.packages {
 		publication := &set.packages[index]
-		item("%s from %s", publication.kind, publication.source)
+		registry := packageRegistryName(publication.registry, set.provider)
+		item("%s for %s from %s", publication.kind, registry, publication.source)
 		status("validating package")
 		if err := publication.preflight(set); err != nil {
-			if !set.explicit && errors.Is(err, errPackageNotPublishable) {
+			explicit := set.explicit && publication.registry == registryHost
+			if !explicit && errors.Is(err, errPackageNotPublishable) {
 				status("skipping: %v", err)
 				continue
 			}
-			return fmt.Errorf("preflighting %s package at %s: %w", publication.kind, publication.source, err)
+			return fmt.Errorf("preflighting %s package for %s at %s: %w", publication.kind, registry, publication.source, err)
 		}
 		detail("name: %s", publication.name)
 		detail("version: %s", publication.version)
@@ -256,7 +312,7 @@ func (set *packagePublicationSet) preflight() error {
 		}
 		identity := publicationIdentity(*publication)
 		if previousSource, exists := identities[identity]; exists {
-			return fmt.Errorf("duplicate %s package %s@%s discovered at %s and %s", publication.kind, publication.name, publication.version, previousSource, publication.source)
+			return fmt.Errorf("duplicate %s package %s@%s for %s discovered at %s and %s", publication.kind, publication.name, publication.version, registry, previousSource, publication.source)
 		}
 		identities[identity] = publication.source
 		publishable = append(publishable, *publication)
@@ -275,7 +331,7 @@ func publicationIdentity(publication packagePublication) string {
 	if kind == packageGradle {
 		kind = packageMaven
 	}
-	return string(kind) + "\x00" + name + "\x00" + publication.version
+	return string(publication.registry) + "\x00" + string(kind) + "\x00" + name + "\x00" + publication.version
 }
 
 func (set *packagePublicationSet) publish() error {
@@ -285,20 +341,24 @@ func (set *packagePublicationSet) publish() error {
 	section("Publishing packages")
 	for index := range set.packages {
 		publication := &set.packages[index]
-		item("%s %s@%s", publication.kind, publication.name, publication.version)
+		registry := packageRegistryName(publication.registry, set.provider)
+		item("%s %s@%s to %s", publication.kind, publication.name, publication.version, registry)
 		if set.cfg.dryRun {
 			status("dry run: validated package; skipping publish")
 			continue
 		}
 		status("publishing package")
 		if err := publication.publish(set); err != nil {
-			return fmt.Errorf("publishing %s package %s@%s: %w", publication.kind, publication.name, publication.version, err)
+			return fmt.Errorf("publishing %s package %s@%s to %s: %w", publication.kind, publication.name, publication.version, registry, err)
 		}
 	}
 	return nil
 }
 
 func (publication *packagePublication) preflight(set *packagePublicationSet) error {
+	if publication.registry == registryMavenCentral {
+		return preflightMavenCentralPackage(set, publication)
+	}
 	switch publication.kind {
 	case packageGo:
 		return preflightGoPackage(set, publication)
@@ -318,6 +378,9 @@ func (publication *packagePublication) preflight(set *packagePublicationSet) err
 }
 
 func (publication *packagePublication) publish(set *packagePublicationSet) error {
+	if publication.registry == registryMavenCentral {
+		return publishMavenCentralPackage(set, publication)
+	}
 	switch publication.kind {
 	case packageGo:
 		return publishGoPackage(set, publication)
@@ -334,6 +397,37 @@ func (publication *packagePublication) publish(set *packagePublicationSet) error
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
 	}
+}
+
+// selectPackageTargets returns the registries to publish to and the package kinds to
+// discover for each. The git host's registry, when enabled, is always first.
+func selectPackageTargets(cfg config, provider releaseProvider) ([]packageTarget, bool, error) {
+	kinds, explicit, err := selectPackageKinds(cfg, provider)
+	if err != nil {
+		return nil, false, err
+	}
+	var targets []packageTarget
+	if len(kinds) > 0 {
+		targets = append(targets, packageTarget{registry: registryHost, kinds: kinds})
+	} else {
+		explicit = false
+	}
+	return append(targets, publicPackageTargets(cfg)...), explicit, nil
+}
+
+// publicPackageTargets returns the public registries enabled by their tokens.
+func publicPackageTargets(cfg config) []packageTarget {
+	var targets []packageTarget
+	if cfg.cratesIOToken != "" {
+		targets = append(targets, packageTarget{registry: registryCratesIO, kinds: []packageKind{packageCargo}})
+	}
+	if cfg.npmjsToken != "" {
+		targets = append(targets, packageTarget{registry: registryNPMJS, kinds: []packageKind{packageNPM}})
+	}
+	if cfg.mavenCentralToken != "" {
+		targets = append(targets, packageTarget{registry: registryMavenCentral, kinds: []packageKind{packageGradle, packageMaven}})
+	}
+	return targets
 }
 
 // selectPackageKinds returns the package kinds to discover. The deprecated
@@ -417,6 +511,20 @@ func validatePackageRegistryConfig(cfg config, provider releaseProvider, kinds [
 		default:
 			return fmt.Errorf("package publishing is not supported for release provider %q", provider)
 		}
+	}
+	return nil
+}
+
+func validatePublicRegistryConfig(cfg config, registry packageRegistry) error {
+	if registry != registryMavenCentral {
+		return nil
+	}
+	if !cfg.dryRun && cfg.mavenCentralUsername == "" {
+		return fmt.Errorf("MAVEN_CENTRAL_USERNAME is required to publish to Maven Central")
+	}
+	// Bundles are signed during preflight, so a dry run needs the key too.
+	if strings.TrimSpace(cfg.mavenCentralSigningKey) == "" {
+		return fmt.Errorf("MAVEN_CENTRAL_SIGNING_KEY is required to publish to Maven Central")
 	}
 	return nil
 }
