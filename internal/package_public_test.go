@@ -99,26 +99,41 @@ func TestCratesIOCargoCommand(t *testing.T) {
 	}
 }
 
-func TestCargoPublishListWithoutCratesIOIsNotPublishableThere(t *testing.T) {
+func TestCargoPublishListLimitsRegistries(t *testing.T) {
 	dir := t.TempDir()
 	manifest := filepath.Join(dir, "Cargo.toml")
-	metadata := func(publish string) fakePackageCommandRunner {
-		return fakePackageCommandRunner{
-			requireFunc: func(string) error { return nil },
-			runFunc:     func(commandOptions) error { return nil },
-			captureFunc: func(commandOptions) (string, error) {
-				return `{"packages":[{"name":"app","version":"1.2.3","manifest_path":"` + manifest + `","publish":` + publish + `}]}`, nil
+	for _, test := range []struct {
+		publish   string
+		registry  packageRegistry
+		published bool
+	}{
+		{`null`, registryHost, true},
+		{`null`, registryCratesIO, true},
+		{`["internal"]`, registryHost, false},
+		{`["internal"]`, registryCratesIO, false},
+		{`["crates-io"]`, registryHost, false},
+		{`["internal","crates-io"]`, registryCratesIO, true},
+		{`["flake-release"]`, registryHost, true},
+		{`["flake-release"]`, registryCratesIO, false},
+	} {
+		set := &packagePublicationSet{
+			cfg: config{packageRegistryOwner: "owner", packageRegistryURL: "https://git.example", cratesIOToken: "token"},
+			commands: fakePackageCommandRunner{
+				requireFunc: func(string) error { return nil },
+				runFunc:     func(commandOptions) error { return nil },
+				captureFunc: func(commandOptions) (string, error) {
+					return `{"packages":[{"name":"app","version":"1.2.3","manifest_path":"` + manifest + `","publish":` + test.publish + `}]}`, nil
+				},
 			},
 		}
-	}
-	set := &packagePublicationSet{cfg: config{cratesIOToken: "token"}, commands: metadata(`["internal"]`)}
-	publication := &packagePublication{kind: packageCargo, registry: registryCratesIO, dir: dir, manifest: manifest}
-	if err := preflightCargoPackage(set, publication); !errors.Is(err, errPackageNotPublishable) {
-		t.Fatalf("error = %v; want not publishable to crates.io", err)
-	}
-	set.commands = metadata(`["internal","crates-io"]`)
-	if err := preflightCargoPackage(set, publication); err != nil {
-		t.Fatalf("package listing crates-io was rejected: %v", err)
+		publication := &packagePublication{kind: packageCargo, registry: test.registry, dir: dir, manifest: manifest}
+		err := preflightCargoPackage(set, publication)
+		if test.published && err != nil {
+			t.Errorf("publish = %s for %q: %v; want published", test.publish, test.registry, err)
+		}
+		if !test.published && !errors.Is(err, errPackageNotPublishable) {
+			t.Errorf("publish = %s for %q: %v; want not publishable", test.publish, test.registry, err)
+		}
 	}
 }
 

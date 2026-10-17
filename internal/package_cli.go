@@ -64,8 +64,14 @@ func preflightCargoPackage(set *packagePublicationSet, publication *packagePubli
 			if pkg.Publish != nil && len(*pkg.Publish) == 0 {
 				return fmt.Errorf("cargo package %s sets publish = false: %w", pkg.Name, errPackageNotPublishable)
 			}
-			if publication.registry == registryCratesIO && pkg.Publish != nil && !slices.Contains(*pkg.Publish, cratesIORegistryName) {
-				return fmt.Errorf("cargo package %s does not list %s in publish: %w", pkg.Name, cratesIORegistryName, errPackageNotPublishable)
+			// Cargo refuses to publish to a registry missing from the publish list, and
+			// the git host's registry is always named flake-release.
+			registryName := cargoRegistryName
+			if publication.registry == registryCratesIO {
+				registryName = cratesIORegistryName
+			}
+			if pkg.Publish != nil && !slices.Contains(*pkg.Publish, registryName) {
+				return fmt.Errorf("cargo package %s does not list %s in publish: %w", pkg.Name, registryName, errPackageNotPublishable)
 			}
 			publication.name = pkg.Name
 			publication.version = pkg.Version
