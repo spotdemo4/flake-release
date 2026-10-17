@@ -54,6 +54,7 @@ const (
 	registryHost         packageRegistry = ""
 	registryCratesIO     packageRegistry = "crates-io"
 	registryNPMJS        packageRegistry = "npmjs"
+	registryPyPI         packageRegistry = "pypi"
 	registryMavenCentral packageRegistry = "maven-central"
 )
 
@@ -63,6 +64,8 @@ func packageRegistryName(registry packageRegistry, provider releaseProvider) str
 		return "crates.io"
 	case registryNPMJS:
 		return "npmjs.com"
+	case registryPyPI:
+		return "pypi.org"
 	case registryMavenCentral:
 		return "Maven Central"
 	default:
@@ -423,6 +426,9 @@ func publicPackageTargets(cfg config) []packageTarget {
 	}
 	if cfg.npmjsToken != "" {
 		targets = append(targets, packageTarget{registry: registryNPMJS, kinds: []packageKind{packageNPM}})
+	}
+	if cfg.pypiToken != "" {
+		targets = append(targets, packageTarget{registry: registryPyPI, kinds: []packageKind{packagePyPI}})
 	}
 	if cfg.mavenCentralToken != "" {
 		targets = append(targets, packageTarget{registry: registryMavenCentral, kinds: []packageKind{packageGradle, packageMaven}})

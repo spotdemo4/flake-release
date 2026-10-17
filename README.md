@@ -14,7 +14,7 @@ Generates release artifacts for packages in a nix flake:
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
-- Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, and Maven Central
+- Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, pypi.org, and Maven Central
 
 Packages are built and published in order of their platform's distance from the runner, so a slow cross-compiled build doesn't hold up the rest of the release: native packages and container images first, then [package registries](#package-publishing), then packages for another architecture on the same OS, another OS, and finally another OS and architecture. Container image destinations are validated before anything is built, and the combined image manifest is updated once every image is uploaded.
 
@@ -49,6 +49,7 @@ Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a 
 | PACKAGE_REGISTRY_TOKEN         | Package registry write token; enables package publishing                             |                                                             |                                |
 | CRATES_IO_TOKEN                | crates.io API token; enables [publishing](#public-registries) to crates.io           |                                                             |                                |
 | NPMJS_TOKEN                    | npmjs.com access token; enables publishing to npmjs.com                              |                                                             |                                |
+| PYPI_TOKEN                     | pypi.org API token; enables publishing to pypi.org                                   |                                                             |                                |
 | MAVEN_CENTRAL_USERNAME         | Maven Central Portal user token username                                             |                                                             |                                |
 | MAVEN_CENTRAL_TOKEN            | Maven Central Portal user token password; enables publishing to Maven Central        |                                                             |                                |
 | MAVEN_CENTRAL_SIGNING_KEY      | ASCII-armored PGP private key that signs Maven Central bundles                       |                                                             |                                |
@@ -109,10 +110,12 @@ Each public registry is enabled by its own token, works with any git host, and i
 | ------------- | ------------- | --------------------- | ----------------------------------------------------- |
 | crates.io     | Cargo         | `CRATES_IO_TOKEN`     |                                                       |
 | npmjs.com     | npm           | `NPMJS_TOKEN`         |                                                       |
+| pypi.org      | PyPI          | `PYPI_TOKEN`          |                                                       |
 | Maven Central | Gradle, Maven | `MAVEN_CENTRAL_TOKEN` | `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_SIGNING_KEY` |
 
 - crates.io: a Cargo `publish` list must include `crates-io`, or the package is skipped for crates.io.
 - npmjs.com: the token needs write access to the package and must be able to publish without two-factor authentication, such as a granular access token with 2FA bypass. Scoped packages are published with `--access public` unless `package.json` sets `publishConfig.access`, and the name is never rewritten to an owner scope.
+- pypi.org: the token is a [PyPI API token](https://pypi.org/help/#apitoken), sent with the `__token__` username. Distributions classified `Private :: Do Not Upload` are skipped for pypi.org, which rejects them, but are still published to the git host's registry.
 - Maven Central: the token is a [Central Portal user token](https://central.sonatype.org/publish/generate-portal-token/), and the group ID must be a verified namespace. flake-release builds the project into a local Maven repository with `mvn deploy` (passing `-Dgpg.skip=true`) or Gradle's `maven-publish` publications, so no Central-specific plugin is needed. It then adds MD5 and SHA-1 checksums and signs every file with `MAVEN_CENTRAL_SIGNING_KEY`, whose public key must be on a public key server. The bundle is uploaded through the [Publisher API](https://central.sonatype.org/publish/publish-portal-api/) for automatic publishing, and flake-release waits until it passes validation. The build must produce `-sources.jar` and `-javadoc.jar` artifacts for non-`pom` packaging, and the POM must declare `name`, `description`, `url`, `licenses`, `developers`, and `scm`, or inherit them from a parent POM. `SNAPSHOT` versions are rejected.
 
 The same package published to two registries is staged separately for each, so a manifest rewritten for one registry is unchanged for the other.
@@ -132,7 +135,7 @@ For each requested Nix package, flake-release evaluates `.#<package>.src` and lo
 
 Manifest discovery is not recursive. Sources shared by multiple Nix package attributes with the same `sourceRoot` are published only once per package kind. Evaluated sources are copied in full to writable temporary staging directories before package tools run in the manifest's directory, so files outside `sourceRoot` remain available.
 
-Manifests that opt out of publishing are skipped: an npm `package.json` with `"private": true`, and a `Cargo.toml` that sets `publish = false`, only defines a workspace, or, for crates.io, has a `publish` list without `crates-io`. Any other discovered manifest must be publishable and match the release version, so opt out of publishing packages that are not meant for a registry. A Gradle build and a Maven `pom.xml` with the same coordinates in one source are rejected as duplicates for the same registry.
+Manifests that opt out of publishing are skipped: an npm `package.json` with `"private": true`, and a `Cargo.toml` that sets `publish = false`, only defines a workspace, or, for crates.io, has a `publish` list without `crates-io`. For pypi.org, a project whose built metadata has the `Private :: Do Not Upload` classifier is skipped too. Any other discovered manifest must be publishable and match the release version, so opt out of publishing packages that are not meant for a registry. A Gradle build and a Maven `pom.xml` with the same coordinates in one source are rejected as duplicates for the same registry.
 
 #### Tools and versions
 
@@ -190,6 +193,7 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
     package_registry_token: # dedicated package write token; enables package publishing
     crates_io_token: # enables publishing to crates.io
     npmjs_token: # enables publishing to npmjs.com
+    pypi_token: # enables publishing to pypi.org
     maven_central_username: # Central Portal user token username
     maven_central_token: # Central Portal user token password; enables publishing to Maven Central
     maven_central_signing_key: # ASCII-armored PGP private key
