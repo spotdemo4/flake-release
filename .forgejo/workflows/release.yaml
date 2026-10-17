@@ -13,7 +13,7 @@ concurrency:
 enable-openid-connect: true
 
 jobs:
-  linux:
+  release:
     # zizmor: ignore[excessive-permissions]
     runs-on: ubuntu-26.04
     steps:
@@ -30,6 +30,7 @@ jobs:
         run: flake-release
         env:
           GIT_TOKEN: ${{ secrets.DOCTOR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           PACKAGE_REGISTRY_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.PACKAGE_TOKEN }}
           DELETE_OLD_RELEASE_ARTIFACTS: 2

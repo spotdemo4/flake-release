@@ -192,7 +192,7 @@ func TestPrepareMavenPublications(t *testing.T) {
 	}
 	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("packages/jvm/v1.2.3"), []string{"pkg"}, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
 		requireFunc: func(name string) error { return nil },
-		runFunc: func(options commandOptions) error { return nil },
+		runFunc:     func(options commandOptions) error { return nil },
 		captureFunc: func(options commandOptions) (string, error) { return "", nil },
 	})
 	if err != nil {
@@ -219,7 +219,7 @@ func TestPrepareGradlePublications(t *testing.T) {
 	}
 	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("packages/jvm/v1.2.3"), []string{"pkg"}, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
 		requireFunc: func(name string) error { return nil },
-		runFunc: func(options commandOptions) error { return nil },
+		runFunc:     func(options commandOptions) error { return nil },
 		captureFunc: func(options commandOptions) (string, error) { return "", nil },
 	})
 	if err != nil {
@@ -257,7 +257,7 @@ func TestRegistryURLMavenGitHub(t *testing.T) {
 	set := &packagePublicationSet{
 		cfg: config{
 			packageRegistryOwner: "Owner",
-			gitRepository:     "Owner/repo",
+			gitRepository:        "Owner/repo",
 			packageRegistryURL:   "https://npm.pkg.github.com",
 		},
 		provider: releaseGitHub,
@@ -294,7 +294,7 @@ func TestPublishMavenCommand(t *testing.T) {
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
 		packageRegistryToken: "secret",
-		gitRepository:     "owner/repo",
+		gitRepository:        "owner/repo",
 	}
 	set := &packagePublicationSet{
 		cfg:          cfg,
@@ -303,7 +303,7 @@ func TestPublishMavenCommand(t *testing.T) {
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(string) error { return nil },
-			runFunc: func(options commandOptions) error { return nil },
+			runFunc:     func(options commandOptions) error { return nil },
 			captureFunc: func(options commandOptions) (string, error) { return "", nil },
 		},
 	}
@@ -377,7 +377,7 @@ func TestPublishMavenWrapper(t *testing.T) {
 	var captured commandOptions
 	set.commands = fakePackageCommandRunner{
 		requireFunc: func(string) error { t.Fatal("should not require mvn when wrapper present"); return nil },
-		runFunc: func(opts commandOptions) error { captured = opts; return nil },
+		runFunc:     func(opts commandOptions) error { captured = opts; return nil },
 		captureFunc: func(commandOptions) (string, error) { return "", nil },
 	}
 	if err := requireMaven(set, publication); err != nil {
@@ -412,7 +412,7 @@ func TestPublishGradleCommand(t *testing.T) {
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(string) error { return nil },
-			runFunc: func(options commandOptions) error { return nil },
+			runFunc:     func(options commandOptions) error { return nil },
 			captureFunc: func(options commandOptions) (string, error) { return "", nil },
 		},
 	}
@@ -423,7 +423,7 @@ func TestPublishGradleCommand(t *testing.T) {
 	var captured commandOptions
 	set.commands = fakePackageCommandRunner{
 		requireFunc: func(string) error { return nil },
-		runFunc: func(opts commandOptions) error { captured = opts; return nil },
+		runFunc:     func(opts commandOptions) error { captured = opts; return nil },
 		captureFunc: func(commandOptions) (string, error) { return "", nil },
 	}
 	if err := publishGradlePackage(set, publication); err != nil {

@@ -9,14 +9,15 @@ concurrency:
   group: release
   cancel-in-progress: false
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-26.04
     permissions:
-      contents: write
       id-token: write
+      contents: write
       packages: write
     steps:
       - name: Initialize
@@ -25,7 +26,7 @@ jobs:
           fetch_depth: 0
           shell: release
 
-      - name: Publish to GitHub
+      - name: Release to GitHub
         run: flake-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

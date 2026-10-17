@@ -7,7 +7,7 @@
   "platform": "forgejo",
   "endpoint": "https://trev.zip/api/v1",
   "repositories": ["llc/flake-release"],
-  "allowedCommands": ["fix-hash .#default"],
+  "allowedCommands": ["^fix-hash \\.#default$"],
 
   // repository
   "extends": ["config:recommended"],
@@ -21,7 +21,8 @@
     "schedule": ["* * * * 0"], // sunday
     "skipInstalls": false,
     "postUpgradeTasks": {
-      "commands": ["fix-hash .#default"]
+      "commands": ["fix-hash .#default"],
+      "executionMode": "branch"
     }
   },
   "packageRules": [
@@ -40,9 +41,16 @@
     {
       "matchManagers": ["gomod"],
       "addLabels": ["go"],
+      "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
       "postUpgradeTasks": {
-        "commands": ["fix-hash .#default"]
+        "commands": ["fix-hash .#default"],
+        "executionMode": "branch"
       }
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "go modules"
     }
   ]
 }

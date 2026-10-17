@@ -153,8 +153,8 @@ func TestPreparePackageBundleMultipleOutputs(t *testing.T) {
 		{Name: "dev", Path: filepath.Join(root, "dev")},
 	}
 	files := map[string]string{
-		"out/share/app/data.txt":       "runtime",
-		"dev/include/app/api.h":        "header",
+		"out/share/app/data.txt":      "runtime",
+		"dev/include/app/api.h":       "header",
 		"doc/share/doc/app/readme.md": "documentation",
 	}
 	for name, content := range files {
@@ -174,9 +174,9 @@ func TestPreparePackageBundleMultipleOutputs(t *testing.T) {
 	defer deletePath(bundle)
 
 	want := map[string]string{
-		"dev/include/app/api.h":        "header",
+		"dev/include/app/api.h":       "header",
 		"doc/share/doc/app/readme.md": "documentation",
-		"share/app/data.txt":           "runtime",
+		"share/app/data.txt":          "runtime",
 	}
 	for name, wantContent := range want {
 		got, err := os.ReadFile(filepath.Join(bundle, filepath.FromSlash(name)))

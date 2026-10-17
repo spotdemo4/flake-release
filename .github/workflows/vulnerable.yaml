@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  actions:
+    runs-on: ubuntu-26.04
+    permissions:
+      id-token: write
+    steps:
+      - name: Initialize
+        uses: spotdemo4/nix-init@a09ea83c7aa7f99a6832771f7b7cb3a764ade52f # v1.71.0
+        with:
+          shell: vulnerable
+
+      - name: Run zizmor
+        run: zizmor $(find .github/workflows -name "*.yaml")
+
   go:
     runs-on: ubuntu-26.04
     permissions:
@@ -34,16 +47,3 @@ jobs:
 
       - name: Run flake-checker
         run: flake-checker -f
-
-  actions:
-    runs-on: ubuntu-26.04
-    permissions:
-      id-token: write
-    steps:
-      - name: Initialize
-        uses: spotdemo4/nix-init@a09ea83c7aa7f99a6832771f7b7cb3a764ade52f # v1.71.0
-        with:
-          shell: vulnerable
-
-      - name: Run zizmor
-        run: zizmor $(find .github/workflows -name "*.yaml")

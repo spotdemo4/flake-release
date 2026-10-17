@@ -12,14 +12,20 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   check:
-    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-26]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      id-token: write
+    timeout-minutes: 90
     steps:
       - name: Initialize
         uses: spotdemo4/nix-init@a09ea83c7aa7f99a6832771f7b7cb3a764ade52f # v1.71.0
 
-      - name: Run checks
+      - name: Check
         run: nix flake check

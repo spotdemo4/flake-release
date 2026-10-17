@@ -12,21 +12,21 @@ import (
 )
 
 type config struct {
-	dryRun                    bool
-	bundleAppImage            bool
-	deleteOldReleaseArtifacts string
-	gitRepository          string
-	gitServerURL           string
-	gitActor               string
-	gitToken               string
-	containerRegistry         string
-	containerRegistryUsername string
-	containerRegistryPassword string
-	publishPackages           string
-	packageRegistryOwner      string
-	packageRegistryURL        string
-	packageRegistryToken      string
-	packageRegistryUsername   string
+	dryRun                      bool
+	bundleAppImage              bool
+	deleteOldReleaseArtifacts   string
+	gitRepository               string
+	gitServerURL                string
+	gitActor                    string
+	gitToken                    string
+	containerRegistry           string
+	containerRegistryUsername   string
+	containerRegistryPassword   string
+	publishPackages             string
+	packageRegistryOwner        string
+	packageRegistryURL          string
+	packageRegistryToken        string
+	packageRegistryUsername     string
 	cratesIOToken               string
 	npmjsToken                  string
 	pypiToken                   string
@@ -94,21 +94,21 @@ func selectedReleaseTag() (string, error) {
 
 func configFromEnv() config {
 	return config{
-		dryRun:                    truthy(os.Getenv("DRY_RUN")),
-		bundleAppImage:            truthy(os.Getenv("BUNDLE_APPIMAGE")),
-		deleteOldReleaseArtifacts: os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
-		gitRepository:          actionsEnv("GIT_REPOSITORY", "GITHUB_REPOSITORY"),
-		gitServerURL:           actionsEnv("GIT_SERVER_URL", "GITHUB_SERVER_URL"),
-		gitActor:               actionsEnv("GIT_ACTOR", "GITHUB_ACTOR"),
-		gitToken:               gitTokenEnv(),
-		containerRegistry:         deprecatedEnv("CONTAINER_REGISTRY", "REGISTRY"),
-		containerRegistryUsername: deprecatedEnv("CONTAINER_REGISTRY_USERNAME", "REGISTRY_USERNAME"),
-		containerRegistryPassword: deprecatedEnv("CONTAINER_REGISTRY_PASSWORD", "REGISTRY_PASSWORD"),
-		publishPackages:           os.Getenv("PUBLISH_PACKAGES"),
-		packageRegistryOwner:      os.Getenv("PACKAGE_REGISTRY_OWNER"),
-		packageRegistryURL:        os.Getenv("PACKAGE_REGISTRY_URL"),
-		packageRegistryToken:      os.Getenv("PACKAGE_REGISTRY_TOKEN"),
-		packageRegistryUsername:   os.Getenv("PACKAGE_REGISTRY_USERNAME"),
+		dryRun:                      truthy(os.Getenv("DRY_RUN")),
+		bundleAppImage:              truthy(os.Getenv("BUNDLE_APPIMAGE")),
+		deleteOldReleaseArtifacts:   os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
+		gitRepository:               actionsEnv("GIT_REPOSITORY", "GITHUB_REPOSITORY"),
+		gitServerURL:                actionsEnv("GIT_SERVER_URL", "GITHUB_SERVER_URL"),
+		gitActor:                    actionsEnv("GIT_ACTOR", "GITHUB_ACTOR"),
+		gitToken:                    gitTokenEnv(),
+		containerRegistry:           deprecatedEnv("CONTAINER_REGISTRY", "REGISTRY"),
+		containerRegistryUsername:   deprecatedEnv("CONTAINER_REGISTRY_USERNAME", "REGISTRY_USERNAME"),
+		containerRegistryPassword:   deprecatedEnv("CONTAINER_REGISTRY_PASSWORD", "REGISTRY_PASSWORD"),
+		publishPackages:             os.Getenv("PUBLISH_PACKAGES"),
+		packageRegistryOwner:        os.Getenv("PACKAGE_REGISTRY_OWNER"),
+		packageRegistryURL:          os.Getenv("PACKAGE_REGISTRY_URL"),
+		packageRegistryToken:        os.Getenv("PACKAGE_REGISTRY_TOKEN"),
+		packageRegistryUsername:     os.Getenv("PACKAGE_REGISTRY_USERNAME"),
 		cratesIOToken:               os.Getenv("CRATES_IO_TOKEN"),
 		npmjsToken:                  os.Getenv("NPMJS_TOKEN"),
 		pypiToken:                   os.Getenv("PYPI_TOKEN"),

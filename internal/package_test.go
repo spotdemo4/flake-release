@@ -17,8 +17,8 @@ import (
 type fakePackageCommandRunner struct {
 	availableFunc func(string) bool
 	requireFunc   func(string) error
-	runFunc     func(commandOptions) error
-	captureFunc func(commandOptions) (string, error)
+	runFunc       func(commandOptions) error
+	captureFunc   func(commandOptions) (string, error)
 }
 
 func (runner fakePackageCommandRunner) available(name string) bool {
@@ -342,7 +342,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	writeTestFile(t, manifest, `{"name":"@owner/project","version":"1.2.3"}`)
 	cfg := config{
 		dryRun:               true,
-		gitRepository:     "Owner/repository",
+		gitRepository:        "Owner/repository",
 		packageRegistryOwner: "Owner",
 	}
 	applyPackageRegistryDefaults(&cfg, releaseGitHub)
@@ -559,8 +559,8 @@ func TestPreparePackagePublicationsSkipsUnavailableSourcesAndCleansUp(t *testing
 	}
 	cfg := config{
 		dryRun:               true,
-		gitRepository:     "owner/project",
-		gitServerURL:      "https://example.com",
+		gitRepository:        "owner/project",
+		gitServerURL:         "https://example.com",
 		publishPackages:      "go",
 		packageRegistryOwner: "owner",
 		packageRegistryURL:   "https://git.example",
@@ -635,7 +635,7 @@ func TestPreflightGoPackageUsesScopedVersionTagForDownload(t *testing.T) {
 	var downloaded commandOptions
 	set := &packagePublicationSet{
 		cfg: config{
-			dryRun:           true,
+			dryRun:        true,
 			gitServerURL:  "https://example.com",
 			gitRepository: "Owner/Repo",
 		},
@@ -694,7 +694,7 @@ func TestPreflightGoPackageRejectsScopedTagForRootModuleBeforeDownload(t *testin
 	captureCalled := false
 	set := &packagePublicationSet{
 		cfg: config{
-			dryRun:           true,
+			dryRun:        true,
 			gitServerURL:  "https://example.com",
 			gitRepository: "owner/repo",
 		},

@@ -10,3 +10,7 @@
 # nix
 /result*
 /.direnv/
+
+# build
+/build/
+/tmp/

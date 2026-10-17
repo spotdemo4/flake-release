@@ -246,3 +246,7 @@ docker run -it \
 ### Downloads
 
 https://trev.zip/llc/flake-release/releases
+
+## Contributing
+
+see [CONTRIBUTING.md](CONTRIBUTING.md) for requirements and getting started
