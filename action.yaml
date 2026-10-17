@@ -79,8 +79,16 @@ inputs:
     description: npmjs.com access token; enables publishing npm packages to npmjs.com
     required: false
 
+  npmjs_trusted_publishing:
+    description: publish npm packages to npmjs.com with trusted publishing instead of npmjs_token; requires id-token write permission
+    required: false
+
   pypi_token:
     description: pypi.org API token; enables publishing PyPI packages to pypi.org
+    required: false
+
+  pypi_trusted_publishing:
+    description: publish PyPI packages to pypi.org with trusted publishing instead of pypi_token; requires id-token write permission
     required: false
 
   maven_central_username:
@@ -163,7 +171,9 @@ runs:
     PACKAGE_REGISTRY_USERNAME: ${{ inputs.package_registry_username }}
     CRATES_IO_TOKEN: ${{ inputs.crates_io_token }}
     NPMJS_TOKEN: ${{ inputs.npmjs_token }}
+    NPMJS_TRUSTED_PUBLISHING: ${{ inputs.npmjs_trusted_publishing }}
     PYPI_TOKEN: ${{ inputs.pypi_token }}
+    PYPI_TRUSTED_PUBLISHING: ${{ inputs.pypi_trusted_publishing }}
     MAVEN_CENTRAL_USERNAME: ${{ inputs.maven_central_username }}
     MAVEN_CENTRAL_TOKEN: ${{ inputs.maven_central_token }}
     MAVEN_CENTRAL_SIGNING_KEY: ${{ inputs.maven_central_signing_key }}

@@ -203,11 +203,17 @@ func npmCommand(set *packagePublicationSet, publication *packagePublication, npm
 	if dryRun {
 		args = append(args, "--dry-run")
 	}
+	env := []string{"NPM_CONFIG_USERCONFIG=" + npmrc}
+	if publication.registry == registryNPMJS && !set.cfg.npmjsTrustedPublishing {
+		// npm swaps the token for one from an OIDC exchange when the workflow can
+		// request an ID token, but npmjs.com does not trust every issuer, such as Forgejo's.
+		env = append(env, "ACTIONS_ID_TOKEN_REQUEST_URL=", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=")
+	}
 	return commandOptions{
 		name:    "npm",
 		args:    args,
 		dir:     publication.dir,
-		env:     []string{"NPM_CONFIG_USERCONFIG=" + npmrc},
+		env:     env,
 		secrets: []string{token},
 	}
 }
@@ -247,7 +253,14 @@ func (set *packagePublicationSet) npmConfig(registry packageRegistry) (string, e
 
 // pyPITool reports the tool used to build and upload PyPI distributions: uv when it
 // is on PATH, then python3 when it has the build and twine modules, then uv from nixpkgs.
-func pyPITool(set *packagePublicationSet) (string, error) {
+// Trusted publishing always uses uv.
+func pyPITool(set *packagePublicationSet, publication *packagePublication) (string, error) {
+	if set.pyPITrustedPublishing(publication) {
+		if err := set.commands.require("uv"); err != nil {
+			return "", fmt.Errorf("pypi trusted publishing requires uv: %w", err)
+		}
+		return "uv", nil
+	}
 	if set.commands.available("uv") {
 		return "uv", nil
 	}
@@ -261,7 +274,7 @@ func pyPITool(set *packagePublicationSet) (string, error) {
 }
 
 func preflightPyPIPackage(set *packagePublicationSet, publication *packagePublication) error {
-	tool, err := pyPITool(set)
+	tool, err := pyPITool(set, publication)
 	if err != nil {
 		return err
 	}
@@ -317,7 +330,7 @@ func publishPyPIPackage(set *packagePublicationSet, publication *packagePublicat
 	if len(publication.artifacts) == 0 {
 		return fmt.Errorf("pypi package artifacts were not prepared")
 	}
-	tool, err := pyPITool(set)
+	tool, err := pyPITool(set, publication)
 	if err != nil {
 		return err
 	}
@@ -333,6 +346,10 @@ func publishPyPIPackage(set *packagePublicationSet, publication *packagePublicat
 			"UV_PUBLISH_USERNAME=" + username,
 			"UV_PUBLISH_PASSWORD=" + token,
 		}
+		if set.pyPITrustedPublishing(publication) {
+			args = []string{"publish", "--trusted-publishing", "always", "--publish-url", registry}
+			env = nil
+		}
 	}
 	return set.commands.run(commandOptions{
 		name:    tool,
@@ -341,6 +358,12 @@ func publishPyPIPackage(set *packagePublicationSet, publication *packagePublicat
 		env:     env,
 		secrets: []string{token},
 	})
+}
+
+// pyPITrustedPublishing reports whether publication uploads to pypi.org with
+// trusted publishing instead of an API token.
+func (set *packagePublicationSet) pyPITrustedPublishing(publication *packagePublication) bool {
+	return publication.registry == registryPyPI && set.cfg.pypiTrustedPublishing
 }
 
 // pyPIRegistry returns the PyPI upload URL and credentials for registry. pypi.org

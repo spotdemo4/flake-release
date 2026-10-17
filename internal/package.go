@@ -418,16 +418,17 @@ func selectPackageTargets(cfg config, provider releaseProvider) ([]packageTarget
 	return append(targets, publicPackageTargets(cfg)...), explicit, nil
 }
 
-// publicPackageTargets returns the public registries enabled by their tokens.
+// publicPackageTargets returns the public registries enabled by their tokens or
+// by trusted publishing.
 func publicPackageTargets(cfg config) []packageTarget {
 	var targets []packageTarget
 	if cfg.cratesIOToken != "" {
 		targets = append(targets, packageTarget{registry: registryCratesIO, kinds: []packageKind{packageCargo}})
 	}
-	if cfg.npmjsToken != "" {
+	if cfg.npmjsToken != "" || cfg.npmjsTrustedPublishing {
 		targets = append(targets, packageTarget{registry: registryNPMJS, kinds: []packageKind{packageNPM}})
 	}
-	if cfg.pypiToken != "" {
+	if cfg.pypiToken != "" || cfg.pypiTrustedPublishing {
 		targets = append(targets, packageTarget{registry: registryPyPI, kinds: []packageKind{packagePyPI}})
 	}
 	if cfg.mavenCentralToken != "" {
@@ -522,6 +523,12 @@ func validatePackageRegistryConfig(cfg config, provider releaseProvider, kinds [
 }
 
 func validatePublicRegistryConfig(cfg config, registry packageRegistry) error {
+	switch registry {
+	case registryNPMJS:
+		return validateTrustedPublishing(cfg, cfg.npmjsTrustedPublishing, cfg.npmjsToken, "NPMJS")
+	case registryPyPI:
+		return validateTrustedPublishing(cfg, cfg.pypiTrustedPublishing, cfg.pypiToken, "PYPI")
+	}
 	if registry != registryMavenCentral {
 		return nil
 	}
@@ -531,6 +538,21 @@ func validatePublicRegistryConfig(cfg config, registry packageRegistry) error {
 	// Bundles are signed during preflight, so a dry run needs the key too.
 	if strings.TrimSpace(cfg.mavenCentralSigningKey) == "" {
 		return fmt.Errorf("MAVEN_CENTRAL_SIGNING_KEY is required to publish to Maven Central")
+	}
+	return nil
+}
+
+// validateTrustedPublishing checks that a registry uses either its token or trusted
+// publishing, and that trusted publishing can request an OIDC ID token from Actions.
+func validateTrustedPublishing(cfg config, trusted bool, token string, prefix string) error {
+	if !trusted {
+		return nil
+	}
+	if token != "" {
+		return fmt.Errorf("%s_TOKEN and %s_TRUSTED_PUBLISHING cannot both be set", prefix, prefix)
+	}
+	if !cfg.dryRun && (os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" || os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") == "") {
+		return fmt.Errorf("%s_TRUSTED_PUBLISHING requires an OIDC ID token; grant the workflow the id-token: write permission", prefix)
 	}
 	return nil
 }

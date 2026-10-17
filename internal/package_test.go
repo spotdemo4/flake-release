@@ -963,7 +963,7 @@ func TestPyPIPackageFallsBackToRequiredUV(t *testing.T) {
 			return errors.New("No module named 'build'")
 		},
 	}
-	tool, err := pyPITool(&packagePublicationSet{commands: runner})
+	tool, err := pyPITool(&packagePublicationSet{commands: runner}, &packagePublication{})
 	if err != nil {
 		t.Fatal(err)
 	}

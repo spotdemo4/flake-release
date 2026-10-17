@@ -29,7 +29,9 @@ type config struct {
 	packageRegistryUsername     string
 	cratesIOToken               string
 	npmjsToken                  string
+	npmjsTrustedPublishing      bool
 	pypiToken                   string
+	pypiTrustedPublishing       bool
 	mavenCentralUsername        string
 	mavenCentralToken           string
 	mavenCentralSigningKey      string
@@ -111,7 +113,9 @@ func configFromEnv() config {
 		packageRegistryUsername:     os.Getenv("PACKAGE_REGISTRY_USERNAME"),
 		cratesIOToken:               os.Getenv("CRATES_IO_TOKEN"),
 		npmjsToken:                  os.Getenv("NPMJS_TOKEN"),
+		npmjsTrustedPublishing:      truthy(os.Getenv("NPMJS_TRUSTED_PUBLISHING")),
 		pypiToken:                   os.Getenv("PYPI_TOKEN"),
+		pypiTrustedPublishing:       truthy(os.Getenv("PYPI_TRUSTED_PUBLISHING")),
 		mavenCentralUsername:        os.Getenv("MAVEN_CENTRAL_USERNAME"),
 		mavenCentralToken:           os.Getenv("MAVEN_CENTRAL_TOKEN"),
 		mavenCentralSigningKey:      os.Getenv("MAVEN_CENTRAL_SIGNING_KEY"),

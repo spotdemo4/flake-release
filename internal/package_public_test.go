@@ -162,6 +162,40 @@ func TestNPMJSConfigUsesNPMJSToken(t *testing.T) {
 	if !slices.Equal(command.secrets, []string{"npm-token"}) {
 		t.Fatalf("npm secrets = %q", command.secrets)
 	}
+	if !slices.Equal(command.env, []string{"NPM_CONFIG_USERCONFIG=" + path, "ACTIONS_ID_TOKEN_REQUEST_URL=", "ACTIONS_ID_TOKEN_REQUEST_TOKEN="}) {
+		t.Fatalf("npm env = %q; want OIDC request variables blanked", command.env)
+	}
+
+	host := npmCommand(set, &packagePublication{registry: registryHost}, path, false)
+	if slices.ContainsFunc(host.env, func(value string) bool { return strings.HasPrefix(value, "ACTIONS_ID_TOKEN_") }) {
+		t.Fatalf("host npm env = %q; want OIDC request variables kept", host.env)
+	}
+}
+
+func TestNPMJSTrustedPublishingKeepsOIDC(t *testing.T) {
+	set := &packagePublicationSet{
+		cfg:          config{npmjsTrustedPublishing: true},
+		provider:     releaseGitHub,
+		temporaryDir: t.TempDir(),
+	}
+	if targets := publicPackageTargets(set.cfg); len(targets) != 1 || targets[0].registry != registryNPMJS {
+		t.Fatalf("targets = %v; want npmjs enabled by trusted publishing", targets)
+	}
+	path, err := set.npmConfig(registryNPMJS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "registry=https://registry.npmjs.org/\n"; string(data) != want {
+		t.Fatalf("npmrc = %q; want %q", data, want)
+	}
+	command := npmCommand(set, &packagePublication{registry: registryNPMJS}, path, false)
+	if !slices.Equal(command.env, []string{"NPM_CONFIG_USERCONFIG=" + path}) {
+		t.Fatalf("npm env = %q; want OIDC request variables kept", command.env)
+	}
 }
 
 // newPyPITestSet returns a set whose uv build writes a wheel with metadata, and
@@ -223,6 +257,34 @@ func TestPyPIOrgUploadUsesTokenUsername(t *testing.T) {
 	}
 }
 
+func TestPyPIOrgTrustedPublishingUploadsWithUV(t *testing.T) {
+	project := t.TempDir()
+	var commands []commandOptions
+	set := newPyPITestSet(t, "Metadata-Version: 2.4\nName: example\nVersion: 1.2.3\n\n", &commands)
+	set.cfg.pypiToken = ""
+	set.cfg.pypiTrustedPublishing = true
+	runner := set.commands.(fakePackageCommandRunner)
+	runner.availableFunc = func(name string) bool { return name == "python3" }
+	set.commands = runner
+	publication := &packagePublication{kind: packagePyPI, registry: registryPyPI, dir: project, manifest: filepath.Join(project, "pyproject.toml")}
+	if err := publication.preflight(set); err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.publish(set); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 3 || commands[2].name != "uv" {
+		t.Fatalf("commands = %v; want uv build, check, and upload", commands)
+	}
+	upload := []string{"publish", "--trusted-publishing", "always", "--publish-url", "https://upload.pypi.org/legacy/", publication.artifacts[0]}
+	if !slices.Equal(commands[2].args, upload) {
+		t.Fatalf("upload args = %q; want %q", commands[2].args, upload)
+	}
+	if len(commands[2].env) != 0 {
+		t.Fatalf("upload env = %q; want no credentials", commands[2].env)
+	}
+}
+
 func TestPyPIPrivateClassifierIsNotPublishableToPyPIOrg(t *testing.T) {
 	project := t.TempDir()
 	metadata := "Metadata-Version: 2.4\nName: example\nVersion: 1.2.3\nClassifier: Programming Language :: Python\nClassifier: Private :: Do Not Upload\n\n"
@@ -252,6 +314,25 @@ func TestValidatePublicRegistryConfig(t *testing.T) {
 		t.Fatalf("error = %v; want missing signing key", err)
 	}
 	if err := validatePublicRegistryConfig(config{}, registryCratesIO); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateTrustedPublishing(t *testing.T) {
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+	if err := validatePublicRegistryConfig(config{npmjsToken: "token", npmjsTrustedPublishing: true, dryRun: true}, registryNPMJS); err == nil || !strings.Contains(err.Error(), "cannot both be set") {
+		t.Fatalf("error = %v; want token and trusted publishing rejected", err)
+	}
+	if err := validatePublicRegistryConfig(config{pypiTrustedPublishing: true}, registryPyPI); err == nil || !strings.Contains(err.Error(), "id-token: write") {
+		t.Fatalf("error = %v; want missing ID token", err)
+	}
+	if err := validatePublicRegistryConfig(config{pypiTrustedPublishing: true, dryRun: true}, registryPyPI); err != nil {
+		t.Fatalf("dry run required an ID token: %v", err)
+	}
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://token.example")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
+	if err := validatePublicRegistryConfig(config{npmjsTrustedPublishing: true}, registryNPMJS); err != nil {
 		t.Fatal(err)
 	}
 }

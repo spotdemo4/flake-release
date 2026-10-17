@@ -49,7 +49,9 @@ Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a 
 | PACKAGE_REGISTRY_TOKEN         | Package registry write token; enables package publishing                             |                                                             |                                |
 | CRATES_IO_TOKEN                | crates.io API token; enables [publishing](#public-registries) to crates.io           |                                                             |                                |
 | NPMJS_TOKEN                    | npmjs.com access token; enables publishing to npmjs.com                              |                                                             |                                |
+| NPMJS_TRUSTED_PUBLISHING       | Publish to npmjs.com with [trusted publishing](#trusted-publishing) instead          | `false`                                                     | `true`                         |
 | PYPI_TOKEN                     | pypi.org API token; enables publishing to pypi.org                                   |                                                             |                                |
+| PYPI_TRUSTED_PUBLISHING        | Publish to pypi.org with [trusted publishing](#trusted-publishing) instead           | `false`                                                     | `true`                         |
 | MAVEN_CENTRAL_USERNAME         | Maven Central Portal user token username                                             |                                                             |                                |
 | MAVEN_CENTRAL_TOKEN            | Maven Central Portal user token password; enables publishing to Maven Central        |                                                             |                                |
 | MAVEN_CENTRAL_SIGNING_KEY      | ASCII-armored PGP private key that signs Maven Central bundles                       |                                                             |                                |
@@ -104,19 +106,25 @@ Packages can also be published to [public registries](#public-registries), indep
 
 #### Public registries
 
-Each public registry is enabled by its own token, works with any git host, and is published to alongside the git host's registry when `PACKAGE_REGISTRY_TOKEN` is also set:
+Each public registry is enabled by its own token or [trusted publishing](#trusted-publishing), works with any git host, and is published to alongside the git host's registry when `PACKAGE_REGISTRY_TOKEN` is also set:
 
-| Registry      | Packages      | Enabled by            | Also requires                                         |
-| ------------- | ------------- | --------------------- | ----------------------------------------------------- |
-| crates.io     | Cargo         | `CRATES_IO_TOKEN`     |                                                       |
-| npmjs.com     | npm           | `NPMJS_TOKEN`         |                                                       |
-| pypi.org      | PyPI          | `PYPI_TOKEN`          |                                                       |
-| Maven Central | Gradle, Maven | `MAVEN_CENTRAL_TOKEN` | `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_SIGNING_KEY` |
+| Registry      | Packages      | Enabled by                                  | Also requires                                         |
+| ------------- | ------------- | ------------------------------------------- | ----------------------------------------------------- |
+| crates.io     | Cargo         | `CRATES_IO_TOKEN`                           |                                                       |
+| npmjs.com     | npm           | `NPMJS_TOKEN` or `NPMJS_TRUSTED_PUBLISHING` |                                                       |
+| pypi.org      | PyPI          | `PYPI_TOKEN` or `PYPI_TRUSTED_PUBLISHING`   |                                                       |
+| Maven Central | Gradle, Maven | `MAVEN_CENTRAL_TOKEN`                       | `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_SIGNING_KEY` |
 
 - crates.io: a Cargo `publish` list must include `crates-io`, or the package is skipped for crates.io. Cargo calls the git host's registry `flake-release`, so a `publish` list must include `flake-release` to publish there too.
 - npmjs.com: the token needs write access to the package and must be able to publish without two-factor authentication, such as a granular access token with 2FA bypass. Scoped packages are published with `--access public` unless `package.json` sets `publishConfig.access`, and the name is never rewritten to an owner scope.
 - pypi.org: the token is a [PyPI API token](https://pypi.org/help/#apitoken), sent with the `__token__` username. Distributions classified `Private :: Do Not Upload` are skipped for pypi.org, which rejects them, but are still published to the git host's registry.
 - Maven Central: the token is a [Central Portal user token](https://central.sonatype.org/publish/generate-portal-token/), and the group ID must be a verified namespace. flake-release builds the project into a local Maven repository with `mvn deploy` (passing `-Dgpg.skip=true`) or Gradle's `maven-publish` publications, so no Central-specific plugin is needed. It then adds MD5 and SHA-1 checksums and signs every file with `MAVEN_CENTRAL_SIGNING_KEY`, whose public key must be on a public key server. The bundle is uploaded through the [Publisher API](https://central.sonatype.org/publish/publish-portal-api/) for automatic publishing, and flake-release waits until it passes validation. The build must produce `-sources.jar` and `-javadoc.jar` artifacts for non-`pom` packaging, and the POM must declare `name`, `description`, `url`, `licenses`, `developers`, and `scm`, or inherit them from a parent POM. `SNAPSHOT` versions are rejected. A Maven build must publish its root `pom.xml` coordinates, while a Gradle build only needs to publish at least one artifact in its group at the release version, so a multi-project build can publish just its subprojects.
+
+##### Trusted publishing
+
+npmjs.com and pypi.org can authenticate with [trusted publishing](https://docs.pypi.org/trusted-publishers/) instead of a long-lived token: set `NPMJS_TRUSTED_PUBLISHING` or `PYPI_TRUSTED_PUBLISHING` to `true` and leave the registry's token unset. The release job needs the `id-token: write` permission, and the package must have a trusted publisher configured for the repository and workflow ([npm](https://docs.npmjs.com/trusted-publishers), [PyPI](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)). Both registries only trust the OIDC issuers of specific CI providers, such as GitHub Actions, and not Forgejo's, so use a token there.
+
+npm exchanges the workflow's ID token for a publish token, and publishes public packages from public repositories with provenance. pypi.org uploads always use uv. When a token is set instead, npm and uv ignore the workflow's ID token and publish with the token.
 
 The same package published to two registries is staged separately for each, so a manifest rewritten for one registry is unchanged for the other.
 
@@ -193,7 +201,9 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
     package_registry_token: # dedicated package write token; enables package publishing
     crates_io_token: # enables publishing to crates.io
     npmjs_token: # enables publishing to npmjs.com
+    npmjs_trusted_publishing: # publish to npmjs.com with trusted publishing; default: false
     pypi_token: # enables publishing to pypi.org
+    pypi_trusted_publishing: # publish to pypi.org with trusted publishing; default: false
     maven_central_username: # Central Portal user token username
     maven_central_token: # Central Portal user token password; enables publishing to Maven Central
     maven_central_signing_key: # ASCII-armored PGP private key
