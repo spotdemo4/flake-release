@@ -62,7 +62,7 @@ type createReleaseRequest struct {
 }
 
 type releaseClient interface {
-	createRelease(tag string, changelog string) error
+	createRelease(tag string, changelog string) (bool, error)
 	uploadAsset(tag string, asset string) error
 	cleanupAssets(currentTag releaseTag, retain int) ([]releaseTag, error)
 }
@@ -138,8 +138,8 @@ func newGiteaReleaseClient(cfg config, provider releaseProvider) giteaReleaseCli
 	}
 }
 
-func (noopReleaseClient) createRelease(_ string, _ string) error {
-	return nil
+func (noopReleaseClient) createRelease(_ string, _ string) (bool, error) {
+	return false, nil
 }
 
 func (noopReleaseClient) uploadAsset(_ string, _ string) error {
@@ -150,19 +150,19 @@ func (noopReleaseClient) cleanupAssets(_ releaseTag, _ int) ([]releaseTag, error
 	return nil, nil
 }
 
-func (c githubReleaseClient) createRelease(tag string, changelog string) error {
+func (c githubReleaseClient) createRelease(tag string, changelog string) (bool, error) {
 	action := "create GitHub release"
 	repo, err := c.repository(action)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := c.requireToken(action); err != nil {
-		return err
+		return false, err
 	}
 
 	body, err := os.ReadFile(changelog)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	status("creating release %s at %s", tag, c.cfg.gitRepository)
@@ -172,7 +172,15 @@ func (c githubReleaseClient) createRelease(tag string, changelog string) error {
 		Name:    tag,
 		Body:    string(body),
 	})
-	return err
+	if err != nil {
+		// another runner may have created the release first
+		if release, lookupErr := c.releaseByTag(repo, tag); lookupErr == nil && release.ID != 0 {
+			status("release %s already exists at %s, skipping creation", tag, c.cfg.gitRepository)
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
@@ -400,15 +408,15 @@ func (c githubReleaseClient) httpRequest(options httpRequestOptions) ([]byte, er
 	return httpRequest(options)
 }
 
-func (c giteaReleaseClient) createRelease(tag string, changelog string) error {
+func (c giteaReleaseClient) createRelease(tag string, changelog string) (bool, error) {
 	repo, err := c.repository("create " + c.name + " release")
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	body, err := os.ReadFile(changelog)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	status("creating release %s at %s", tag, c.cfg.gitRepository)
@@ -418,7 +426,15 @@ func (c giteaReleaseClient) createRelease(tag string, changelog string) error {
 		Name:    tag,
 		Body:    string(body),
 	})
-	return err
+	if err != nil {
+		// another runner may have created the release first
+		if release, lookupErr := c.releaseByTag(repo, tag); lookupErr == nil && release.ID != 0 {
+			status("release %s already exists at %s, skipping creation", tag, c.cfg.gitRepository)
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {

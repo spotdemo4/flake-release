@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -143,6 +145,54 @@ func TestHTTPRequest(t *testing.T) {
 		accept:     jsonAccept,
 	}); err == nil {
 		t.Fatal("httpRequest returned nil error for non-2xx response")
+	}
+}
+
+func TestCreateReleaseSkipsExistingRelease(t *testing.T) {
+	changelog := filepath.Join(t.TempDir(), "CHANGELOG.md")
+	if err := os.WriteFile(changelog, []byte("changes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []releaseProvider{releaseGitHub, releaseGitea, releaseForgejo} {
+		for _, test := range []struct {
+			name        string
+			createCode  int
+			existing    bool
+			wantCreated bool
+			wantErr     bool
+		}{
+			{name: "created", createCode: http.StatusCreated, wantCreated: true},
+			{name: "already exists", createCode: http.StatusUnprocessableEntity, existing: true},
+			{name: "conflict", createCode: http.StatusConflict, existing: true},
+			{name: "failure", createCode: http.StatusUnauthorized, wantErr: true},
+		} {
+			t.Run(string(provider)+"/"+test.name, func(t *testing.T) {
+				prefix := "/api/v1/repos/owner/repo/releases"
+				if provider == releaseGitHub {
+					prefix = "/api/v3/repos/owner/repo/releases"
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodPost && r.URL.Path == prefix:
+						w.WriteHeader(test.createCode)
+						writeCleanupJSON(w, map[string]any{"id": 1, "tag_name": "v1.0.0"})
+					case r.Method == http.MethodGet && r.URL.Path == prefix+"/tags/v1.0.0" && test.existing:
+						writeCleanupJSON(w, map[string]any{"id": 1, "tag_name": "v1.0.0"})
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				defer server.Close()
+
+				created, err := cleanupTestClient(provider, server.URL).createRelease("v1.0.0", changelog)
+				if (err != nil) != test.wantErr {
+					t.Fatalf("createRelease() error = %v; want error %t", err, test.wantErr)
+				}
+				if created != test.wantCreated {
+					t.Fatalf("createRelease() created = %t; want %t", created, test.wantCreated)
+				}
+			})
+		}
 	}
 }
 

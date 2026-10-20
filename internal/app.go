@@ -60,11 +60,12 @@ func (session *releaseSession) ensureRelease() error {
 		status("dry run: skipping release creation")
 		return nil
 	}
-	if err := session.client.createRelease(session.tag.full, session.changelog); err != nil {
+	created, err := session.client.createRelease(session.tag.full, session.changelog)
+	if err != nil {
 		session.creationErr = fmt.Errorf("creating release %s: %w", session.tag.full, err)
 		return session.creationErr
 	}
-	session.created = true
+	session.created = created
 	return nil
 }
 

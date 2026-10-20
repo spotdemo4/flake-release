@@ -18,10 +18,10 @@ type recordingReleaseClient struct {
 	createErr   error
 }
 
-func (client *recordingReleaseClient) createRelease(tag string, _ string) error {
+func (client *recordingReleaseClient) createRelease(tag string, _ string) (bool, error) {
 	client.createCalls++
 	client.createdTag = tag
-	return client.createErr
+	return client.createErr == nil, client.createErr
 }
 
 func (*recordingReleaseClient) uploadAsset(_ string, _ string) error {
