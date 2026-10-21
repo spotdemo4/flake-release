@@ -120,7 +120,7 @@
           default = pkgs.mkGoModule (
             final: with pkgs.lib; {
               pname = "flake-release";
-              version = "0.41.2";
+              version = "0.41.3";
 
               src = fileset.toSource {
                 root = ./.;
