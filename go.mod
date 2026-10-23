@@ -9,7 +9,7 @@ require (
 	github.com/estesp/manifest-tool/v2 v2.2.3-0.20261019184903-dd064e71f9d3
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-beta.1
-	github.com/opencontainers/image-spec v1.1.2-0.20260917170902-ca68a05fad73
+	github.com/opencontainers/image-spec v1.1.2-0.20261022171424-4feed4a6674e
 	github.com/sirupsen/logrus v1.10.2
 	go.podman.io/image/v5 v5.42.0
 	go.podman.io/skopeo v1.24.1
