@@ -64,8 +64,8 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
-github.com/estesp/manifest-tool/v2 v2.2.3-0.20261019184903-dd064e71f9d3 h1:q/4v4hCILgq7eDqZWnF66UWZgMynp26LcCgZhhkyW1s=
-github.com/estesp/manifest-tool/v2 v2.2.3-0.20261019184903-dd064e71f9d3/go.mod h1:RGrO4Ggzov+1RjumcIOdkohs9TzcVX/EE8HRU38mf4s=
+github.com/estesp/manifest-tool/v2 v2.2.3-0.20261023094458-0cbe341cc4f8 h1:cs3A3nKsDpq5e7JmrHXOqU9VKhmJ0NeXBAENEwsmHS8=
+github.com/estesp/manifest-tool/v2 v2.2.3-0.20261023094458-0cbe341cc4f8/go.mod h1:RGrO4Ggzov+1RjumcIOdkohs9TzcVX/EE8HRU38mf4s=
 github.com/fatih/color v1.19.0 h1:Zp3PiM21/9Ld6FzSKyL5c/BULoe/ONr9KlbYVOfG8+w=
 github.com/fatih/color v1.19.0/go.mod h1:zNk67I0ZUT1bEGsSGyCZYZNrHuTkJJB+r6Q9VuMi0LE=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=

@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
-	github.com/estesp/manifest-tool/v2 v2.2.3-0.20261019184903-dd064e71f9d3
+	github.com/estesp/manifest-tool/v2 v2.2.3-0.20261023094458-0cbe341cc4f8
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-beta.1
 	github.com/opencontainers/image-spec v1.1.2-0.20261022171424-4feed4a6674e
