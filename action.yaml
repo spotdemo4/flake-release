@@ -107,6 +107,10 @@ inputs:
     description: passphrase for maven_central_signing_key
     required: false
 
+  pkg_go_dev_publishing:
+    description: publish Go modules to pkg.go.dev through the public Go module proxy
+    required: false
+
   container_registry:
     description: container registry url
     required: false
@@ -178,5 +182,6 @@ runs:
     MAVEN_CENTRAL_TOKEN: ${{ inputs.maven_central_token }}
     MAVEN_CENTRAL_SIGNING_KEY: ${{ inputs.maven_central_signing_key }}
     MAVEN_CENTRAL_SIGNING_PASSWORD: ${{ inputs.maven_central_signing_password }}
+    PKG_GO_DEV_PUBLISHING: ${{ inputs.pkg_go_dev_publishing }}
     DELETE_OLD_RELEASE_ARTIFACTS: ${{ inputs.delete_old_release_artifacts }}
     BUNDLE_APPIMAGE: ${{ inputs.bundle_appimage }}

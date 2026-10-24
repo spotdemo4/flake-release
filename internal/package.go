@@ -56,6 +56,7 @@ const (
 	registryNPMJS        packageRegistry = "npmjs"
 	registryPyPI         packageRegistry = "pypi"
 	registryMavenCentral packageRegistry = "maven-central"
+	registryPkgGoDev     packageRegistry = "pkg-go-dev"
 )
 
 func packageRegistryName(registry packageRegistry, provider releaseProvider) string {
@@ -68,6 +69,8 @@ func packageRegistryName(registry packageRegistry, provider releaseProvider) str
 		return "pypi.org"
 	case registryMavenCentral:
 		return "Maven Central"
+	case registryPkgGoDev:
+		return "pkg.go.dev"
 	default:
 		return releaseProviderName(provider)
 	}
@@ -416,8 +419,11 @@ func (publication *packagePublication) preflight(set *packagePublicationSet) err
 }
 
 func (publication *packagePublication) publish(set *packagePublicationSet) error {
-	if publication.registry == registryMavenCentral {
+	switch publication.registry {
+	case registryMavenCentral:
 		return publishMavenCentralPackage(set, publication)
+	case registryPkgGoDev:
+		return publishPkgGoDevPackage(publication)
 	}
 	switch publication.kind {
 	case packageGo:
@@ -453,8 +459,8 @@ func selectPackageTargets(cfg config, provider releaseProvider) ([]packageTarget
 	return append(targets, publicPackageTargets(cfg)...), explicit, nil
 }
 
-// publicPackageTargets returns the public registries enabled by their tokens or
-// by trusted publishing.
+// publicPackageTargets returns the public registries enabled by their tokens, by
+// trusted publishing, or for pkg.go.dev, which needs no credentials, by PKG_GO_DEV_PUBLISHING.
 func publicPackageTargets(cfg config) []packageTarget {
 	var targets []packageTarget
 	if cfg.cratesIOToken != "" {
@@ -468,6 +474,9 @@ func publicPackageTargets(cfg config) []packageTarget {
 	}
 	if cfg.mavenCentralToken != "" {
 		targets = append(targets, packageTarget{registry: registryMavenCentral, kinds: []packageKind{packageGradle, packageMaven}})
+	}
+	if cfg.pkgGoDevPublishing {
+		targets = append(targets, packageTarget{registry: registryPkgGoDev, kinds: []packageKind{packageGo}})
 	}
 	return targets
 }

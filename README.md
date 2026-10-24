@@ -14,7 +14,7 @@ Generates release artifacts for packages in a nix flake:
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
-- Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, pypi.org, and Maven Central
+- Go, Cargo, npm, PyPI, Maven, and Gradle packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, pypi.org, Maven Central, and pkg.go.dev
 
 Packages are built and published in order of their platform's distance from the runner, so a slow cross-compiled build doesn't hold up the rest of the release: native packages and container images first, then [package registries](#package-publishing), then packages for another architecture on the same OS, another OS, and finally another OS and architecture. Container image destinations are validated before anything is built, and the combined image manifest is updated once every image is uploaded.
 
@@ -56,6 +56,7 @@ Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a 
 | MAVEN_CENTRAL_TOKEN            | Maven Central Portal user token password; enables publishing to Maven Central        |                                                             |                                |
 | MAVEN_CENTRAL_SIGNING_KEY      | ASCII-armored PGP private key that signs Maven Central bundles                       |                                                             |                                |
 | MAVEN_CENTRAL_SIGNING_PASSWORD | Passphrase for `MAVEN_CENTRAL_SIGNING_KEY`, when it is encrypted                     |                                                             |                                |
+| PKG_GO_DEV_PUBLISHING          | Enables [publishing](#public-registries) Go modules to pkg.go.dev                    | `false`                                                     | `true`                         |
 | DRY_RUN                        | Validate and prepare releases without publishing or cleanup                          | `false`                                                     | `true`                         |
 | DELETE_OLD_RELEASE_ARTIFACTS   | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                                     | `2`                            |
 | BUNDLE_APPIMAGE                | Bundle eligible Linux script packages as AppImages                                   | `false`                                                     | `true`                         |
@@ -106,7 +107,7 @@ Packages can also be published to [public registries](#public-registries), indep
 
 #### Public registries
 
-Each public registry is enabled by its own token or [trusted publishing](#trusted-publishing), works with any git host, and is published to alongside the git host's registry when `PACKAGE_REGISTRY_TOKEN` is also set:
+Each public registry is enabled by its own token, [trusted publishing](#trusted-publishing), or for pkg.go.dev, which needs no credentials, a flag, works with any git host, and is published to alongside the git host's registry when `PACKAGE_REGISTRY_TOKEN` is also set:
 
 | Registry      | Packages      | Enabled by                                  | Also requires                                         |
 | ------------- | ------------- | ------------------------------------------- | ----------------------------------------------------- |
@@ -114,11 +115,13 @@ Each public registry is enabled by its own token or [trusted publishing](#truste
 | npmjs.com     | npm           | `NPMJS_TOKEN` or `NPMJS_TRUSTED_PUBLISHING` |                                                       |
 | pypi.org      | PyPI          | `PYPI_TOKEN` or `PYPI_TRUSTED_PUBLISHING`   |                                                       |
 | Maven Central | Gradle, Maven | `MAVEN_CENTRAL_TOKEN`                       | `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_SIGNING_KEY` |
+| pkg.go.dev    | Go            | `PKG_GO_DEV_PUBLISHING`                     |                                                       |
 
 - crates.io: a Cargo `publish` list must include `crates-io`, or the package is skipped for crates.io. Cargo calls the git host's registry `flake-release`, so a `publish` list must include `flake-release` to publish there too.
 - npmjs.com: the token needs write access to the package and must be able to publish without two-factor authentication, such as a granular access token with 2FA bypass. Scoped packages are published with `--access public` unless `package.json` sets `publishConfig.access`, and the name is never rewritten to an owner scope.
 - pypi.org: the token is a [PyPI API token](https://pypi.org/help/#apitoken), sent with the `__token__` username. Distributions classified `Private :: Do Not Upload` are skipped for pypi.org, which rejects them, but are still published to the git host's registry.
 - Maven Central: the token is a [Central Portal user token](https://central.sonatype.org/publish/generate-portal-token/), and the group ID must be a verified namespace. flake-release builds the project into a local Maven repository with `mvn deploy` (passing `-Dgpg.skip=true`) or Gradle's `maven-publish` publications, so no Central-specific plugin is needed. It then adds MD5 and SHA-1 checksums and signs every file with `MAVEN_CENTRAL_SIGNING_KEY`, whose public key must be on a public key server. The bundle is uploaded through the [Publisher API](https://central.sonatype.org/publish/publish-portal-api/) for automatic publishing, and flake-release waits until it passes validation. The build must produce `-sources.jar` and `-javadoc.jar` artifacts for non-`pom` packaging, and the POM must declare `name`, `description`, `url`, `licenses`, `developers`, and `scm`, or inherit them from a parent POM. `SNAPSHOT` versions are rejected. A Maven build must publish its root `pom.xml` coordinates, while a Gradle build only needs to publish at least one artifact in its group at the release version, so a multi-project build can publish just its subprojects.
+- pkg.go.dev: Go modules need no upload, since a version exists once its tag is pushed, so the repository must be publicly fetchable by the [Go module proxy](https://proxy.golang.org/) at the module path. flake-release fetches the version's `.info`, `.mod`, and `.zip` from proxy.golang.org, retrying while the proxy catches up with the tag, and looks it up in sum.golang.org. Because pkg.go.dev only lists new versions from index.golang.org eventually, which can take hours, flake-release then requests the version from pkg.go.dev like its "Request" button, and waits up to 10 minutes for it to be served. A proxy failure fails publication, while a failed checksum lookup or a version pkg.go.dev doesn't serve in time only warns. A version the proxy already has is not a conflict.
 
 ##### Trusted publishing
 
@@ -160,7 +163,7 @@ A tool missing from `PATH` is built from the flake's `nixpkgs` input, or from th
 
 Package versions are strict: Go publishes the exact release tag, including a leading `v`; Cargo, Gradle, Maven, npm, and every built PyPI artifact must match the release tag after removing one leading `v`, and the `version` of every flake package built from their source, when it sets one. Existing immutable or duplicate package versions are fatal conflicts, not idempotent success; this includes an HTTP 409 response from a Go registry. `DELETE_OLD_RELEASE_ARTIFACTS` does not delete package registry versions.
 
-With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old artifacts aren't cleaned up. When `PACKAGE_REGISTRY_TOKEN` or a public registry token is set, a dry run still does the following, without uploading anything:
+With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old artifacts aren't cleaned up. When `PACKAGE_REGISTRY_TOKEN` or a public registry is enabled, a dry run still does the following, without uploading anything:
 
 - discovers sources and checks for required tools
 - validates package metadata and versions
@@ -208,6 +211,7 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
     maven_central_token: # Central Portal user token password; enables publishing to Maven Central
     maven_central_signing_key: # ASCII-armored PGP private key
     maven_central_signing_password: # passphrase for the signing key
+    pkg_go_dev_publishing: # publish Go modules to pkg.go.dev; default: false
     delete_old_release_artifacts: # false (default), true, or a count including current (e.g. "2")
     bundle_appimage: # default: false
 ```

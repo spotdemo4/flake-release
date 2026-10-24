@@ -36,6 +36,7 @@ type config struct {
 	mavenCentralToken           string
 	mavenCentralSigningKey      string
 	mavenCentralSigningPassword string
+	pkgGoDevPublishing          bool
 }
 
 type releaseSession struct {
@@ -121,6 +122,7 @@ func configFromEnv() config {
 		mavenCentralToken:           os.Getenv("MAVEN_CENTRAL_TOKEN"),
 		mavenCentralSigningKey:      os.Getenv("MAVEN_CENTRAL_SIGNING_KEY"),
 		mavenCentralSigningPassword: os.Getenv("MAVEN_CENTRAL_SIGNING_PASSWORD"),
+		pkgGoDevPublishing:          truthy(os.Getenv("PKG_GO_DEV_PUBLISHING")),
 	}
 }
 
