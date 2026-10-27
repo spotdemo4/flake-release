@@ -104,7 +104,7 @@ func TestCopyPathWritableKeepsCopiedDirectoriesWritable(t *testing.T) {
 	})
 
 	dst := filepath.Join(t.TempDir(), "dst")
-	if err := copyPathWritable(src, dst); err != nil {
+	if err := copyPathWritable(src, dst, false); err != nil {
 		t.Fatal(err)
 	}
 

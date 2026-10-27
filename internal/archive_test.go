@@ -211,7 +211,7 @@ func TestPreparePackageBundlePreservesSymlinks(t *testing.T) {
 		}
 	}
 
-	bundle, err := preparePackageBundle([]packageOutput{{Name: "out", Path: root}}, "windows", "amd64")
+	bundle, err := preparePackageBundle([]packageOutput{{Name: "out", Path: root}}, "linux", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,6 +232,194 @@ func TestPreparePackageBundlePreservesSymlinks(t *testing.T) {
 		}
 		if got != target {
 			t.Fatalf("symlink %q target = %q; want %q", path, got, target)
+		}
+	}
+}
+
+func TestPreparePackageBundleResolvesExternalSymlinks(t *testing.T) {
+	store := t.TempDir()
+	dependency := filepath.Join(store, "dependency")
+	if err := os.MkdirAll(filepath.Join(dependency, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dependency, "bin", "library.dll"), []byte("library"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dependency, "share", "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dependency, "share", "data", "file.txt"), []byte("data"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("file.txt", filepath.Join(dependency, "share", "data", "file-link")); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(store, "out")
+	if err := os.MkdirAll(filepath.Join(out, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "bin", "app.exe"), []byte("app"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(out, "share"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		"bin/library.dll": "../../dependency/bin/library.dll",
+		"bin/app-link":    filepath.Join(out, "bin", "app.exe"),
+		"share/data":      filepath.Join(dependency, "share", "data"),
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(out, filepath.FromSlash(name))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bundle, err := preparePackageBundle([]packageOutput{{Name: "out", Path: out}}, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(bundle)
+
+	for name, want := range map[string]string{
+		"bin/library.dll":     "library",
+		"share/data/file.txt": "data",
+	} {
+		path := filepath.Join(bundle, filepath.FromSlash(name))
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("bundle entry %q mode = %v; want regular file", name, info.Mode())
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("bundle entry %q = %q; want %q", name, got, want)
+		}
+	}
+	for name, want := range map[string]string{
+		"bin/app-link":         "app.exe",
+		"share/data/file-link": "file.txt",
+	} {
+		got, err := os.Readlink(filepath.Join(bundle, filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("symlink %q target = %q; want %q", name, got, want)
+		}
+	}
+}
+
+func TestPreparePackageBundleDereferencesSymlinksForWindows(t *testing.T) {
+	store := t.TempDir()
+	dependency := filepath.Join(store, "dependency")
+	if err := os.MkdirAll(dependency, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dependency, "library.dll"), []byte("library"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(store, "out")
+	if err := os.MkdirAll(filepath.Join(out, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "bin", "app.exe"), []byte("app"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(out, "share", "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "share", "target", "file.txt"), []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		"bin/library.dll":    "../../dependency/library.dll",
+		"share/file-link":    "target/file.txt",
+		"share/directory":    "target",
+		"share/missing-link": "missing",
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(out, filepath.FromSlash(name))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: out}}, "app_1.2.3_windows_amd64", "windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(filepath.Dir(archivePath))
+
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	contents := map[string]string{}
+	for _, file := range reader.File {
+		if file.Mode()&os.ModeSymlink != 0 {
+			t.Errorf("zip entry %q is a symlink", file.Name)
+		}
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		src, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(src)
+		_ = src.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		contents[strings.TrimPrefix(file.Name, "app_1.2.3_windows_amd64/")] = string(data)
+	}
+	want := map[string]string{
+		"bin/app.exe":              "app",
+		"bin/library.dll":          "library",
+		"share/target/file.txt":    "target",
+		"share/file-link":          "target",
+		"share/directory/file.txt": "target",
+	}
+	for name, wantContent := range want {
+		if got, ok := contents[name]; !ok || got != wantContent {
+			t.Errorf("zip entry %q = %q (found %v); want %q", name, got, ok, wantContent)
+		}
+	}
+	if _, ok := contents["share/missing-link"]; ok {
+		t.Error("zip contains broken symlink share/missing-link")
+	}
+}
+
+func TestPreparePackageBundleRejectsSymlinkCycles(t *testing.T) {
+	store := t.TempDir()
+	out := filepath.Join(store, "out")
+	other := filepath.Join(store, "other")
+	for _, dir := range []string{filepath.Join(out, "share"), other} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(other, filepath.Join(out, "share", "other")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(out, "share"), filepath.Join(other, "share")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, osName := range []string{"linux", "windows"} {
+		bundle, err := preparePackageBundle([]packageOutput{{Name: "out", Path: out}}, osName, "amd64")
+		if err == nil {
+			deletePath(bundle)
+			t.Fatalf("preparePackageBundle(%s) returned no error for symlink cycle", osName)
 		}
 	}
 }

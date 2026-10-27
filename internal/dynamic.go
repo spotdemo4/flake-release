@@ -77,6 +77,8 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 		}
 	}()
 
+	// zip symlinks extract as plain files containing their target on Windows
+	dereference := osName == "windows"
 	flattenedSource := singleOutputExecutable(outputs)
 	var bundled []bundledOutput
 	for _, output := range outputs {
@@ -110,11 +112,11 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 				return "", err
 			}
 		case stat.IsDir() && root == bundle:
-			if err := copyDirectoryContents(output.Path, root); err != nil {
+			if err := copyDirectoryContents(output.Path, root, dereference); err != nil {
 				return "", err
 			}
 		case stat.IsDir():
-			if err := copyPathWritable(output.Path, root); err != nil {
+			if err := copyPathWritable(output.Path, root, dereference); err != nil {
 				return "", err
 			}
 		default:
@@ -123,7 +125,7 @@ func preparePackageBundle(outputs []packageOutput, osName string, archName strin
 			}
 			item.flattenedSource = output.Path
 			item.flattenedPath = filepath.Join(root, filepath.Base(output.Path))
-			if err := copyPathWritable(output.Path, item.flattenedPath); err != nil {
+			if err := copyPathWritable(output.Path, item.flattenedPath, dereference); err != nil {
 				return "", err
 			}
 		}
@@ -405,20 +407,38 @@ func validPackageOutputName(name string) bool {
 	return name != "" && name != "." && name != ".." && filepath.Base(name) == name && !strings.ContainsAny(name, `/\`)
 }
 
-func copyDirectoryContents(src string, dst string) error {
+func copyDirectoryContents(src string, dst string, dereference bool) error {
+	return treeCopier{root: src, dereference: dereference}.copyContents(src, dst)
+}
+
+// copyPathWritable copies src to dst, keeping symlinks that stay within src and
+// replacing the others with their targets, which aren't part of the copy.
+// dereference replaces every symlink, for archives that can't hold them.
+func copyPathWritable(src string, dst string, dereference bool) error {
+	return treeCopier{root: src, dereference: dereference}.copy(src, dst)
+}
+
+type treeCopier struct {
+	root        string
+	dereference bool
+	// symlinked directories being copied, to detect cycles
+	resolving []string
+}
+
+func (copier treeCopier) copyContents(src string, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		if err := copyPathWritable(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+		if err := copier.copy(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func copyPathWritable(src string, dst string) error {
+func (copier treeCopier) copy(src string, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err
@@ -426,24 +446,14 @@ func copyPathWritable(src string, dst string) error {
 
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
-		target, err := os.Readlink(src)
-		if err != nil {
-			return err
-		}
-		return os.Symlink(target, dst)
+		return copier.copySymlink(src, dst)
 	case info.IsDir():
 		mode := info.Mode().Perm() | 0o200
 		if err := os.MkdirAll(dst, mode); err != nil {
 			return err
 		}
-		entries, err := os.ReadDir(src)
-		if err != nil {
+		if err := copier.copyContents(src, dst); err != nil {
 			return err
-		}
-		for _, entry := range entries {
-			if err := copyPathWritable(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
-				return err
-			}
 		}
 		return os.Chmod(dst, mode)
 	case info.Mode().IsRegular():
@@ -451,6 +461,57 @@ func copyPathWritable(src string, dst string) error {
 	default:
 		return errors.New("unsupported file type: " + src)
 	}
+}
+
+func (copier treeCopier) copySymlink(src string, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	if !copier.dereference {
+		absolute := target
+		if !filepath.IsAbs(target) {
+			absolute = filepath.Join(filepath.Dir(src), target)
+		}
+		if pathWithin(absolute, copier.root) {
+			if filepath.IsAbs(target) {
+				target, err = filepath.Rel(filepath.Dir(src), absolute)
+				if err != nil {
+					return err
+				}
+			}
+			return os.Symlink(target, dst)
+		}
+	}
+
+	resolved, err := filepath.EvalSymlinks(src)
+	if errors.Is(err, os.ErrNotExist) {
+		itemWarn("skipping broken symlink %s -> %s", src, target)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return copyFile(resolved, dst, info)
+	}
+
+	parent, err := filepath.EvalSymlinks(filepath.Dir(src))
+	if err != nil {
+		return err
+	}
+	if pathWithin(parent, resolved) || slices.Contains(copier.resolving, resolved) {
+		return fmt.Errorf("directory symlink %s forms a cycle", src)
+	}
+	return treeCopier{
+		root:        resolved,
+		dereference: copier.dereference,
+		resolving:   append(slices.Clone(copier.resolving), resolved),
+	}.copy(resolved, dst)
 }
 
 func materializeDynamicExecutable(src string, dst string, sourceRoot string) error {
@@ -523,7 +584,7 @@ func materializeDirectoryTree(root string, relative string) error {
 			if err != nil {
 				return err
 			}
-			if err := copyDirectoryContents(resolved, temporary); err != nil {
+			if err := copyDirectoryContents(resolved, temporary, false); err != nil {
 				deletePath(temporary)
 				return err
 			}
