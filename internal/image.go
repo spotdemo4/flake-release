@@ -13,14 +13,13 @@ import (
 	"strings"
 	"sync"
 
-	manifestregistry "github.com/estesp/manifest-tool/v2/pkg/registry"
-	manifesttypes "github.com/estesp/manifest-tool/v2/pkg/types"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sirupsen/logrus"
 	"go.podman.io/image/v5/copy"
 	"go.podman.io/image/v5/docker"
 	dockerarchive "go.podman.io/image/v5/docker/archive"
 	containerimage "go.podman.io/image/v5/image"
+	"go.podman.io/image/v5/manifest"
 	"go.podman.io/image/v5/pkg/compression"
 	"go.podman.io/image/v5/signature"
 	"go.podman.io/image/v5/types"
@@ -261,20 +260,32 @@ func manifestUpdate(cfg config, repository string, tag string) error {
 		return nil
 	}
 
-	var manifests []manifesttypes.ManifestEntry
+	var manifests []ocispec.Descriptor
+	platforms := map[string]string{}
 	annotations := map[string]string{}
 	for i, remoteTag := range matchingTags {
 		inspect, err := inspectImage(cfg, repository, remoteTag)
 		if err != nil {
 			return err
 		}
+		if manifest.MIMETypeIsMultiImage(inspect.MediaType) {
+			return fmt.Errorf("image tag %s is a manifest list; expected a single-platform image", remoteTag)
+		}
 
 		if inspect.OS != "" && inspect.Architecture != "" {
-			manifests = append(manifests, manifesttypes.ManifestEntry{
-				Image: dockerImageName(cfg.containerRegistry, repository, remoteTag),
-				Platform: ocispec.Platform{
+			platform := strings.Join([]string{inspect.OS, inspect.Architecture, inspect.Variant}, "/")
+			if otherTag, ok := platforms[platform]; ok {
+				return fmt.Errorf("image tags %s and %s both provide platform %s", otherTag, remoteTag, strings.TrimSuffix(platform, "/"))
+			}
+			platforms[platform] = remoteTag
+			manifests = append(manifests, ocispec.Descriptor{
+				MediaType: inspect.MediaType,
+				Digest:    inspect.Digest,
+				Size:      inspect.Size,
+				Platform: &ocispec.Platform{
 					OS:           inspect.OS,
 					Architecture: inspect.Architecture,
+					Variant:      inspect.Variant,
 				},
 			})
 		}
@@ -287,29 +298,54 @@ func manifestUpdate(cfg config, repository string, tag string) error {
 		return fmt.Errorf("no platform metadata found for tag '%s'", tag)
 	}
 
-	previousLevel := logrus.GetLevel()
-	logrus.SetLevel(logrus.WarnLevel)
-	defer logrus.SetLevel(previousLevel)
-
-	digest, length, err := manifestregistry.PushManifestList(cfg.containerRegistryUsername, cfg.containerRegistryPassword, manifesttypes.YAMLInput{
-		Image:       dockerImageName(cfg.containerRegistry, repository, tag),
-		Tags:        []string{"latest"},
-		Manifests:   manifests,
-		Annotations: annotations,
-	}, false, false, false, manifesttypes.OCI, "")
+	index, err := manifest.OCI1IndexFromComponents(manifests, annotations).Serialize()
 	if err != nil {
 		return err
 	}
+	indexDigest, err := manifest.Digest(index)
+	if err != nil {
+		return err
+	}
+	for _, indexTag := range []string{tag, "latest"} {
+		if err := pushImageManifest(cfg, repository, indexTag, index); err != nil {
+			return fmt.Errorf("pushing image index to tag %s: %w", indexTag, err)
+		}
+	}
 
-	detail("digest: %s", digest)
-	detail("size: %d bytes", length)
+	detail("digest: %s", indexDigest)
+	detail("size: %d bytes", len(index))
 	return nil
 }
 
 type imageInspect struct {
+	MediaType    string
+	Digest       digest.Digest
+	Size         int64
 	OS           string
 	Architecture string
+	Variant      string
 	Labels       map[string]string
+}
+
+func pushImageManifest(cfg config, repository string, tag string, rawManifest []byte) error {
+	ref, err := dockerImageReference(cfg.containerRegistry, repository, tag)
+	if err != nil {
+		return err
+	}
+	sys, err := imageSystemContext(cfg)
+	if err != nil {
+		return err
+	}
+	dest, err := ref.NewImageDestination(context.Background(), sys)
+	if err != nil {
+		return err
+	}
+	defer dest.Close()
+
+	if err := dest.PutManifest(context.Background(), rawManifest, nil); err != nil {
+		return err
+	}
+	return dest.Commit(context.Background(), nil)
 }
 
 func listImageTags(cfg config, repository string) ([]string, error) {
@@ -343,7 +379,16 @@ func inspectImageReference(ref types.ImageReference, sys *types.SystemContext) (
 	}
 	defer src.Close()
 
-	img, err := containerimage.FromUnparsedImage(context.Background(), sys, containerimage.UnparsedInstance(src, nil))
+	unparsed := containerimage.UnparsedInstance(src, nil)
+	rawManifest, mediaType, err := unparsed.Manifest(context.Background())
+	if err != nil {
+		return imageInspect{}, err
+	}
+	manifestDigest, err := manifest.Digest(rawManifest)
+	if err != nil {
+		return imageInspect{}, err
+	}
+	img, err := containerimage.FromUnparsedImage(context.Background(), sys, unparsed)
 	if err != nil {
 		return imageInspect{}, err
 	}
@@ -356,8 +401,12 @@ func inspectImageReference(ref types.ImageReference, sys *types.SystemContext) (
 		inspect.Labels = map[string]string{}
 	}
 	return imageInspect{
+		MediaType:    mediaType,
+		Digest:       manifestDigest,
+		Size:         int64(len(rawManifest)),
 		OS:           inspect.Os,
 		Architecture: inspect.Architecture,
+		Variant:      inspect.Variant,
 		Labels:       inspect.Labels,
 	}, nil
 }
