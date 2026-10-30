@@ -23,6 +23,8 @@ const (
 	packagePyPI   packageKind = "pypi"
 	packageMaven  packageKind = "maven"
 	packageGradle packageKind = "gradle"
+	packageRebar3 packageKind = "rebar3"
+	packageGleam  packageKind = "gleam"
 )
 
 var packageManifests = map[packageKind]string{
@@ -32,6 +34,8 @@ var packageManifests = map[packageKind]string{
 	packagePyPI:   "pyproject.toml",
 	packageMaven:  "pom.xml",
 	packageGradle: "build.gradle",
+	packageRebar3: "rebar.config",
+	packageGleam:  "gleam.toml",
 }
 
 func packageManifestCandidates(kind packageKind) []string {
@@ -57,6 +61,7 @@ const (
 	registryPyPI         packageRegistry = "pypi"
 	registryMavenCentral packageRegistry = "maven-central"
 	registryPkgGoDev     packageRegistry = "pkg-go-dev"
+	registryHexPM        packageRegistry = "hexpm"
 )
 
 func packageRegistryName(registry packageRegistry, provider releaseProvider) string {
@@ -71,6 +76,8 @@ func packageRegistryName(registry packageRegistry, provider releaseProvider) str
 		return "Maven Central"
 	case registryPkgGoDev:
 		return "pkg.go.dev"
+	case registryHexPM:
+		return "hex.pm"
 	default:
 		return releaseProviderName(provider)
 	}
@@ -367,10 +374,13 @@ func publicationIdentity(publication packagePublication) string {
 	if publication.kind == packagePyPI {
 		name = normalizePyPIName(name)
 	}
-	// Gradle and Maven publish to the same Maven registry.
+	// Gradle and Maven publish to the same Maven registry, and rebar3 and Gleam to Hex.
 	kind := publication.kind
-	if kind == packageGradle {
+	switch kind {
+	case packageGradle:
 		kind = packageMaven
+	case packageGleam:
+		kind = packageRebar3
 	}
 	return string(publication.registry) + "\x00" + string(kind) + "\x00" + name + "\x00" + publication.version
 }
@@ -413,6 +423,10 @@ func (publication *packagePublication) preflight(set *packagePublicationSet) err
 		return preflightMavenPackage(set, publication)
 	case packageGradle:
 		return preflightGradlePackage(set, publication)
+	case packageRebar3:
+		return preflightRebar3Package(set, publication)
+	case packageGleam:
+		return preflightGleamPackage(set, publication)
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
 	}
@@ -438,6 +452,10 @@ func (publication *packagePublication) publish(set *packagePublicationSet) error
 		return publishMavenPackage(set, publication)
 	case packageGradle:
 		return publishGradlePackage(set, publication)
+	case packageRebar3:
+		return publishRebar3Package(set, publication)
+	case packageGleam:
+		return publishGleamPackage(set, publication)
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
 	}
@@ -477,6 +495,9 @@ func publicPackageTargets(cfg config) []packageTarget {
 	}
 	if cfg.pkgGoDevPublishing {
 		targets = append(targets, packageTarget{registry: registryPkgGoDev, kinds: []packageKind{packageGo}})
+	}
+	if cfg.hexPMToken != "" {
+		targets = append(targets, packageTarget{registry: registryHexPM, kinds: []packageKind{packageGleam, packageRebar3}})
 	}
 	return targets
 }

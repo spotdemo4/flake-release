@@ -17,6 +17,8 @@ type commandOptions struct {
 	dir     string
 	env     []string
 	secrets []string
+	// stdin is written to the command's standard input, which is empty otherwise.
+	stdin string
 }
 
 type packageCommandRunner interface {
@@ -49,11 +51,14 @@ func (execPackageCommandRunner) capture(options commandOptions) (string, error) 
 // PATH, along with the toolchain the command needs to run.
 var nixCommandPackages = map[string][]string{
 	"cargo":    {"cargo", "rustc", "stdenv.cc"},
+	"escript":  {"beamPackages.erlang"},
+	"gleam":    {"gleam", "beamPackages.erlang", "rebar3"},
 	"go":       {"go"},
 	"gradle":   {"gradle"},
 	"mvn":      {"maven"},
 	"npm":      {"nodejs"},
 	"patchelf": {"patchelf"},
+	"rebar3":   {"rebar3"},
 	"uv":       {"uv", "python3"},
 }
 
@@ -115,6 +120,9 @@ func captureCommand(options commandOptions) (string, error) {
 	cmd := exec.Command(options.name, options.args...)
 	cmd.Dir = options.dir
 	cmd.Env = commandEnvironment(options.env)
+	if options.stdin != "" {
+		cmd.Stdin = strings.NewReader(options.stdin)
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

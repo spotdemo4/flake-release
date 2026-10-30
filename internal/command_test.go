@@ -104,3 +104,19 @@ func TestRequireCommandRejectsUnknownMissingCommand(t *testing.T) {
 		t.Fatal("missing command was found")
 	}
 }
+
+func TestCaptureCommandWritesStdin(t *testing.T) {
+	t.Setenv("DEBUG", "")
+	captureHumanOutput(t)
+	path := filepath.Join(t.TempDir(), "read")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nread -r answer\nprintf '%s\\n' \"$answer\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureCommand(commandOptions{name: path, stdin: "confirmed\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "confirmed" {
+		t.Fatalf("captured output = %q; want stdin echoed", output)
+	}
+}
