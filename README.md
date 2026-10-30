@@ -195,7 +195,7 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
     fetch-depth: 0
 
 - name: Release
-  uses: spotdemo4/flake-release@v0.42.2
+  uses: spotdemo4/flake-release@v0.43.0
   with:
     packages: # default: all
     git_type: # default: detected
@@ -264,7 +264,7 @@ docker run -it \
   -e CONTAINER_REGISTRY_PASSWORD=... \
   -e PACKAGE_REGISTRY_TOKEN=... \
   -e BUNDLE_APPIMAGE=true \
-  ghcr.io/spotdemo4/flake-release:0.42.2
+  ghcr.io/spotdemo4/flake-release:0.43.0
 ```
 
 ### Downloads
