@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
-	github.com/estesp/manifest-tool/v2 v2.2.3-0.20261023094458-0cbe341cc4f8
+	github.com/estesp/manifest-tool/v2 v2.2.3-0.20261026164813-0fd4e13f9b1f
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v6 v6.0.0-beta.1
 	github.com/opencontainers/image-spec v1.1.2-0.20261022171424-4feed4a6674e
@@ -40,7 +40,7 @@ require (
 	github.com/containers/ocicrypt v1.3.2 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/cli v29.9.1+incompatible // indirect
+	github.com/docker/cli v29.9.2+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker v28.5.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.10 // indirect
@@ -105,5 +105,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	oras.land/oras-go/v2 v2.6.4 // indirect
+	oras.land/oras-go/v2 v2.7.0 // indirect
 )
