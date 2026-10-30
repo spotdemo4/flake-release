@@ -32,7 +32,7 @@ func TestZipDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	got := map[string]string{}
 	for _, file := range reader.File {
@@ -89,7 +89,7 @@ func TestZipDirectoryPreservesSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	for _, file := range reader.File {
 		if file.Name != "link" {
@@ -361,7 +361,7 @@ func TestPreparePackageBundleDereferencesSymlinksForWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	contents := map[string]string{}
 	for _, file := range reader.File {
@@ -560,7 +560,7 @@ func TestArchiveOutputsUsesZipForWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	entries := map[string]bool{}
 	for _, file := range reader.File {

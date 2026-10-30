@@ -58,7 +58,7 @@ func writeTestHexTarball(t *testing.T, path string, metadata string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	archive := tar.NewWriter(file)
 	for _, entry := range []struct{ name, contents string }{{"VERSION", "3"}, {"metadata.config", metadata}} {
 		if err := archive.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(len(entry.contents))}); err != nil {

@@ -93,7 +93,7 @@ func TestPublishPkgGoDevFetchesProxyAndRequestsVersion(t *testing.T) {
 }
 
 func TestPublishPkgGoDevFailsWhenProxyCannotFetchModule(t *testing.T) {
-	server := usePkgGoDevServer(t, func(w http.ResponseWriter, r *http.Request) {
+	server := usePkgGoDevServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "not found: unknown revision v1.2.3", http.StatusNotFound)
 	})
 	publication := &packagePublication{kind: packageGo, registry: registryPkgGoDev, name: "example.com/owner/repo", version: "v1.2.3"}

@@ -103,9 +103,9 @@ func imageGzip(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
-	cmd := exec.Command(path)
+	cmd := exec.CommandContext(context.Background(), path)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err
@@ -340,7 +340,7 @@ func pushImageManifest(cfg config, repository string, tag string, rawManifest []
 	if err != nil {
 		return err
 	}
-	defer dest.Close()
+	defer func() { _ = dest.Close() }()
 
 	if err := dest.PutManifest(context.Background(), rawManifest, nil); err != nil {
 		return err
@@ -377,7 +377,7 @@ func inspectImageReference(ref types.ImageReference, sys *types.SystemContext) (
 	if err != nil {
 		return imageInspect{}, err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	unparsed := containerimage.UnparsedInstance(src, nil)
 	rawManifest, mediaType, err := unparsed.Manifest(context.Background())

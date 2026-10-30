@@ -2,7 +2,7 @@ module trev.zip/llc/flake-release
 
 go 1.26.6
 
-toolchain go1.27.3
+toolchain go1.26.10
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2

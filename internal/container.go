@@ -114,9 +114,10 @@ func addGitSafeDirectory(configPath string, root string) error {
 	}
 	trusted := false
 	for _, value := range config.Section("safe").OptionAll("directory") {
-		if value == "" {
+		switch value {
+		case "":
 			trusted = false
-		} else if value == root {
+		case root:
 			trusted = true
 		}
 	}

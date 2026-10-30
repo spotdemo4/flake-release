@@ -1,8 +1,8 @@
 #:schema https://www.schemastore.org/treefmt.json
 
-[formatter.gofmt]
-command = "gofmt"
-options = ["-w"]
+[formatter.golangci-lint]
+command = "golangci-lint"
+options = ["fmt"]
 includes = ["*.go"]
 
 [formatter.nixfmt]
@@ -12,4 +12,5 @@ includes = ["*.nix"]
 [formatter.oxfmt]
 command = "oxfmt"
 options = ["--write"]
-includes = ["*.json", "*.yaml", "*.toml", "*.md"]
+includes = ["*.json", "*.jsonc", "*.yaml", "*.toml", "*.md"]
+excludes = ["gomod2nix.toml"] # generated

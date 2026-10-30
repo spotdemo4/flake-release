@@ -191,9 +191,9 @@ func TestPrepareMavenPublications(t *testing.T) {
 		packageRegistryURL:   "https://git.example",
 	}
 	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("packages/jvm/v1.2.3"), []string{"pkg"}, nil, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
-		requireFunc: func(name string) error { return nil },
-		runFunc:     func(options commandOptions) error { return nil },
-		captureFunc: func(options commandOptions) (string, error) { return "", nil },
+		requireFunc: func(string) error { return nil },
+		runFunc:     func(commandOptions) error { return nil },
+		captureFunc: func(commandOptions) (string, error) { return "", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -218,9 +218,9 @@ func TestPrepareGradlePublications(t *testing.T) {
 		packageRegistryURL:   "https://git.example",
 	}
 	set, err := preparePackagePublicationsWith(cfg, releaseForgejo, parseReleaseTag("packages/jvm/v1.2.3"), []string{"pkg"}, nil, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
-		requireFunc: func(name string) error { return nil },
-		runFunc:     func(options commandOptions) error { return nil },
-		captureFunc: func(options commandOptions) (string, error) { return "", nil },
+		requireFunc: func(string) error { return nil },
+		runFunc:     func(commandOptions) error { return nil },
+		captureFunc: func(commandOptions) (string, error) { return "", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -303,8 +303,8 @@ func TestPublishMavenCommand(t *testing.T) {
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(string) error { return nil },
-			runFunc:     func(options commandOptions) error { return nil },
-			captureFunc: func(options commandOptions) (string, error) { return "", nil },
+			runFunc:     func(commandOptions) error { return nil },
+			captureFunc: func(commandOptions) (string, error) { return "", nil },
 		},
 	}
 	publication := &packagePublication{kind: packageMaven, dir: source, manifest: filepath.Join(source, "pom.xml")}
@@ -412,8 +412,8 @@ func TestPublishGradleCommand(t *testing.T) {
 		temporaryDir: t.TempDir(),
 		commands: fakePackageCommandRunner{
 			requireFunc: func(string) error { return nil },
-			runFunc:     func(options commandOptions) error { return nil },
-			captureFunc: func(options commandOptions) (string, error) { return "", nil },
+			runFunc:     func(commandOptions) error { return nil },
+			captureFunc: func(commandOptions) (string, error) { return "", nil },
 		},
 	}
 	publication := &packagePublication{kind: packageGradle, dir: source, manifest: filepath.Join(source, "build.gradle")}

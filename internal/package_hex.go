@@ -3,6 +3,7 @@ package flakerelease
 import (
 	"archive/tar"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -134,11 +135,11 @@ func readHexTarballMetadata(path string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	archive := tar.NewReader(file)
 	for {
 		header, err := archive.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return "", "", fmt.Errorf("package contains no metadata.config")
 		}
 		if err != nil {

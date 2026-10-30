@@ -119,7 +119,7 @@ func gitConfigUserName(path string) (string, error) {
 		}
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	cfg, err := gitconfig.ReadConfig(file)
 	if err != nil {
@@ -428,7 +428,7 @@ func changelog(repo *git.Repository, from string, to releaseTag) (string, error)
 			}
 		}
 
-		subject := strings.SplitN(commit.Message, "\n", 2)[0]
+		subject, _, _ := strings.Cut(commit.Message, "\n")
 		lines = append(lines, "* "+subject+" ("+commit.Hash.String()+")")
 	}
 

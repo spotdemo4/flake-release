@@ -7,7 +7,7 @@
   "platform": "forgejo",
   "endpoint": "https://trev.zip/api/v1",
   "repositories": ["llc/flake-release"],
-  "allowedCommands": ["^fix-hash \\.#default$"],
+  "allowedCommands": ["^gomod2nix generate --with-deps$"],
 
   // repository
   "extends": ["config:recommended"],
@@ -19,12 +19,20 @@
     "enabled": true,
     "automerge": true,
     "schedule": ["* * * * 0"], // sunday
-    "skipInstalls": false,
-    "postUpgradeTasks": {
-      "commands": ["fix-hash .#default"],
-      "executionMode": "branch"
-    }
+    "skipInstalls": false
   },
+  "customManagers": [
+    {
+      // track the go in nixpkgs-unstable, which builds this project
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)go\\.mod$/"],
+      "matchStrings": ["toolchain\\s+go(?<currentValue>\\S+)"],
+      "depNameTemplate": "go",
+      "packageNameTemplate": "nix_unstable/go",
+      "datasourceTemplate": "repology",
+      "versioningTemplate": "semver"
+    }
+  ],
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
@@ -35,6 +43,11 @@
       "addLabels": ["nix"]
     },
     {
+      "matchManagers": ["nix"],
+      "matchUpdateTypes": ["digest"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["github-actions"],
       "addLabels": ["actions"]
     },
@@ -42,15 +55,22 @@
       "matchManagers": ["gomod"],
       "addLabels": ["go"],
       "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
+      // gomod2nix.toml has an entry per module, so updates do not conflict
       "postUpgradeTasks": {
-        "commands": ["fix-hash .#default"],
+        "commands": ["gomod2nix generate --with-deps"],
         "executionMode": "branch"
       }
     },
     {
+      // replaced by the nixpkgs-unstable custom manager
       "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "go modules"
+      "matchDepTypes": ["toolchain"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["go"],
+      "addLabels": ["go"]
     }
   ]
 }

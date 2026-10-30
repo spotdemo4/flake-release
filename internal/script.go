@@ -115,7 +115,7 @@ func isScriptPath(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	header := make([]byte, 2)
 	_, err = io.ReadFull(file, header)
 	return err == nil && string(header) == "#!"

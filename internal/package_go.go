@@ -145,7 +145,7 @@ func publishGoPackage(set *packagePublicationSet, publication *packagePublicatio
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	stat, err := file.Stat()
 	if err != nil {
 		return err
@@ -170,7 +170,7 @@ func readGoModule(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

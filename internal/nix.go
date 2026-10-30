@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,7 +99,7 @@ func chownRecursive(userName string, path string) {
 
 	_ = filepath.WalkDir(path, func(path string, _ fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil
+			return nil //nolint:nilerr // best effort, skip unreadable entries
 		}
 		_ = os.Lchown(path, uid, gid)
 		return nil
@@ -179,7 +180,7 @@ func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (
 		// only accepts through their outPath.
 		out, err = capture("build", "--no-link", "--print-out-paths", ".#"+pkg+".src.outPath")
 		if err != nil {
-			return nixSource{}, nil
+			return nixSource{}, nil //nolint:nilerr // packages without a source have no nixSource
 		}
 	}
 	path, _, _ := strings.Cut(out, "\n")
@@ -188,7 +189,7 @@ func nixPkgSrcWithCapture(pkg string, capture func(...string) (string, error)) (
 	}
 	stat, err := os.Stat(path)
 	if err != nil || !stat.IsDir() {
-		return nixSource{}, nil
+		return nixSource{}, nil //nolint:nilerr // only directory sources are used
 	}
 
 	source := nixSource{root: path}
@@ -352,7 +353,7 @@ func nixBundleAppImage(pkg string) (string, error) {
 }
 
 func nixRun(args ...string) error {
-	cmd := exec.Command("nix", args...)
+	cmd := exec.CommandContext(context.Background(), "nix", args...)
 	command := nixCommandString(args...)
 
 	if os.Getenv("DEBUG") != "" {
@@ -386,7 +387,7 @@ func nixRun(args ...string) error {
 }
 
 func nixCapture(args ...string) (string, error) {
-	cmd := exec.Command("nix", args...)
+	cmd := exec.CommandContext(context.Background(), "nix", args...)
 	command := nixCommandString(args...)
 
 	var stdout bytes.Buffer
@@ -405,7 +406,7 @@ func nixCapture(args ...string) (string, error) {
 }
 
 func nixCaptureLogged(args ...string) (string, error) {
-	cmd := exec.Command("nix", args...)
+	cmd := exec.CommandContext(context.Background(), "nix", args...)
 	command := nixCommandString(args...)
 
 	var stdout bytes.Buffer

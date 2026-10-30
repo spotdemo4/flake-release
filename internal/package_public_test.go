@@ -478,7 +478,7 @@ func TestPreflightMavenCentralBuildsSignedBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	files := map[string]string{}
 	for _, file := range archive.File {
 		reader, err := file.Open()
@@ -486,7 +486,7 @@ func TestPreflightMavenCentralBuildsSignedBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 		data, err := io.ReadAll(reader)
-		reader.Close()
+		_ = reader.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -566,7 +566,7 @@ func TestPreflightMavenCentralGradleAcceptsSubprojectsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	var poms []string
 	for _, file := range archive.File {
 		if strings.HasSuffix(file.Name, ".pom") {

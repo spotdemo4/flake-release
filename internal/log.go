@@ -15,7 +15,7 @@ var (
 )
 
 func info(format string, args ...any) {
-	fmt.Fprintf(color.Error, format+"\n", args...)
+	_, _ = fmt.Fprintf(color.Error, format+"\n", args...)
 }
 
 func warn(format string, args ...any) {
@@ -24,11 +24,11 @@ func warn(format string, args ...any) {
 
 func section(format string, args ...any) {
 	info("")
-	boldColor.Fprintf(color.Error, format+"\n", args...)
+	_, _ = boldColor.Fprintf(color.Error, format+"\n", args...)
 }
 
 func item(format string, args ...any) {
-	boldColor.Fprintf(color.Error, "  "+format+"\n", args...)
+	_, _ = boldColor.Fprintf(color.Error, "  "+format+"\n", args...)
 }
 
 func status(format string, args ...any) {
@@ -36,7 +36,7 @@ func status(format string, args ...any) {
 }
 
 func detail(format string, args ...any) {
-	dimColor.Fprintf(color.Error, "    "+format+"\n", args...)
+	_, _ = dimColor.Fprintf(color.Error, "    "+format+"\n", args...)
 }
 
 func detailBlock(value string) {
@@ -47,6 +47,7 @@ func itemWarn(format string, args ...any) {
 	writeBlock(warnColor, "    ", "warning: ", fmt.Sprintf(format, args...))
 }
 
+// PrintError writes err to standard error.
 func PrintError(err error) {
 	if err == nil {
 		return
@@ -62,7 +63,7 @@ func writeBlock(style *color.Color, indent string, prefix string, value string) 
 		if index > 0 {
 			linePrefix = continuation
 		}
-		style.Fprintf(color.Error, "%s%s%s\n", indent, linePrefix, line)
+		_, _ = style.Fprintf(color.Error, "%s%s%s\n", indent, linePrefix, line)
 	}
 }
 

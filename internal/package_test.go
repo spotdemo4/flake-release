@@ -652,7 +652,7 @@ func TestCopyWritableTree(t *testing.T) {
 	if err := os.Chmod(filepath.Dir(path), 0o500); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(filepath.Dir(path), 0o700)
+	defer func() { _ = os.Chmod(filepath.Dir(path), 0o700) }()
 	destination := filepath.Join(t.TempDir(), "stage")
 	if err := copyWritableTree(source, destination); err != nil {
 		t.Fatal(err)

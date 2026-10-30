@@ -206,7 +206,7 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	stat, err := file.Stat()
 	if err != nil {
 		return err
@@ -455,7 +455,7 @@ func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	endpoint, err := releaseAssetUploadURL(
 		fmt.Sprintf("%s/repos/%s/releases/%d/assets", c.apiBase(), repo.path(), release.ID),
@@ -676,7 +676,7 @@ func releaseAssetUploadURL(uploadURL string, name string) (string, error) {
 	if uploadURL == "" {
 		return "", fmt.Errorf("release upload URL is empty")
 	}
-	baseURL := strings.Split(uploadURL, "{")[0]
+	baseURL, _, _ := strings.Cut(uploadURL, "{")
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return "", err

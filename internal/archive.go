@@ -363,7 +363,7 @@ func copyFile(src string, dst string, info fs.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	mode := info.Mode().Perm()
 	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode|0o200)
@@ -404,7 +404,7 @@ func isStaticELF(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if file.Type != elf.ET_EXEC && file.Type != elf.ET_DYN {
 		return false, nil
@@ -425,7 +425,7 @@ func isStaticELF(path string) (bool, error) {
 func isStaticMachO(path string) (bool, error) {
 	file, err := macho.Open(path)
 	if err == nil {
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		return file.Type == macho.TypeExec, nil
 	}
 
@@ -433,10 +433,10 @@ func isStaticMachO(path string) (bool, error) {
 	if fatErr != nil {
 		return false, err
 	}
-	defer fatFile.Close()
+	defer func() { _ = fatFile.Close() }()
 
 	for _, arch := range fatFile.Arches {
-		if arch.File.Type != macho.TypeExec {
+		if arch.Type != macho.TypeExec {
 			return false, nil
 		}
 	}
@@ -448,10 +448,10 @@ func isStaticPE(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
-	return file.FileHeader.Characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE != 0 &&
-		file.FileHeader.Characteristics&pe.IMAGE_FILE_DLL == 0, nil
+	return file.Characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE != 0 &&
+		file.Characteristics&pe.IMAGE_FILE_DLL == 0, nil
 }
 
 func findFiles(path string) ([]string, error) {

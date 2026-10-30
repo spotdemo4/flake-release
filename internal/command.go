@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -117,7 +118,7 @@ func captureCommand(options commandOptions) (string, error) {
 	display := redactSecrets(commandString(options.name, options.args...), options.secrets)
 	detail("command: %s", display)
 
-	cmd := exec.Command(options.name, options.args...)
+	cmd := exec.CommandContext(context.Background(), options.name, options.args...)
 	cmd.Dir = options.dir
 	cmd.Env = commandEnvironment(options.env)
 	if options.stdin != "" {

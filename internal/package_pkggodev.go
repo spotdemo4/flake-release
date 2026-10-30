@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,11 +73,11 @@ func goProxyFetch(url string) error {
 
 // goProxyGet requests url and discards the response, which may be a large module zip.
 func goProxyGet(url string) error {
-	resp, err := pkgGoDevClient.Get(url)
+	resp, err := pkgGoDevRequest(http.MethodGet, url)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if message := strings.TrimSpace(string(body)); message != "" {
@@ -96,9 +97,9 @@ func requestPkgGoDev(moduleVersion string) error {
 	page := base + "/" + moduleVersion
 	deadline := time.Now().Add(pkgGoDevTimeout)
 	for {
-		if resp, err := pkgGoDevClient.Get(page); err == nil {
+		if resp, err := pkgGoDevRequest(http.MethodGet, page); err == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				status("served at %s", page)
 				return nil
@@ -108,9 +109,9 @@ func requestPkgGoDev(moduleVersion string) error {
 			break
 		}
 		detail("POST %s/fetch/%s", base, moduleVersion)
-		if resp, err := pkgGoDevClient.Post(base+"/fetch/"+moduleVersion, "", nil); err == nil {
+		if resp, err := pkgGoDevRequest(http.MethodPost, base+"/fetch/"+moduleVersion); err == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		time.Sleep(pkgGoDevPollInterval)
 	}
@@ -118,4 +119,13 @@ func requestPkgGoDev(moduleVersion string) error {
 	// The module proxy already serves the version, so pkg.go.dev will list it eventually.
 	itemWarn("pkg.go.dev did not serve %s yet; request it at %s", moduleVersion, page)
 	return nil
+}
+
+// pkgGoDevRequest sends a bodyless request with pkgGoDevClient.
+func pkgGoDevRequest(method string, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(context.Background(), method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return pkgGoDevClient.Do(req)
 }

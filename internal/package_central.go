@@ -304,7 +304,7 @@ func addMavenCentralBundleFile(archive *zip.Writer, path string, name string, si
 	if err != nil {
 		return err
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }()
 	entry, err := archive.Create(name)
 	if err != nil {
 		return err
@@ -361,7 +361,7 @@ func publishMavenCentralPackage(set *packagePublicationSet, publication *package
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	token := base64.StdEncoding.EncodeToString([]byte(set.cfg.mavenCentralUsername + ":" + set.cfg.mavenCentralToken))
 	query := url.Values{

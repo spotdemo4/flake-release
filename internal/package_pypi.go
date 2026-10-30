@@ -78,7 +78,7 @@ func readPyPIZipMetadata(path string) (pyPICoreMetadata, error) {
 	if err != nil {
 		return pyPICoreMetadata{}, err
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	for _, file := range archive.File {
 		if !strings.HasSuffix(file.Name, "/METADATA") && !strings.HasSuffix(file.Name, "/PKG-INFO") && file.Name != "METADATA" && file.Name != "PKG-INFO" {
 			continue
@@ -105,12 +105,12 @@ func readPyPITarMetadata(path string) (pyPICoreMetadata, error) {
 	if err != nil {
 		return pyPICoreMetadata{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	compressed, err := gzip.NewReader(file)
 	if err != nil {
 		return pyPICoreMetadata{}, err
 	}
-	defer compressed.Close()
+	defer func() { _ = compressed.Close() }()
 	archive := tar.NewReader(compressed)
 	for {
 		header, err := archive.Next()

@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"context"
 	"debug/elf"
 	"errors"
 	"fmt"
@@ -628,7 +629,7 @@ func isDynamicELF(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if file.Type != elf.ET_EXEC && file.Type != elf.ET_DYN {
 		return false, nil
@@ -649,7 +650,7 @@ func elfDependencies(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	return file.ImportedLibraries()
 }
@@ -680,7 +681,7 @@ func elfSearchPaths(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var paths []string
 	for _, tag := range []elf.DynTag{elf.DT_RUNPATH, elf.DT_RPATH} {
@@ -782,7 +783,7 @@ func patchelf(args ...string) error {
 	if err := requireCommand("patchelf"); err != nil {
 		return err
 	}
-	cmd := exec.Command("patchelf", args...)
+	cmd := exec.CommandContext(context.Background(), "patchelf", args...)
 	if os.Getenv("DEBUG") != "" {
 		info("patchelf %s", strings.Join(args, " "))
 		cmd.Stdout = os.Stderr

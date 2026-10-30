@@ -1,3 +1,4 @@
+// Package flakerelease generates release artifacts for packages in a nix flake.
 package flakerelease
 
 import (
@@ -197,6 +198,7 @@ func parseRunArgs(cfg *config, args []string) ([]string, bool) {
 	return packages, false
 }
 
+// Run releases the flake packages named in args and the PACKAGES environment variable.
 func Run(args []string) error {
 	cfg := configFromEnv()
 	packages, help := parseRunArgs(&cfg, args)
@@ -705,7 +707,7 @@ func prepareReleaseImagesWith(tag releaseTag, tier releaseTier, build func(strin
 func releasePackage(cfg config, imageRepository string, release releaseClient, tag releaseTag, pkg releasePackagePlan, ensureRelease func() error, images *bool) error {
 	if pkg.imageBuildErr != nil {
 		status("skipping image publication because preparation failed")
-		return nil
+		return nil //nolint:nilerr // the preparation error was already reported
 	}
 	if pkg.image {
 		if !imageTagMatchesReleaseTag(pkg.imageTag, tag) {

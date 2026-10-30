@@ -2,6 +2,7 @@ package flakerelease
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,7 +35,7 @@ func multipartFileBody(fieldName string, path string) (io.ReadCloser, string, er
 	reader, writer := io.Pipe()
 	multipartWriter := multipart.NewWriter(writer)
 	go func() {
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		part, err := multipartWriter.CreateFormFile(fieldName, filepath.Base(path))
 		if err != nil {
@@ -79,7 +80,7 @@ func jsonRequest(method string, authScheme string, token string, accept string, 
 }
 
 func httpRequest(options httpRequestOptions) ([]byte, error) {
-	req, err := http.NewRequest(options.method, options.url, options.body)
+	req, err := http.NewRequestWithContext(context.Background(), options.method, options.url, options.body)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +108,7 @@ func httpRequest(options httpRequestOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

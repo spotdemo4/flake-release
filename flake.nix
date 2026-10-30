@@ -18,12 +18,18 @@
       inputs.systems.follows = "systems";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    gomod2nix = {
+      url = "github:nix-community/gomod2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.inputs.systems.follows = "systems";
+    };
   };
 
   outputs =
     {
       self,
       trevpkgs,
+      gomod2nix,
       ...
     }:
     let
@@ -53,7 +59,7 @@
               go
               gopls
               gotools
-              go-tools
+              golangci-lint
 
               vscode-json-languageserver # json
               yaml-language-server # yaml
@@ -67,7 +73,7 @@
               # util
               treefmt
               bumper
-              fix-hash
+              gomod2nix.packages.${system}.default
             ];
           };
 
@@ -88,7 +94,7 @@
             packages = with pkgs; [
               renovate
               go # go mod tidy
-              fix-hash # vendorHash
+              gomod2nix.packages.${system}.default # gomod2nix.toml
             ];
           };
 
@@ -131,7 +137,7 @@
                 ];
               };
               goSum = ./go.sum;
-              vendorHash = "sha256-oVfVCKEoVis/xWpSqJgj4efbd0FzM4e75Z8w8DYJgAQ=";
+              modules = ./gomod2nix.toml;
               tags = goTags;
 
               nativeBuildInputs = with pkgs; [
@@ -191,7 +197,7 @@
         formatter = pkgs.treefmt.withConfig {
           configFile = ./treefmt.toml;
           runtimeInputs = with pkgs; [
-            go
+            golangci-lint
             nixfmt
             oxfmt
           ];
@@ -201,15 +207,13 @@
         checks = pkgs.mkChecks {
           inherit (self.packages.${system}) default;
 
-          go = {
+          go-lint = {
             src = self.packages.${system}.default;
-            packages = with pkgs; [ go-tools ];
+            packages = with pkgs; [ golangci-lint ];
             script = ''
               export GOFLAGS="$GOFLAGS ${goFlags}"
-              test -z "$(go fmt ./... | tee /dev/stderr)"
-              go vet ./...
-              staticcheck ./...
-              go fix -diff ./...
+              cp ${./.golangci.yaml} .golangci.yaml
+              golangci-lint run ./...
             '';
           };
 
@@ -255,18 +259,25 @@
 
           renovate-fj = {
             root = ./.forgejo;
-            files = ./.forgejo/renovate.json;
+            files = ./.forgejo/renovate.jsonc;
             packages = with pkgs; [
               renovate
             ];
             script = ''
-              renovate-config-validator renovate.json
+              renovate-config-validator renovate.jsonc
             '';
           };
 
           config = {
             root = ./.;
-            filter = file: file.hasExt "json" || file.hasExt "yaml" || file.hasExt "toml" || file.hasExt "md";
+            filter =
+              file:
+              file.hasExt "json"
+              || file.hasExt "jsonc"
+              || file.hasExt "yaml"
+              || file.hasExt "toml"
+              || file.hasExt "md";
+            ignore = ./gomod2nix.toml; # generated
             packages = with pkgs; [
               oxfmt
             ];
