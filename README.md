@@ -21,6 +21,18 @@ Packages are built and published in order of their platform's distance from the 
 
 Runs that produce no releasable outputs fail without creating a release, unless no packages were selected and the flake provides no packages for the current system; then a release is created with only the changelog. Works with GitHub, Gitea & Forgejo
 
+### Release description
+
+Once everything is published, a `## Packages` section is added to the release description, listing the combined container image and each package published to a registry, with a link to its page:
+
+- Container images in the git host's default registry link to the image's page on the host: on GitHub, `https://github.com/{owner}/{repo}/pkgs/container/{name}`, and on Forgejo and Gitea, `{server}/{owner}/-/packages/container/{name}/{version}`. Images in any other registry are listed without a link.
+- On Forgejo and Gitea, packages link to `{PACKAGE_REGISTRY_URL}/{owner}/-/packages/{type}/{name}/{version}`.
+- On github.com, npm and Maven packages link to `https://github.com/{owner}/{repo}/pkgs/{type}/{name}`, which is the page for packages linked to the repository they are published from. They are listed without a link when `PACKAGE_REGISTRY_OWNER` or `PACKAGE_REGISTRY_URL` points elsewhere.
+- Packages published to [public registries](#public-registries) link to their version's page, such as `https://crates.io/crates/{name}/{version}`.
+- A Gradle build may publish only its subprojects, so Gradle packages are listed by group as `group:*:version`. They link to the group's packages on Forgejo, Gitea, and Maven Central, and are listed without a link on GitHub.
+
+Lines already in the section are kept, so runners that release different packages to the same release each add their own. Packages published before a failure are still listed, while images are listed only once their combined manifest is updated. The release has already been published by then, so a failure to update the description only logs a warning. Dry runs log the links instead of updating the release.
+
 ## Usage
 
 ```sh

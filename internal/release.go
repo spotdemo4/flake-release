@@ -43,6 +43,7 @@ type releaseAsset struct {
 type githubReleaseResponse struct {
 	ID        int64          `json:"id"`
 	TagName   string         `json:"tag_name"`
+	Body      string         `json:"body"`
 	UploadURL string         `json:"upload_url"`
 	Assets    []releaseAsset `json:"assets"`
 }
@@ -52,6 +53,7 @@ type giteaReleaseResponse struct {
 	TagName    string         `json:"tag_name"`
 	TagNameAlt string         `json:"tagName"`
 	Tag        string         `json:"tag"`
+	Body       string         `json:"body"`
 	Assets     []releaseAsset `json:"assets"`
 }
 
@@ -61,9 +63,14 @@ type createReleaseRequest struct {
 	Body    string `json:"body,omitempty"`
 }
 
+type editReleaseRequest struct {
+	Body string `json:"body"`
+}
+
 type releaseClient interface {
 	createRelease(tag string, changelog string) (bool, error)
 	uploadAsset(tag string, asset string) error
+	addReleaseLinks(tag string, links []releaseLink) error
 	cleanupAssets(currentTag releaseTag, retain int) ([]releaseTag, error)
 }
 
@@ -146,6 +153,10 @@ func (noopReleaseClient) uploadAsset(_ string, _ string) error {
 	return nil
 }
 
+func (noopReleaseClient) addReleaseLinks(_ string, _ []releaseLink) error {
+	return nil
+}
+
 func (noopReleaseClient) cleanupAssets(_ releaseTag, _ int) ([]releaseTag, error) {
 	return nil, nil
 }
@@ -225,6 +236,35 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		body:          file,
 		contentLength: stat.Size(),
 	})
+	return err
+}
+
+func (c githubReleaseClient) addReleaseLinks(tag string, links []releaseLink) error {
+	action := "update GitHub release"
+	repo, err := c.repository(action)
+	if err != nil {
+		return err
+	}
+	if err := c.requireToken(action); err != nil {
+		return err
+	}
+
+	release, err := c.releaseByTag(repo, tag)
+	if err != nil {
+		return err
+	}
+	if release.ID == 0 {
+		return fmt.Errorf("GitHub release %s has no id", tag)
+	}
+	body, changed := releaseBodyWithLinks(release.Body, links)
+	if !changed {
+		status("release %s already links every package", tag)
+		return nil
+	}
+
+	status("adding package links to release %s at %s", tag, c.cfg.gitRepository)
+	endpoint := fmt.Sprintf("%s/repos/%s/releases/%d", c.apiBase(), repo.path(), release.ID)
+	_, err = c.jsonRequest(http.MethodPatch, endpoint, editReleaseRequest{Body: body})
 	return err
 }
 
@@ -472,6 +512,31 @@ func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
 		contentType: contentType,
 		body:        body,
 	})
+	return err
+}
+
+func (c giteaReleaseClient) addReleaseLinks(tag string, links []releaseLink) error {
+	repo, err := c.repository("update " + c.name + " release")
+	if err != nil {
+		return err
+	}
+
+	release, err := c.releaseByTag(repo, tag)
+	if err != nil {
+		return err
+	}
+	if release.ID == 0 {
+		return fmt.Errorf("%s release %s has no id", c.name, tag)
+	}
+	body, changed := releaseBodyWithLinks(release.Body, links)
+	if !changed {
+		status("release %s already links every package", tag)
+		return nil
+	}
+
+	status("adding package links to release %s at %s", tag, c.cfg.gitRepository)
+	endpoint := fmt.Sprintf("%s/repos/%s/releases/%d", c.apiBase(), repo.path(), release.ID)
+	_, err = c.jsonRequest(http.MethodPatch, endpoint, editReleaseRequest{Body: body})
 	return err
 }
 

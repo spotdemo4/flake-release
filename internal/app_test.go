@@ -28,6 +28,10 @@ func (*recordingReleaseClient) uploadAsset(_ string, _ string) error {
 	return nil
 }
 
+func (*recordingReleaseClient) addReleaseLinks(_ string, _ []releaseLink) error {
+	return nil
+}
+
 func (*recordingReleaseClient) cleanupAssets(_ releaseTag, _ int) ([]releaseTag, error) {
 	return nil, nil
 }

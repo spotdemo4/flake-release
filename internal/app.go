@@ -398,6 +398,17 @@ func Run(args []string) error {
 		}
 	}
 
+	// Images are linked only once their combined manifest exists, and packages that
+	// published before a failure are still linked.
+	var links []releaseLink
+	if images {
+		links = append(links, containerReleaseLink(cfg, provider, imageRepository, tag.version))
+	}
+	links = append(links, publications.releaseLinks()...)
+	if len(links) > 0 {
+		linkReleasePackages(cfg, release, tag.full, links)
+	}
+
 	if publishErr != nil {
 		return publishErr
 	}
@@ -423,6 +434,25 @@ func Run(args []string) error {
 	}
 
 	return nil
+}
+
+// linkReleasePackages adds the published packages and images to the release description.
+// The release is already published by then, so a failure only warns.
+func linkReleasePackages(cfg config, release releaseClient, tag string, links []releaseLink) {
+	section("Linking packages in release")
+	for _, link := range links {
+		item("%s", link.text)
+		if link.url != "" {
+			detail("url: %s", link.url)
+		}
+	}
+	if cfg.dryRun {
+		status("dry run: skipping release update")
+		return
+	}
+	if err := release.addReleaseLinks(tag, links); err != nil {
+		warn("adding package links to release %s: %v", tag, err)
+	}
 }
 
 // defaultPackages selects the current system's default package, or nothing when the

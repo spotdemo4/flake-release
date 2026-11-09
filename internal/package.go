@@ -102,6 +102,7 @@ type packagePublication struct {
 	nixPackages []nixPackageVersion
 	// publishArgs are extra arguments for the registry's publish command.
 	publishArgs []string
+	published   bool
 }
 
 // nixPackageVersion is a flake package and the version it evaluates to, empty when unset.
@@ -402,6 +403,7 @@ func (set *packagePublicationSet) publish() error {
 		if err := publication.publish(set); err != nil {
 			return fmt.Errorf("publishing %s package %s@%s to %s: %w", publication.kind, publication.name, publication.version, registry, err)
 		}
+		publication.published = true
 	}
 	return nil
 }
