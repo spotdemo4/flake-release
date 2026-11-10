@@ -191,6 +191,7 @@ cachePackages = [
   'github.com/opencontainers/runtime-spec/specs-go',
   'github.com/pjbgf/sha1cd',
   'github.com/pjbgf/sha1cd/ubc',
+  'github.com/proglottis/gpgme',
   'github.com/secure-systems-lab/go-securesystemslib/encrypted',
   'github.com/sergi/go-diff/diffmatchpatch',
   'github.com/sigstore/fulcio/pkg/certificate',
@@ -601,8 +602,8 @@ cachePackages = [
     hash = 'sha256-33ioL7suoYfgBIEQDAeqy+lwhbCgy885BkcXavowffo='
 
   [mod.'golang.org/x/mod']
-    version = 'v0.42.0'
-    hash = 'sha256-jgjKlIzteE99u8/TbuZTk4cLAwDOVZePXaRwqEpYvPk='
+    version = 'v0.43.0'
+    hash = 'sha256-JwZNuiZrkAScZmQqEvmF0mDzhgyJuf5H31YjeaZWshU='
 
   [mod.'golang.org/x/net']
     version = 'v0.60.0'
