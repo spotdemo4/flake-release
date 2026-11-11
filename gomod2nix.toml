@@ -582,16 +582,16 @@ cachePackages = [
     hash = 'sha256-7HyWcBj0lBc9V29f14gPFS3mBPrHZmC3TFuRsfIo7mI='
 
   [mod.'go.podman.io/image/v5']
-    version = 'v5.42.0'
-    hash = 'sha256-6IpJyvuaUUxlrE4sAJyVABTM9muylITYjyJirHI1coY='
+    version = 'v5.42.1'
+    hash = 'sha256-cQqC2WaxPrFUfKHAOZk5QszAYKtyj4SueZPE8zBkwwo='
 
   [mod.'go.podman.io/skopeo']
     version = 'v1.24.1'
     hash = 'sha256-GzKBIyUCBrpXqgdUdgsNOt+RdFu+rbMUFUBQAhgtTq8='
 
   [mod.'go.podman.io/storage']
-    version = 'v1.65.0'
-    hash = 'sha256-H5uoeAYccnCAHUg+WHeTZ4AMjp1BC0oKMeVZvWUbnos='
+    version = 'v1.65.1'
+    hash = 'sha256-LggtgsIQdBaIXIucLRDKhL3tnnjei4N+4ruZDJJF06o='
 
   [mod.'go.yaml.in/yaml/v3']
     version = 'v3.0.5'
