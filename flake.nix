@@ -51,8 +51,7 @@
               pkg-config
             ];
             buildInputs = with pkgs; [
-              xz.dev
-              xz.out
+              xz
             ];
             packages = with pkgs; [
               # go
@@ -104,8 +103,7 @@
               pkg-config
             ];
             buildInputs = with pkgs; [
-              xz.dev
-              xz.out
+              xz
             ];
             packages = with pkgs; [
               go
@@ -148,8 +146,7 @@
                 pkg-config
               ];
               buildInputs = with pkgs; [
-                xz.dev
-                xz.out
+                xz
               ];
 
               doCheck = true;
