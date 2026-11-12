@@ -156,7 +156,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/spotdemo4/flake-release:0.44.2
+  image: docker://ghcr.io/spotdemo4/flake-release:0.45.0
   env:
     PACKAGES: ${{ inputs.packages }}
     GIT_TYPE: ${{ inputs.git_type }}
