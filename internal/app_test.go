@@ -222,12 +222,12 @@ func TestReleaseTagHintUsesExactTagEvent(t *testing.T) {
 	t.Setenv("GITHUB_REF_NAME", "packages/api/v1.2.3")
 	t.Setenv("GITHUB_REF", "refs/tags/packages/api/v1.2.3")
 
-	got, err := releaseTagHint()
+	got, fromCI, err := releaseTagHint()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "packages/api/v1.2.3" {
-		t.Fatalf("releaseTagHint() = %q; want exact event tag", got)
+	if got != "packages/api/v1.2.3" || !fromCI {
+		t.Fatalf("releaseTagHint() = %q, %t; want exact event tag", got, fromCI)
 	}
 }
 
@@ -236,12 +236,12 @@ func TestReleaseTagHintPrefersTag(t *testing.T) {
 	t.Setenv("GITHUB_REF_NAME", "main")
 	t.Setenv("GITHUB_REF", "refs/heads/main")
 
-	got, err := releaseTagHint()
+	got, fromCI, err := releaseTagHint()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "v2.0.0" {
-		t.Fatalf("releaseTagHint() = %q; want TAG", got)
+	if got != "v2.0.0" || fromCI {
+		t.Fatalf("releaseTagHint() = %q, %t; want TAG", got, fromCI)
 	}
 }
 
@@ -259,7 +259,7 @@ func TestReleaseTagHintIgnoresNonTagEvents(t *testing.T) {
 			t.Setenv("TAG", "")
 			t.Setenv("GITHUB_REF_NAME", test.refName)
 			t.Setenv("GITHUB_REF", test.ref)
-			got, err := releaseTagHint()
+			got, _, err := releaseTagHint()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -283,7 +283,7 @@ func TestReleaseTagHintRejectsInexactTagEvents(t *testing.T) {
 			t.Setenv("TAG", "")
 			t.Setenv("GITHUB_REF_NAME", test.refName)
 			t.Setenv("GITHUB_REF", test.ref)
-			if _, err := releaseTagHint(); err == nil {
+			if _, _, err := releaseTagHint(); err == nil {
 				t.Fatal("releaseTagHint() returned nil error")
 			}
 		})
@@ -301,7 +301,7 @@ func TestReleaseGroupsUsesLatestTagForChangelogOnlyRelease(t *testing.T) {
 	createGitTestTag(t, repo, "v1.2.3", commit)
 	chdir(t, dir)
 
-	groups, err := releaseGroups(true, nil, nil)
+	groups, err := releaseGroups(true, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,12 +309,12 @@ func TestReleaseGroupsUsesLatestTagForChangelogOnlyRelease(t *testing.T) {
 		t.Fatalf("releaseGroups() = %+v; want changelog-only release for latest tag", groups)
 	}
 
-	hint := parseReleaseTag("packages/api/v2.0.0")
-	groups, err = releaseGroups(true, nil, &hint)
+	hint := tagHint{tag: parseReleaseTag("packages/api/v2.0.0")}
+	groups, err = releaseGroups(true, nil, &hint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 1 || groups[0].tag.full != hint.full {
+	if len(groups) != 1 || groups[0].tag.full != hint.tag.full {
 		t.Fatalf("releaseGroups() = %+v; want changelog-only release for hint", groups)
 	}
 }
@@ -331,12 +331,12 @@ func TestReleaseGroupsRejectsRunWithoutMatchingTags(t *testing.T) {
 	chdir(t, dir)
 
 	plans := []releasePackagePlan{{pkg: "packages.default", pname: "app", version: "1.2.4"}}
-	if _, err := releaseGroups(false, plans, nil); err == nil || !strings.Contains(err.Error(), "no releasable package outputs") {
+	if _, err := releaseGroups(false, plans, nil, nil); err == nil || !strings.Contains(err.Error(), "no releasable package outputs") {
 		t.Fatalf("releaseGroups() error = %v; want no releasable outputs", err)
 	}
 
 	plans[0].version = "1.2.3"
-	groups, err := releaseGroups(false, plans, nil)
+	groups, err := releaseGroups(false, plans, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -944,5 +944,106 @@ func TestIsNativeBinary(t *testing.T) {
 	}
 	if isNativeBinary(script) {
 		t.Fatalf("isNativeBinary(%q) = true; want false", script)
+	}
+}
+
+func testPreparedRelease(tag string, kind packageKind, name string, dependencies ...string) preparedRelease {
+	return preparedRelease{
+		releaseGroup: releaseGroup{tag: parseReleaseTag(tag)},
+		publications: &packagePublicationSet{packages: []packagePublication{{
+			kind:         kind,
+			name:         name,
+			manifestName: name,
+			dependencies: dependencies,
+		}}},
+	}
+}
+
+func TestPublishReleasesOrdersDependenciesFirst(t *testing.T) {
+	prepared := []preparedRelease{
+		testPreparedRelease("b/v1.0.0", packageCargo, "b", "a", "serde"),
+		testPreparedRelease("c/v1.0.0", packageNPM, "c"),
+		testPreparedRelease("a/v1.0.0", packageCargo, "a"),
+		// A package of another kind with the same name is not a dependency.
+		testPreparedRelease("d/v1.0.0", packageNPM, "d", "b"),
+	}
+	var published []string
+	err := publishReleases(config{}, prepared, func(ready preparedRelease, unpublished func(packagePublication) []string) error {
+		if unpublished != nil {
+			t.Fatal("unpublished dependencies reported outside a dry run")
+		}
+		published = append(published, ready.tag.full)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(published, ","), "c/v1.0.0,a/v1.0.0,b/v1.0.0,d/v1.0.0"; got != want {
+		t.Fatalf("published = %s; want %s", got, want)
+	}
+}
+
+func TestPublishReleasesSkipsDependentsOfFailedRelease(t *testing.T) {
+	prepared := []preparedRelease{
+		testPreparedRelease("a/v1.0.0", packageCargo, "a"),
+		testPreparedRelease("b/v1.0.0", packageCargo, "b", "a"),
+		testPreparedRelease("c/v1.0.0", packageCargo, "c"),
+		testPreparedRelease("d/v1.0.0", packageCargo, "d", "b"),
+	}
+	var published []string
+	err := publishReleases(config{}, prepared, func(ready preparedRelease, _ func(packagePublication) []string) error {
+		if ready.tag.full == "a/v1.0.0" {
+			return errors.New("registry unavailable")
+		}
+		published = append(published, ready.tag.full)
+		return nil
+	})
+	if got, want := strings.Join(published, ","), "c/v1.0.0"; got != want {
+		t.Fatalf("published = %s; want %s", got, want)
+	}
+	for _, want := range []string{
+		"a/v1.0.0: registry unavailable",
+		"b/v1.0.0: skipped because a/v1.0.0 failed",
+		"d/v1.0.0: skipped because b/v1.0.0 failed",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("publishReleases() error = %v; want %q", err, want)
+		}
+	}
+}
+
+func TestPublishReleasesKeepsOrderOfDependencyCycle(t *testing.T) {
+	prepared := []preparedRelease{
+		testPreparedRelease("a/v1.0.0", packageNPM, "a", "b"),
+		testPreparedRelease("b/v1.0.0", packageNPM, "b", "a"),
+	}
+	var published []string
+	err := publishReleases(config{}, prepared, func(ready preparedRelease, _ func(packagePublication) []string) error {
+		published = append(published, ready.tag.full)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(published, ","), "a/v1.0.0,b/v1.0.0"; got != want {
+		t.Fatalf("published = %s; want %s", got, want)
+	}
+}
+
+func TestPublishReleasesReportsUnpublishedDependenciesInDryRun(t *testing.T) {
+	prepared := []preparedRelease{
+		testPreparedRelease("a/v1.0.0", packageCargo, "a"),
+		testPreparedRelease("b/v1.0.0", packageCargo, "b", "a", "serde"),
+	}
+	pending := map[string][]string{}
+	err := publishReleases(config{dryRun: true}, prepared, func(ready preparedRelease, unpublished func(packagePublication) []string) error {
+		pending[ready.tag.full] = unpublished(ready.publicationList()[0])
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending["a/v1.0.0"]) != 0 || !slices.Equal(pending["b/v1.0.0"], []string{"a"}) {
+		t.Fatalf("unpublished dependencies = %v; want only a for b", pending)
 	}
 }

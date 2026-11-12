@@ -228,18 +228,16 @@ func Run(args []string) error {
 	}
 	info("git type: %s", provider)
 
-	hint, err := releaseTagHint()
+	hintName, hintFromCI, err := releaseTagHint()
 	if err != nil {
 		return err
 	}
-	var hintTag *releaseTag
-	if hint != "" {
-		tag, err := parseSelectedReleaseTag(hint)
-		if err != nil {
-			return err
-		}
-		hintTag = &tag
-		info("git tag: %s", tag.full)
+	hint, err := newTagHint(hintName, hintFromCI)
+	if err != nil {
+		return err
+	}
+	if hint != nil {
+		info("git tag: %s", hint.tag.full)
 	}
 
 	if cfg.gitActor == "" {
@@ -297,13 +295,14 @@ func Run(args []string) error {
 	changelogOnly := len(packages) == 0
 	releasePackages := prepareReleasePackages(packages)
 
-	groups, err := releaseGroups(changelogOnly, releasePackages, hintTag)
+	groups, err := releaseGroups(changelogOnly, releasePackages, hint, nixPackageSourcePath)
 	if err != nil {
 		return err
 	}
 
 	release := newReleaseClient(provider, cfg)
-	// Every release is prepared and validated before anything is published.
+	// Every release is prepared and validated before anything is published. Registry
+	// dry runs, which may need packages from earlier releases, run as each one publishes.
 	prepared := make([]preparedRelease, 0, len(groups))
 	defer func() {
 		for _, ready := range prepared {
@@ -321,28 +320,154 @@ func Run(args []string) error {
 		}
 	}
 
-	// Releases are independent, so a failure in one does not stop the others.
+	return publishReleases(cfg, prepared, func(ready preparedRelease, unpublished func(packagePublication) []string) error {
+		return publishRelease(cfg, provider, release, retain, ready, unpublished)
+	})
+}
+
+// releasePublisher publishes a prepared release. unpublished reports a publication's
+// dependencies that earlier releases in the run should have published but did not.
+type releasePublisher func(ready preparedRelease, unpublished func(packagePublication) []string) error
+
+// publishReleases publishes each release after the releases it depends on. A failed
+// release skips the releases that depend on it, but not unrelated ones.
+func publishReleases(cfg config, prepared []preparedRelease, publish releasePublisher) error {
+	multiple := len(prepared) > 1
+	dependencies := releaseDependencies(prepared)
+	order := orderReleases(prepared, dependencies)
+	failed := make([]bool, len(prepared))
+	outcomes := make([]string, len(prepared))
 	var errs error
-	for _, ready := range prepared {
-		if len(groups) > 1 {
+	for _, index := range order {
+		ready := prepared[index]
+		var blockers []string
+		for _, dependency := range dependencies[index] {
+			if failed[dependency] {
+				blockers = append(blockers, prepared[dependency].tag.full)
+			}
+		}
+		if len(blockers) > 0 {
+			failed[index] = true
+			outcomes[index] = "skipped because " + strings.Join(blockers, ", ") + " failed"
+			section("Skipping release %s", ready.tag.full)
+			itemWarn("%s", outcomes[index])
+			errs = errors.Join(errs, fmt.Errorf("%s: %s", ready.tag.full, outcomes[index]))
+			continue
+		}
+
+		if multiple {
 			section("Releasing %s", ready.tag.full)
 		}
-		if err := publishRelease(cfg, provider, release, retain, ready); err != nil {
-			if len(groups) > 1 {
+		// A dry run publishes nothing, so a dependency on an earlier release is unavailable.
+		var unpublished func(packagePublication) []string
+		if cfg.dryRun {
+			unpublished = func(publication packagePublication) []string {
+				return publicationDependenciesIn(publication, prepared, dependencies[index])
+			}
+		}
+		if err := publish(ready, unpublished); err != nil {
+			failed[index] = true
+			outcomes[index] = "failed"
+			if multiple {
 				err = fmt.Errorf("%s: %w", ready.tag.full, err)
 			}
 			errs = errors.Join(errs, err)
+			continue
+		}
+		outcomes[index] = "released"
+	}
+
+	if multiple {
+		section("Release summary")
+		for _, index := range order {
+			item("%s", prepared[index].tag.full)
+			if outcomes[index] == "released" {
+				status("%s", outcomes[index])
+			} else {
+				itemWarn("%s", outcomes[index])
+			}
 		}
 	}
 	return errs
 }
 
+// releaseDependencies returns, for each release, the other releases that publish a
+// package one of its packages depends on.
+func releaseDependencies(prepared []preparedRelease) [][]int {
+	providers := map[string][]int{}
+	for index, ready := range prepared {
+		for _, publication := range ready.publicationList() {
+			key := publicationDependencyKey(publication.kind, publication.manifestName)
+			if !slices.Contains(providers[key], index) {
+				providers[key] = append(providers[key], index)
+			}
+		}
+	}
+	dependencies := make([][]int, len(prepared))
+	for index, ready := range prepared {
+		for _, publication := range ready.publicationList() {
+			for _, name := range publication.dependencies {
+				for _, provider := range providers[publicationDependencyKey(publication.kind, name)] {
+					if provider != index && !slices.Contains(dependencies[index], provider) {
+						dependencies[index] = append(dependencies[index], provider)
+					}
+				}
+			}
+		}
+		slices.Sort(dependencies[index])
+	}
+	return dependencies
+}
+
+func publicationDependencyKey(kind packageKind, name string) string {
+	return string(kind) + "\x00" + name
+}
+
+// publicationDependenciesIn returns the dependencies of publication that the releases
+// at indexes publish.
+func publicationDependenciesIn(publication packagePublication, prepared []preparedRelease, indexes []int) []string {
+	var names []string
+	for _, index := range indexes {
+		for _, provided := range prepared[index].publicationList() {
+			if provided.kind == publication.kind && slices.Contains(publication.dependencies, provided.manifestName) && !slices.Contains(names, provided.manifestName) {
+				names = append(names, provided.manifestName)
+			}
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// orderReleases orders releases so each follows the releases it depends on, otherwise
+// keeping the order their tags were resolved in. Releases that depend on each other
+// keep that order.
+func orderReleases(prepared []preparedRelease, dependencies [][]int) []int {
+	placed := make([]bool, len(prepared))
+	order := make([]int, 0, len(prepared))
+	for len(order) < len(prepared) {
+		next := -1
+		for index := range prepared {
+			if !placed[index] && !slices.ContainsFunc(dependencies[index], func(dependency int) bool { return !placed[dependency] }) {
+				next = index
+				break
+			}
+		}
+		if next < 0 {
+			next = slices.Index(placed, false)
+			warn("release %s depends on a release that depends on it; releasing it in the order listed", prepared[next].tag.full)
+		}
+		placed[next] = true
+		order = append(order, next)
+	}
+	return order
+}
+
 // releaseGroups resolves the release tag of each package and groups packages by tag.
 // A changelog-only release uses the tag hint, or the latest Git tag.
-func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *releaseTag) ([]releaseGroup, error) {
+func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *tagHint, sourcePath packageSourcePath) ([]releaseGroup, error) {
 	if changelogOnly {
 		if hint != nil {
-			return []releaseGroup{{tag: *hint}}, nil
+			return []releaseGroup{{tag: hint.tag}}, nil
 		}
 		selected, err := gitLatestTag()
 		if err != nil {
@@ -357,14 +482,19 @@ func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *rele
 	}
 
 	var tags []releaseTag
-	if hint == nil {
-		var err error
+	var err error
+	switch {
+	case hint == nil:
 		tags, err = gitReachableReleaseTags()
-		if err != nil {
-			return nil, err
-		}
+	case hint.filter:
+		// Only tags created with the CI tag are candidates, so a package whose version
+		// happens to match an old scoped tag is not released to it again.
+		tags, err = gitHeadReleaseTags()
 	}
-	groups, err := groupReleasePackages(packages, hint, tags)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := groupReleasePackages(packages, hint, tags, sourcePath)
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +502,16 @@ func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *rele
 		return nil, errors.New("no releasable package outputs found")
 	}
 	return groups, nil
+}
+
+// nixPackageSourcePath returns the package's sourceRoot directory within its src. When
+// src is the repository, or a fileset rooted there, this is its path in the repository.
+func nixPackageSourcePath(plan releasePackagePlan) string {
+	src, err := nixPkgSrc(plan.pkg)
+	if err != nil || src.root == "" {
+		return ""
+	}
+	return filepath.ToSlash(src.subdir)
 }
 
 // preparedRelease is a release group ready to publish: its package publications are
@@ -382,6 +522,14 @@ type preparedRelease struct {
 	publications    *packagePublicationSet
 	changelog       string
 	imageRepository string
+}
+
+// publicationList returns the release's package publications.
+func (release preparedRelease) publicationList() []packagePublication {
+	if release.publications == nil {
+		return nil
+	}
+	return release.publications.packages
 }
 
 func (release preparedRelease) Close() {
@@ -416,11 +564,15 @@ func prepareRelease(cfg config, provider releaseProvider, group releaseGroup, ch
 	return prepared, nil
 }
 
-// publishRelease publishes a prepared release's artifacts and packages, then links them
-// in the release and cleans up old artifacts.
-func publishRelease(cfg config, provider releaseProvider, release releaseClient, retain int, prepared preparedRelease) error {
+// publishRelease verifies a prepared release's packages against their registries, then
+// publishes its artifacts and packages, links them in the release, and cleans up old
+// artifacts.
+func publishRelease(cfg config, provider releaseProvider, release releaseClient, retain int, prepared preparedRelease, unpublished func(packagePublication) []string) error {
 	tag := prepared.tag
 	publications := prepared.publications
+	if err := publications.verify(unpublished); err != nil {
+		return err
+	}
 	imageRepository := prepared.imageRepository
 	changelogOnly := prepared.changelogOnly
 	session := releaseSession{cfg: cfg, client: release, tag: tag, changelog: prepared.changelog}

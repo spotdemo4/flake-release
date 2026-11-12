@@ -1,7 +1,6 @@
 package flakerelease
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 )
 
@@ -31,7 +31,7 @@ func preflightGoPackage(set *packagePublicationSet, publication *packagePublicat
 		return fmt.Errorf("go module version %q has unsupported build metadata", set.releaseTag.versionTag)
 	}
 
-	module, err := readGoModule(publication.manifest)
+	module, requires, err := readGoModule(publication.manifest)
 	if err != nil {
 		return err
 	}
@@ -40,6 +40,7 @@ func preflightGoPackage(set *packagePublicationSet, publication *packagePublicat
 	}
 	publication.name = module
 	publication.version = set.releaseTag.versionTag
+	publication.dependencies = requires
 
 	listed, err := set.commands.capture(commandOptions{
 		name: "go",
@@ -165,28 +166,22 @@ func publishGoPackage(set *packagePublicationSet, publication *packagePublicatio
 	return err
 }
 
-func readGoModule(path string) (string, error) {
-	file, err := os.Open(path)
+// readGoModule returns the module path in a go.mod file and the modules it requires.
+func readGoModule(path string) (string, []string, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	defer func() { _ = file.Close() }()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "module ") {
-			continue
-		}
-		module := strings.TrimSpace(strings.TrimPrefix(line, "module "))
-		module = strings.Trim(module, `"`)
-		if module == "" || strings.ContainsAny(module, " \t") {
-			return "", fmt.Errorf("invalid module directive in %s", path)
-		}
-		return module, nil
+	file, err := modfile.ParseLax(path, data, nil)
+	if err != nil {
+		return "", nil, err
 	}
-	if err := scanner.Err(); err != nil {
-		return "", err
+	if file.Module == nil || file.Module.Mod.Path == "" {
+		return "", nil, fmt.Errorf("%s has no module directive", path)
 	}
-	return "", fmt.Errorf("%s has no module directive", path)
+	requires := make([]string, 0, len(file.Require))
+	for _, require := range file.Require {
+		requires = append(requires, require.Mod.Path)
+	}
+	return file.Module.Mod.Path, requires, nil
 }

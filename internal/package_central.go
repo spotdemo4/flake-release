@@ -30,8 +30,8 @@ var (
 	mavenCentralTimeout = 30 * time.Minute
 )
 
-// preflightMavenCentralPackage builds a Maven or Gradle project into a local Maven
-// repository, then validates, checksums, and signs it into a Central Portal bundle.
+// preflightMavenCentralPackage reads the coordinates of a Maven or Gradle project and
+// loads the signing key.
 func preflightMavenCentralPackage(set *packagePublicationSet, publication *packagePublication) error {
 	var err error
 	switch publication.kind {
@@ -48,6 +48,13 @@ func preflightMavenCentralPackage(set *packagePublicationSet, publication *packa
 	if strings.HasSuffix(publication.version, "-SNAPSHOT") {
 		return fmt.Errorf("maven central does not accept SNAPSHOT version %q", publication.version)
 	}
+	_, err = set.mavenCentralSigner()
+	return err
+}
+
+// verifyMavenCentralPackage builds the project into a local Maven repository, then
+// validates, checksums, and signs it into a Central Portal bundle.
+func verifyMavenCentralPackage(set *packagePublicationSet, publication *packagePublication) error {
 	signer, err := set.mavenCentralSigner()
 	if err != nil {
 		return err

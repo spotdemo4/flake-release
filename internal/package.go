@@ -102,7 +102,13 @@ type packagePublication struct {
 	nixPackages []nixPackageVersion
 	// publishArgs are extra arguments for the registry's publish command.
 	publishArgs []string
-	published   bool
+	// manifestName is the name other manifests depend on the package by, which differs
+	// from name when the package is renamed for its registry.
+	manifestName string
+	// dependencies are the names of the packages of the same kind that the package
+	// needs from its registry, as far as its manifest declares them.
+	dependencies []string
+	published    bool
 }
 
 // nixPackageVersion is a flake package and the version it evaluates to, empty when unset.
@@ -315,6 +321,8 @@ func (set *packagePublicationSet) Close() {
 	}
 }
 
+// preflight reads and validates each publication's metadata. It needs nothing from the
+// registries, so every release in a run is preflighted before any is published.
 func (set *packagePublicationSet) preflight() error {
 	section("Preflighting package publications")
 	identities := map[string]string{}
@@ -332,26 +340,76 @@ func (set *packagePublicationSet) preflight() error {
 			}
 			return fmt.Errorf("preflighting %s package for %s at %s: %w", publication.kind, registry, publication.source, err)
 		}
-		detail("name: %s", publication.name)
-		detail("version: %s", publication.version)
-		if err := publication.validateNixVersions(); err != nil {
-			return err
+		if publication.manifestName == "" {
+			publication.manifestName = publication.name
 		}
-		expectedVersion := set.releaseTag.version
-		if publication.kind == packageGo {
-			expectedVersion = set.releaseTag.versionTag
+		// Some packages only know their identity once verification builds them.
+		if publication.name != "" {
+			if err := set.validatePublication(publication, identities); err != nil {
+				return err
+			}
 		}
-		if publication.version != expectedVersion {
-			return fmt.Errorf("%s package %s version %q does not match git tag %q", publication.kind, publication.name, publication.version, expectedVersion)
-		}
-		identity := publicationIdentity(*publication)
-		if previousSource, exists := identities[identity]; exists {
-			return fmt.Errorf("duplicate %s package %s@%s for %s discovered at %s and %s", publication.kind, publication.name, publication.version, registry, previousSource, publication.source)
-		}
-		identities[identity] = publication.source
 		publishable = append(publishable, *publication)
 	}
 	set.packages = publishable
+	return nil
+}
+
+// verify runs each publication's registry dry run or build, which may need packages
+// from the registry. It runs just before the release publishes, so dependencies
+// published by earlier releases in the same run are available. A dry run publishes
+// nothing, so a publication whose dependencies are released earlier in the same run,
+// as reported by unpublished, is not verified then.
+func (set *packagePublicationSet) verify(unpublished func(packagePublication) []string) error {
+	if set == nil {
+		return nil
+	}
+	section("Verifying package publications")
+	identities := map[string]string{}
+	for index := range set.packages {
+		publication := &set.packages[index]
+		registry := packageRegistryName(publication.registry, set.provider)
+		item("%s %s for %s", publication.kind, firstNonEmpty(publication.name, publication.source), registry)
+		if unpublished != nil && publication.verifier() != nil {
+			if pending := unpublished(*publication); len(pending) > 0 {
+				status("dry run: skipping verification, which needs %s from an earlier release", strings.Join(pending, ", "))
+				continue
+			}
+		}
+		if err := publication.verify(set); err != nil {
+			return fmt.Errorf("verifying %s package for %s at %s: %w", publication.kind, registry, publication.source, err)
+		}
+		if publication.manifestName == "" {
+			publication.manifestName = publication.name
+		}
+		if err := set.validatePublication(publication, identities); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validatePublication checks a publication's version against its git tag and flake
+// packages, and that no other publication in identities has the same registry identity.
+func (set *packagePublicationSet) validatePublication(publication *packagePublication, identities map[string]string) error {
+	registry := packageRegistryName(publication.registry, set.provider)
+	detail("name: %s", publication.name)
+	detail("version: %s", publication.version)
+	if err := publication.validateNixVersions(); err != nil {
+		return err
+	}
+	expectedVersion := set.releaseTag.version
+	if publication.kind == packageGo {
+		expectedVersion = set.releaseTag.versionTag
+	}
+	if publication.version != expectedVersion {
+		return fmt.Errorf("%s package %s version %q does not match git tag %q", publication.kind, publication.name, publication.version, expectedVersion)
+	}
+	identity := publicationIdentity(*publication)
+	if previousSource, exists := identities[identity]; exists {
+		return fmt.Errorf("duplicate %s package %s@%s for %s discovered at %s and %s", publication.kind, publication.name, publication.version, registry, previousSource, publication.source)
+	}
+	identities[identity] = publication.source
 	return nil
 }
 
@@ -408,6 +466,7 @@ func (set *packagePublicationSet) publish() error {
 	return nil
 }
 
+// preflight reads the publication's identity and dependencies from its manifest.
 func (publication *packagePublication) preflight(set *packagePublicationSet) error {
 	if publication.registry == registryMavenCentral {
 		return preflightMavenCentralPackage(set, publication)
@@ -431,6 +490,34 @@ func (publication *packagePublication) preflight(set *packagePublicationSet) err
 		return preflightGleamPackage(set, publication)
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
+	}
+}
+
+// verify runs the publication's registry dry run or build.
+func (publication *packagePublication) verify(set *packagePublicationSet) error {
+	if verify := publication.verifier(); verify != nil {
+		return verify(set, publication)
+	}
+	return nil
+}
+
+// verifier returns the publication's registry dry run or build, or nil when preflight
+// checks everything.
+func (publication *packagePublication) verifier() func(*packagePublicationSet, *packagePublication) error {
+	if publication.registry == registryMavenCentral {
+		return verifyMavenCentralPackage
+	}
+	switch publication.kind {
+	case packageCargo:
+		return verifyCargoPackage
+	case packageNPM:
+		return verifyNPMPackage
+	case packageRebar3:
+		return verifyRebar3Package
+	case packageGleam:
+		return verifyGleamPackage
+	default:
+		return nil
 	}
 }
 

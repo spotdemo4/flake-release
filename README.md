@@ -95,13 +95,21 @@ Cleanup runs only after the current release is published successfully, and never
 
 ### Release tags
 
-Each package's Nix `version`, or `imageTag` for a container image, is the source of truth for its release. flake-release finds the Git tag on `HEAD` or its ancestors whose version matches, with or without a leading `v` and with any namespace, and creates or updates the release for that tag. Packages are grouped by tag, so one run can release several packages of a monorepo to their own tags. Each release is prepared and validated before anything is published, and a failure in one release doesn't stop the others.
+Each package's Nix `version`, or `imageTag` for a container image, is the source of truth for its release. flake-release finds the Git tag on `HEAD` or its ancestors whose version matches, with or without a leading `v` and with any namespace, and creates or updates the release for that tag. Packages are grouped by tag, so one run can release several packages of a monorepo to their own tags.
 
-When several tags match a version, such as `packages/api/v1.0.0` and `packages/web/v1.0.0`, the tag whose namespace ends in the package's `pname` is chosen. Otherwise the run fails until `TAG` selects one. A package with no version, or with no tag for its version, is skipped with a warning, and a run with nothing left to release fails.
+When several tags match a version, such as `packages/api/v1.0.0` and `packages/web/v1.0.0`, the tag whose namespace is the package's source directory is chosen: the `sourceRoot` directory within its `src`, or the nearest directory above it that has a tag. This is the package's path in the repository when `src` is the repository, or a `lib.fileset.toSource` rooted there. Failing that, the tag whose namespace ends in the package's `pname` is chosen, and otherwise the run fails until `TAG` selects one. A package with no version, or with no tag for its version, is skipped with a warning, and a run with nothing left to release fails.
 
-`TAG`, or the tag of a CI tag event, filters the packages instead: only those whose version matches it are released, to that tag, which need not exist yet. A monorepo workflow triggered by tag pushes can therefore select every package, and each tag releases only its own. Branch and other non-tag events give no tag, so every package is released to the tag for its version.
+`TAG`, or a scoped tag from a CI tag event, filters the packages instead: only those whose version matches it are released, to that tag, which need not exist yet. A monorepo workflow triggered by tag pushes can therefore select every package, and each tag releases only its own. Branch and other non-tag events give no tag, so every package is released to the tag for its version.
+
+An unscoped tag from a CI tag event, such as `v1.2.3`, also releases only the packages whose version matches it, but each one goes to its own tag among the tags on the same commit, chosen as above, and to the CI tag when none of them is its own. A monorepo that tags every package with one version can therefore trigger its release workflow on the unscoped tag alone, and release every package to its scoped tag in one run. Don't also trigger that workflow on the scoped tags, or both runs release the same packages. Set `TAG` to the CI tag to release every matching package to it instead.
 
 When no packages are selected and the flake provides none for the current system, the changelog-only release uses `TAG`, the CI tag, or the latest tag on `HEAD`.
+
+#### Multiple releases
+
+Every release in a run is prepared before anything is published: package metadata, versions, and tag namespaces are validated, changelogs are written, and container image destinations are checked. Registry dry runs and package builds, such as `cargo publish --dry-run`, `npm ci`, and Maven Central bundles, run just before each release publishes, since they may need packages that an earlier release in the same run publishes.
+
+Releases are published in the order their tags are resolved, except that a release follows the releases it depends on: those publishing a Cargo dependency, an npm dependency, peer dependency or optional dependency, or a Go module requirement of one of its packages. When a release fails, the releases that depend on it are skipped, while unrelated releases are still published, and the run fails. A summary lists each release as released, failed, or skipped.
 
 #### Scoped release tags
 
@@ -203,6 +211,8 @@ With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old art
 - builds Hex packages with `rebar3 hex build` and `rebar3 hex publish --dry-run`, or `gleam export hex-tarball`
 - generates Maven and Gradle registry authentication
 - builds, validates, and signs Maven Central bundles, so `MAVEN_CENTRAL_SIGNING_KEY` is required, but `MAVEN_CENTRAL_USERNAME` is not
+
+Since a dry run publishes nothing, a package that depends on a package from an earlier release in the same run skips its registry dry run or build.
 
 ## Install
 

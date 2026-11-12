@@ -23,14 +23,21 @@ type cargoMetadata struct {
 		Version      string    `json:"version"`
 		ManifestPath string    `json:"manifest_path"`
 		Publish      *[]string `json:"publish"`
+		Dependencies []struct {
+			Name string  `json:"name"`
+			Kind *string `json:"kind"`
+		} `json:"dependencies"`
 	} `json:"packages"`
 }
 
 type npmPackageDocument struct {
-	Name          string `json:"name"`
-	Version       string `json:"version"`
-	Private       bool   `json:"private"`
-	PublishConfig struct {
+	Name                 string            `json:"name"`
+	Version              string            `json:"version"`
+	Private              bool              `json:"private"`
+	Dependencies         map[string]string `json:"dependencies"`
+	PeerDependencies     map[string]string `json:"peerDependencies"`
+	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	PublishConfig        struct {
 		Access string `json:"access"`
 	} `json:"publishConfig"`
 }
@@ -75,6 +82,13 @@ func preflightCargoPackage(set *packagePublicationSet, publication *packagePubli
 			}
 			publication.name = pkg.Name
 			publication.version = pkg.Version
+			publication.dependencies = nil
+			for _, dependency := range pkg.Dependencies {
+				// Development dependencies are removed from the published manifest.
+				if (dependency.Kind == nil || *dependency.Kind != "dev") && !slices.Contains(publication.dependencies, dependency.Name) {
+					publication.dependencies = append(publication.dependencies, dependency.Name)
+				}
+			}
 			break
 		}
 	}
@@ -84,6 +98,11 @@ func preflightCargoPackage(set *packagePublicationSet, publication *packagePubli
 	if err := requireStrictPackageVersion(publication.version); err != nil {
 		return fmt.Errorf("cargo package: %w", err)
 	}
+	return nil
+}
+
+// verifyCargoPackage packages and builds the crate against its registry.
+func verifyCargoPackage(set *packagePublicationSet, publication *packagePublication) error {
 	return set.commands.run(cargoCommand(set, publication, true))
 }
 
@@ -142,6 +161,7 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 	if err := requireStrictPackageVersion(manifest.Version); err != nil {
 		return fmt.Errorf("npm package: %w", err)
 	}
+	publication.manifestName = manifest.Name
 	if publication.registry == registryHost && set.provider == releaseGitHub {
 		scoped, err := gitHubNPMPackageName(manifest.Name, set.cfg.packageRegistryOwner)
 		if err != nil {
@@ -157,12 +177,31 @@ func preflightNPMPackage(set *packagePublicationSet, publication *packagePublica
 	}
 	publication.name = manifest.Name
 	publication.version = manifest.Version
+	publication.dependencies = npmDependencyNames(manifest)
 	// npmjs.com publishes new scoped packages as restricted, which needs a paid plan.
 	publication.publishArgs = nil
 	if publication.registry == registryNPMJS && strings.HasPrefix(manifest.Name, "@") && manifest.PublishConfig.Access == "" {
 		publication.publishArgs = []string{"--access", "public"}
 	}
+	return nil
+}
 
+// npmDependencyNames returns the packages that installing the npm package needs.
+func npmDependencyNames(manifest npmPackageDocument) []string {
+	var names []string
+	for _, dependencies := range []map[string]string{manifest.Dependencies, manifest.PeerDependencies, manifest.OptionalDependencies} {
+		for name := range dependencies {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// verifyNPMPackage installs the package's locked dependencies and packs it for its registry.
+func verifyNPMPackage(set *packagePublicationSet, publication *packagePublication) error {
 	if isFile(filepath.Join(publication.dir, "package-lock.json")) {
 		if err := set.commands.run(commandOptions{name: "npm", args: []string{"ci"}, dir: publication.dir}); err != nil {
 			return err

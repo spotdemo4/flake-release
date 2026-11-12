@@ -34,10 +34,14 @@ type gleamPackageInformation struct {
 	} `json:"gleam.toml"`
 }
 
-func preflightRebar3Package(set *packagePublicationSet, publication *packagePublication) error {
-	if err := set.commands.require("rebar3"); err != nil {
-		return err
-	}
+// preflightRebar3Package only requires rebar3, since the package's identity comes from
+// the tarball that verification builds.
+func preflightRebar3Package(set *packagePublicationSet, _ *packagePublication) error {
+	return set.commands.require("rebar3")
+}
+
+// verifyRebar3Package builds the Hex package, reads its identity, and dry-runs its publication.
+func verifyRebar3Package(set *packagePublicationSet, publication *packagePublication) error {
 	configDir, err := set.rebar3ConfigDir()
 	if err != nil {
 		return err
@@ -196,7 +200,12 @@ func preflightGleamPackage(set *packagePublicationSet, publication *packagePubli
 	}
 	publication.name = name
 	publication.version = version
-	// Building the tarball checks the package metadata, dependencies, and code.
+	return nil
+}
+
+// verifyGleamPackage builds the Hex tarball, which checks the package metadata,
+// dependencies, and code.
+func verifyGleamPackage(set *packagePublicationSet, publication *packagePublication) error {
 	return set.commands.run(commandOptions{
 		name: "gleam",
 		args: []string{"export", "hex-tarball"},

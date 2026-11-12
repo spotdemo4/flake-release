@@ -40,6 +40,15 @@ func (runner fakePackageCommandRunner) capture(options commandOptions) (string, 
 	return runner.captureFunc(options)
 }
 
+// preflightAndVerify runs both of a publication's checks, as a release does before
+// publishing it.
+func preflightAndVerify(set *packagePublicationSet, publication *packagePublication) error {
+	if err := publication.preflight(set); err != nil {
+		return err
+	}
+	return publication.verify(set)
+}
+
 func TestApplyPackageRegistryDefaultsDoesNotReuseGitHubToken(t *testing.T) {
 	cfg := config{
 		gitRepository: "Owner/repository",
@@ -410,7 +419,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 		},
 	}
 	publication := &packagePublication{kind: packageNPM, dir: dir, manifest: manifest}
-	if err := preflightNPMPackage(set, publication); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	if publication.name != "@owner/project" || publication.version != "1.2.3" {
@@ -425,7 +434,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 
 	writeTestFile(t, filepath.Join(dir, "package-lock.json"), `{}`)
 	commands = nil
-	if err := preflightNPMPackage(set, publication); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	if len(commands) != 2 || !slices.Equal(commands[0], []string{"ci"}) || commands[1][0] != "publish" {
@@ -435,7 +444,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 	for _, name := range []string{"project", "@other/project"} {
 		writeTestFile(t, manifest, `{"name":"`+name+`","version":"1.2.3"}`)
 		commands = nil
-		if err := preflightNPMPackage(set, publication); err != nil {
+		if err := preflightAndVerify(set, publication); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if len(commands) < 1 || !slices.Equal(commands[0], []string{"pkg", "set", "name=@owner/project"}) {
@@ -448,7 +457,7 @@ func TestGitHubNPMPackageUsesDefaultRegistryAndOwnerScope(t *testing.T) {
 
 	for _, name := range []string{"Project", "@owner/Project", "@owner"} {
 		writeTestFile(t, manifest, `{"name":"`+name+`","version":"1.2.3"}`)
-		if err := preflightNPMPackage(set, publication); err == nil {
+		if err := preflightAndVerify(set, publication); err == nil {
 			t.Fatalf("GitHub npm package %q without a lowercase name was accepted", name)
 		}
 	}
@@ -1159,5 +1168,82 @@ func writeTestFile(t *testing.T, path string, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCargoPreflightReadsDependenciesAndVerifyDryRuns(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "Cargo.toml")
+	var commands [][]string
+	set := &packagePublicationSet{
+		cfg:          config{packageRegistryOwner: "owner", packageRegistryURL: "https://git.example"},
+		provider:     releaseForgejo,
+		releaseTag:   parseReleaseTag("b/v1.2.3"),
+		temporaryDir: t.TempDir(),
+		commands: fakePackageCommandRunner{
+			requireFunc: func(string) error { return nil },
+			runFunc: func(options commandOptions) error {
+				commands = append(commands, options.args)
+				return nil
+			},
+			captureFunc: func(commandOptions) (string, error) {
+				return `{"packages":[{"name":"b","version":"1.2.3","manifest_path":"` + manifest + `","publish":null,"dependencies":[` +
+					`{"name":"a","kind":null},{"name":"cc","kind":"build"},{"name":"proptest","kind":"dev"},{"name":"a","kind":"build"}]}]}`, nil
+			},
+		},
+		packages: []packagePublication{{kind: packageCargo, source: dir, dir: dir, manifest: manifest}},
+	}
+	if err := set.preflight(); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("preflight commands = %q; want no dry run", commands)
+	}
+	publication := set.packages[0]
+	if publication.manifestName != "b" || !slices.Equal(publication.dependencies, []string{"a", "cc"}) {
+		t.Fatalf("cargo publication = %s with dependencies %q; want b with a and cc", publication.manifestName, publication.dependencies)
+	}
+
+	if err := set.verify(func(packagePublication) []string { return []string{"a"} }); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("verify commands = %q; want dry run skipped for unpublished dependency", commands)
+	}
+	if err := set.verify(nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0][0] != "publish" || !slices.Contains(commands[0], "--dry-run") {
+		t.Fatalf("verify commands = %q; want cargo publish --dry-run", commands)
+	}
+}
+
+func TestNPMPreflightReadsDependencies(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "package.json")
+	writeTestFile(t, manifest, `{"name":"@scope/effect","version":"1.2.3","dependencies":{"effect":"^3"},"peerDependencies":{"@scope/core":"1.2.3"},"optionalDependencies":{"effect":"^3"},"devDependencies":{"vitest":"^3"}}`)
+	set := &packagePublicationSet{commands: fakePackageCommandRunner{requireFunc: func(string) error { return nil }}}
+	publication := &packagePublication{kind: packageNPM, registry: registryNPMJS, dir: dir, manifest: manifest}
+	if err := preflightNPMPackage(set, publication); err != nil {
+		t.Fatal(err)
+	}
+	if publication.manifestName != "@scope/effect" || !slices.Equal(publication.dependencies, []string{"@scope/core", "effect"}) {
+		t.Fatalf("npm publication = %s with dependencies %q", publication.manifestName, publication.dependencies)
+	}
+}
+
+func TestReadGoModuleReadsRequirements(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "go.mod")
+	writeTestFile(t, path, "module example.com/repo/otel\n\ngo 1.26\n\nrequire (\n\texample.com/repo v1.2.3\n\tgo.opentelemetry.io/otel v1.0.0 // indirect\n)\n")
+	module, requires, err := readGoModule(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if module != "example.com/repo/otel" || !slices.Equal(requires, []string{"example.com/repo", "go.opentelemetry.io/otel"}) {
+		t.Fatalf("readGoModule() = %s, %q", module, requires)
+	}
+	writeTestFile(t, path, "go 1.26\n")
+	if _, _, err := readGoModule(path); err == nil || !strings.Contains(err.Error(), "no module directive") {
+		t.Fatalf("readGoModule() error = %v; want missing module", err)
 	}
 }

@@ -119,7 +119,7 @@ func TestRebar3PackagePublishesToHexPM(t *testing.T) {
 		},
 	}
 	publication := &packagePublication{kind: packageRebar3, registry: registryHexPM, dir: project, manifest: filepath.Join(project, "rebar.config")}
-	if err := publication.preflight(set); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	if publication.name != "app" || publication.version != "1.2.3" {
@@ -162,7 +162,7 @@ func TestRebar3PackageRequiresOneTarball(t *testing.T) {
 		},
 	}
 	publication := &packagePublication{kind: packageRebar3, registry: registryHexPM, dir: project}
-	if err := publication.preflight(set); err == nil || !strings.Contains(err.Error(), "produced 0 package tarballs") {
+	if err := preflightAndVerify(set, publication); err == nil || !strings.Contains(err.Error(), "produced 0 package tarballs") {
 		t.Fatalf("error = %v; want missing tarball", err)
 	}
 }
@@ -194,7 +194,7 @@ func TestGleamPackagePublishesToHexPM(t *testing.T) {
 	var commands []commandOptions
 	set := newGleamTestSet(t, `{"gleam.toml":{"name":"app","version":"1.2.3"}}`, "Published package and documentation", &commands)
 	publication := &packagePublication{kind: packageGleam, registry: registryHexPM, dir: project, manifest: filepath.Join(project, "gleam.toml")}
-	if err := publication.preflight(set); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	if publication.name != "app" || publication.version != "1.2.3" {

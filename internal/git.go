@@ -73,6 +73,15 @@ func gitLatestTag() (string, error) {
 // gitReachableReleaseTags returns the valid release tags on HEAD or its ancestors,
 // sorted by name. Tags that don't point to a commit are ignored.
 func gitReachableReleaseTags() ([]releaseTag, error) {
+	return gitReleaseTags(true)
+}
+
+// gitHeadReleaseTags returns the valid release tags that point to HEAD, sorted by name.
+func gitHeadReleaseTags() ([]releaseTag, error) {
+	return gitReleaseTags(false)
+}
+
+func gitReleaseTags(reachable bool) ([]releaseTag, error) {
 	repo, err := openGitRepository()
 	if err != nil {
 		return nil, err
@@ -83,9 +92,12 @@ func gitReachableReleaseTags() ([]releaseTag, error) {
 	if err != nil {
 		return nil, err
 	}
-	ancestors, err := reachableCommits(repo, head.Hash())
-	if err != nil {
-		return nil, err
+	ancestors := map[plumbing.Hash]bool{head.Hash(): true}
+	if reachable {
+		ancestors, err = reachableCommits(repo, head.Hash())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	refs, err := repo.Tags()

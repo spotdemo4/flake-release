@@ -464,7 +464,7 @@ func TestPreflightMavenCentralBuildsSignedBundle(t *testing.T) {
 		return nil
 	})
 	publication := &packagePublication{kind: packageMaven, registry: registryMavenCentral, dir: source, manifest: filepath.Join(source, "pom.xml")}
-	if err := publication.preflight(set); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	if build.name != "mvn" || build.args[0] != "deploy" || !slices.Contains(build.args, "-Dgpg.skip=true") {
@@ -538,7 +538,7 @@ func TestPreflightMavenCentralGradleUsesFileRepository(t *testing.T) {
 		return nil
 	})
 	publication := &packagePublication{kind: packageGradle, registry: registryMavenCentral, dir: source, manifest: filepath.Join(source, "build.gradle")}
-	if err := publication.preflight(set); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(initScript, `url = uri("file:///`) || strings.Contains(initScript, "credentials") {
@@ -559,7 +559,7 @@ func TestPreflightMavenCentralGradleAcceptsSubprojectsOnly(t *testing.T) {
 		return nil
 	})
 	publication := &packagePublication{kind: packageGradle, registry: registryMavenCentral, dir: source, manifest: filepath.Join(source, "build.gradle")}
-	if err := publication.preflight(set); err != nil {
+	if err := preflightAndVerify(set, publication); err != nil {
 		t.Fatal(err)
 	}
 	archive, err := zip.OpenReader(publication.artifacts[0])
@@ -608,7 +608,7 @@ func TestPreflightMavenCentralReportsMissingRequirements(t *testing.T) {
 		return nil
 	})
 	publication := &packagePublication{kind: packageMaven, registry: registryMavenCentral, dir: source, manifest: filepath.Join(source, "pom.xml")}
-	err := publication.preflight(set)
+	err := preflightAndVerify(set, publication)
 	if err == nil {
 		t.Fatal("bundle without required metadata was accepted")
 	}
