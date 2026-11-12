@@ -37,6 +37,7 @@ Lines already in the section are kept, so runners that release different package
 
 ```sh
 flake-release [packages...] [--dry-run] [--bundle-appimage]
+flake-release --version
 ```
 
 Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a package isn't found, the current system is inserted after its first attribute, so `packages.server.x86_64-unknown-linux-musl` resolves to `packages.x86_64-linux.server.x86_64-unknown-linux-musl` on `x86_64-linux`.

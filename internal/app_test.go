@@ -205,9 +205,9 @@ func TestDefaultContainerRegistry(t *testing.T) {
 
 func TestParseRunArgsBundleAppImage(t *testing.T) {
 	cfg := config{}
-	packages, help := parseRunArgs(&cfg, []string{"packages.one", "--bundle-appimage", "packages.two"})
-	if help {
-		t.Fatal("parseRunArgs() requested help")
+	packages, mode := parseRunArgs(&cfg, []string{"packages.one", "--bundle-appimage", "packages.two"})
+	if mode != runRelease {
+		t.Fatalf("parseRunArgs() mode = %v; want release", mode)
 	}
 	if !cfg.bundleAppImage {
 		t.Fatal("parseRunArgs() did not enable AppImage bundling")

@@ -165,12 +165,22 @@ func defaultContainerRegistry(provider releaseProvider, serverURL string) string
 	return parsed.Host
 }
 
-func parseRunArgs(cfg *config, args []string) ([]string, bool) {
+type runMode int
+
+const (
+	runRelease runMode = iota
+	runHelp
+	runVersion
+)
+
+func parseRunArgs(cfg *config, args []string) ([]string, runMode) {
 	var packages []string
 	for _, arg := range args {
 		switch arg {
 		case "--help":
-			return packages, true
+			return packages, runHelp
+		case "--version":
+			return packages, runVersion
 		case "--dry-run":
 			cfg.dryRun = true
 		case "--bundle-appimage":
@@ -179,18 +189,24 @@ func parseRunArgs(cfg *config, args []string) ([]string, bool) {
 			packages = append(packages, arg)
 		}
 	}
-	return packages, false
+	return packages, runRelease
 }
 
 // Run releases the flake packages named in args and the PACKAGES environment variable.
 func Run(args []string) error {
 	cfg := configFromEnv()
-	packages, help := parseRunArgs(&cfg, args)
-	if help {
+	packages, mode := parseRunArgs(&cfg, args)
+	switch mode {
+	case runHelp:
 		info("Usage: flake-release [packages...] [--dry-run] [--bundle-appimage]")
+		info("       flake-release --version")
 		info("")
 		info("If no packages are provided as arguments, the command will attempt to get packages from the nix flake for the current system.")
 		return nil
+	case runVersion:
+		_, err := fmt.Println("flake-release", currentVersion())
+		return err
+	case runRelease:
 	}
 	retain, err := parseArtifactRetention(cfg.deleteOldReleaseArtifacts)
 	if err != nil {

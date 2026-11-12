@@ -139,6 +139,9 @@
               goSum = ./go.sum;
               modules = ./gomod2nix.toml;
               tags = goTags;
+              ldflags = [
+                "-X=trev.zip/llc/flake-release/internal.version=${final.version}"
+              ];
 
               nativeBuildInputs = with pkgs; [
                 makeWrapper
