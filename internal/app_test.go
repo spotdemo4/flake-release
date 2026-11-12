@@ -217,27 +217,65 @@ func TestParseRunArgsBundleAppImage(t *testing.T) {
 	}
 }
 
-func TestSelectedReleaseTagUsesExactTagEvent(t *testing.T) {
+func TestReleaseTagHintUsesExactTagEvent(t *testing.T) {
 	t.Setenv("TAG", "")
 	t.Setenv("GITHUB_REF_NAME", "packages/api/v1.2.3")
 	t.Setenv("GITHUB_REF", "refs/tags/packages/api/v1.2.3")
 
-	got, err := selectedReleaseTag()
+	got, err := releaseTagHint()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "packages/api/v1.2.3" {
-		t.Fatalf("selectedReleaseTag() = %q; want exact event tag", got)
+		t.Fatalf("releaseTagHint() = %q; want exact event tag", got)
 	}
 }
 
-func TestSelectedReleaseTagRejectsNonTagEvents(t *testing.T) {
+func TestReleaseTagHintPrefersTag(t *testing.T) {
+	t.Setenv("TAG", "v2.0.0")
+	t.Setenv("GITHUB_REF_NAME", "main")
+	t.Setenv("GITHUB_REF", "refs/heads/main")
+
+	got, err := releaseTagHint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "v2.0.0" {
+		t.Fatalf("releaseTagHint() = %q; want TAG", got)
+	}
+}
+
+func TestReleaseTagHintIgnoresNonTagEvents(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		refName string
 		ref     string
 	}{
 		{name: "branch", refName: "main", ref: "refs/heads/main"},
+		{name: "pull request", refName: "1/merge", ref: "refs/pull/1/merge"},
+		{name: "unset"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("TAG", "")
+			t.Setenv("GITHUB_REF_NAME", test.refName)
+			t.Setenv("GITHUB_REF", test.ref)
+			got, err := releaseTagHint()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != "" {
+				t.Fatalf("releaseTagHint() = %q; want no hint", got)
+			}
+		})
+	}
+}
+
+func TestReleaseTagHintRejectsInexactTagEvents(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		refName string
+		ref     string
+	}{
 		{name: "mismatch", refName: "v1.2.3", ref: "refs/tags/v1.2.4"},
 		{name: "missing name", ref: "refs/tags/v1.2.3"},
 	} {
@@ -245,14 +283,14 @@ func TestSelectedReleaseTagRejectsNonTagEvents(t *testing.T) {
 			t.Setenv("TAG", "")
 			t.Setenv("GITHUB_REF_NAME", test.refName)
 			t.Setenv("GITHUB_REF", test.ref)
-			if _, err := selectedReleaseTag(); err == nil {
-				t.Fatal("selectedReleaseTag() returned nil error")
+			if _, err := releaseTagHint(); err == nil {
+				t.Fatal("releaseTagHint() returned nil error")
 			}
 		})
 	}
 }
 
-func TestSelectedReleaseTagTreatsEmptyTagAsUnspecified(t *testing.T) {
+func TestReleaseGroupsUsesLatestTagForChangelogOnlyRelease(t *testing.T) {
 	dir := t.TempDir()
 	repo, err := git.PlainInit(dir, false)
 	if err != nil {
@@ -262,16 +300,48 @@ func TestSelectedReleaseTagTreatsEmptyTagAsUnspecified(t *testing.T) {
 	commit := commitGitTestFile(t, repo, dir, "release")
 	createGitTestTag(t, repo, "v1.2.3", commit)
 	chdir(t, dir)
-	t.Setenv("TAG", "")
-	t.Setenv("GITHUB_REF_NAME", "")
-	t.Setenv("GITHUB_REF", "")
 
-	got, err := selectedReleaseTag()
+	groups, err := releaseGroups(true, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "v1.2.3" {
-		t.Fatalf("selectedReleaseTag() = %q; want automatic tag", got)
+	if len(groups) != 1 || groups[0].tag.full != "v1.2.3" || len(groups[0].packages) != 0 {
+		t.Fatalf("releaseGroups() = %+v; want changelog-only release for latest tag", groups)
+	}
+
+	hint := parseReleaseTag("packages/api/v2.0.0")
+	groups, err = releaseGroups(true, nil, &hint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0].tag.full != hint.full {
+		t.Fatalf("releaseGroups() = %+v; want changelog-only release for hint", groups)
+	}
+}
+
+func TestReleaseGroupsRejectsRunWithoutMatchingTags(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGitRepository(repo)
+	commit := commitGitTestFile(t, repo, dir, "release")
+	createGitTestTag(t, repo, "v1.2.3", commit)
+	chdir(t, dir)
+
+	plans := []releasePackagePlan{{pkg: "packages.default", pname: "app", version: "1.2.4"}}
+	if _, err := releaseGroups(false, plans, nil); err == nil || !strings.Contains(err.Error(), "no releasable package outputs") {
+		t.Fatalf("releaseGroups() error = %v; want no releasable outputs", err)
+	}
+
+	plans[0].version = "1.2.3"
+	groups, err := releaseGroups(false, plans, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0].tag.full != "v1.2.3" {
+		t.Fatalf("releaseGroups() = %+v; want v1.2.3", groups)
 	}
 }
 

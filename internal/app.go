@@ -82,22 +82,6 @@ func (session releaseSession) requireOutput() error {
 	return nil
 }
 
-func selectedReleaseTag() (string, error) {
-	if tag := os.Getenv("TAG"); tag != "" {
-		return tag, nil
-	}
-
-	refName := os.Getenv("GITHUB_REF_NAME")
-	ref := os.Getenv("GITHUB_REF")
-	if refName != "" || ref != "" {
-		if refName == "" || ref != "refs/tags/"+refName {
-			return "", fmt.Errorf("release event must identify one exact tag; got GITHUB_REF_NAME=%q GITHUB_REF=%q", refName, ref)
-		}
-		return refName, nil
-	}
-	return gitLatestTag()
-}
-
 func configFromEnv() config {
 	return config{
 		dryRun:                      truthy(os.Getenv("DRY_RUN")),
@@ -244,15 +228,19 @@ func Run(args []string) error {
 	}
 	info("git type: %s", provider)
 
-	selectedTag, err := selectedReleaseTag()
+	hint, err := releaseTagHint()
 	if err != nil {
 		return err
 	}
-	tag, err := parseSelectedReleaseTag(selectedTag)
-	if err != nil {
-		return err
+	var hintTag *releaseTag
+	if hint != "" {
+		tag, err := parseSelectedReleaseTag(hint)
+		if err != nil {
+			return err
+		}
+		hintTag = &tag
+		info("git tag: %s", tag.full)
 	}
-	info("git tag: %s", tag.full)
 
 	if cfg.gitActor == "" {
 		cfg.gitActor, err = gitUser()
@@ -309,29 +297,133 @@ func Run(args []string) error {
 	changelogOnly := len(packages) == 0
 	releasePackages := prepareReleasePackages(packages)
 
-	nixVersions := make(map[string]string, len(releasePackages))
-	for _, plan := range releasePackages {
-		nixVersions[plan.pkg] = plan.version
-	}
-	publications, err := preparePackagePublications(cfg, provider, tag, packages, nixVersions)
+	groups, err := releaseGroups(changelogOnly, releasePackages, hintTag)
 	if err != nil {
 		return err
-	}
-	if publications != nil {
-		defer publications.Close()
 	}
 
 	release := newReleaseClient(provider, cfg)
-	changelog, err := gitChangelog(tag)
+	// Every release is prepared and validated before anything is published.
+	prepared := make([]preparedRelease, 0, len(groups))
+	defer func() {
+		for _, ready := range prepared {
+			ready.Close()
+		}
+	}()
+	for _, group := range groups {
+		if len(groups) > 1 {
+			section("Preparing release %s", group.tag.full)
+		}
+		ready, err := prepareRelease(cfg, provider, group, changelogOnly)
+		prepared = append(prepared, ready)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Releases are independent, so a failure in one does not stop the others.
+	var errs error
+	for _, ready := range prepared {
+		if len(groups) > 1 {
+			section("Releasing %s", ready.tag.full)
+		}
+		if err := publishRelease(cfg, provider, release, retain, ready); err != nil {
+			if len(groups) > 1 {
+				err = fmt.Errorf("%s: %w", ready.tag.full, err)
+			}
+			errs = errors.Join(errs, err)
+		}
+	}
+	return errs
+}
+
+// releaseGroups resolves the release tag of each package and groups packages by tag.
+// A changelog-only release uses the tag hint, or the latest Git tag.
+func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *releaseTag) ([]releaseGroup, error) {
+	if changelogOnly {
+		if hint != nil {
+			return []releaseGroup{{tag: *hint}}, nil
+		}
+		selected, err := gitLatestTag()
+		if err != nil {
+			return nil, err
+		}
+		tag, err := parseSelectedReleaseTag(selected)
+		if err != nil {
+			return nil, err
+		}
+		info("git tag: %s", tag.full)
+		return []releaseGroup{{tag: tag}}, nil
+	}
+
+	var tags []releaseTag
+	if hint == nil {
+		var err error
+		tags, err = gitReachableReleaseTags()
+		if err != nil {
+			return nil, err
+		}
+	}
+	groups, err := groupReleasePackages(packages, hint, tags)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer deletePath(changelog)
-	imageRepository := containerImageRepository(cfg.gitRepository, tag)
-	if err := validateReleaseImageDestinations(cfg, imageRepository, tag, releasePackages); err != nil {
-		return err
+	if len(groups) == 0 {
+		return nil, errors.New("no releasable package outputs found")
 	}
-	session := releaseSession{cfg: cfg, client: release, tag: tag, changelog: changelog}
+	return groups, nil
+}
+
+// preparedRelease is a release group ready to publish: its package publications are
+// validated, its changelog is written, and its image destinations are checked.
+type preparedRelease struct {
+	releaseGroup
+	changelogOnly   bool
+	publications    *packagePublicationSet
+	changelog       string
+	imageRepository string
+}
+
+func (release preparedRelease) Close() {
+	release.publications.Close()
+	if release.changelog != "" {
+		deletePath(release.changelog)
+	}
+}
+
+func prepareRelease(cfg config, provider releaseProvider, group releaseGroup, changelogOnly bool) (preparedRelease, error) {
+	prepared := preparedRelease{releaseGroup: group, changelogOnly: changelogOnly}
+	packages := make([]string, 0, len(group.packages))
+	nixVersions := make(map[string]string, len(group.packages))
+	for _, plan := range group.packages {
+		packages = append(packages, plan.pkg)
+		nixVersions[plan.pkg] = plan.version
+	}
+
+	var err error
+	prepared.publications, err = preparePackagePublications(cfg, provider, group.tag, packages, nixVersions)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.changelog, err = gitChangelog(group.tag)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.imageRepository = containerImageRepository(cfg.gitRepository, group.tag)
+	if err := validateReleaseImageDestinations(cfg, prepared.imageRepository, group.tag, group.packages); err != nil {
+		return prepared, err
+	}
+	return prepared, nil
+}
+
+// publishRelease publishes a prepared release's artifacts and packages, then links them
+// in the release and cleans up old artifacts.
+func publishRelease(cfg config, provider releaseProvider, release releaseClient, retain int, prepared preparedRelease) error {
+	tag := prepared.tag
+	publications := prepared.publications
+	imageRepository := prepared.imageRepository
+	changelogOnly := prepared.changelogOnly
+	session := releaseSession{cfg: cfg, client: release, tag: tag, changelog: prepared.changelog}
 
 	// Native artifacts and package registries are published before cross-compiled
 	// artifacts, so a slow cross build does not hold up the rest of the release.
@@ -353,7 +445,7 @@ func Run(args []string) error {
 		}
 		return nil
 	}
-	for _, tier := range releaseTiers(releasePackages, runnerPlatform()) {
+	for _, tier := range releaseTiers(prepared.packages, runnerPlatform()) {
 		if tier.distance > 0 && !packagesPublished {
 			if err := publishPackages(); err != nil {
 				return err

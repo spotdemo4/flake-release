@@ -52,7 +52,7 @@ Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a 
 | GIT_ACTOR                      | User for Gitea & Forgejo                                                             | `GITHUB_ACTOR` in Actions, or Git user name                 | `github-actions[bot]`          |
 | GIT_TOKEN                      | Token used to push releases                                                          | `GITHUB_TOKEN`                                              |                                |
 | GITHUB_TOKEN                   | github.com access token for Nix, and release token when `GIT_TOKEN` is unset         |                                                             |                                |
-| TAG                            | Exact short release tag                                                              | CI tag event, or latest Git tag                             | `packages/api/v1.2.3`          |
+| TAG                            | Release only packages with this version; see [release tags](#release-tags)           | CI tag event                                                | `packages/api/v1.2.3`          |
 | CONTAINER_REGISTRY             | Container registry                                                                   | `ghcr.io` on GitHub, `GIT_SERVER_URL` host                  | `ghcr.io`                      |
 | CONTAINER_REGISTRY_USERNAME    | Username for container registry                                                      | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
 | CONTAINER_REGISTRY_PASSWORD    | Password for container registry                                                      | `GIT_TOKEN`                                                 |                                |
@@ -93,13 +93,23 @@ For example, `DELETE_OLD_RELEASE_ARTIFACTS=2` when publishing `v1.3.0` keeps the
 
 Cleanup runs only after the current release is published successfully, and never during dry runs. It deletes release attachments and old container tags, but not release records or package registry versions. Releases in other namespaces, or with versions equal to or newer than the current release, are left untouched.
 
-### Scoped release tags
+### Release tags
 
-Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The full tag identifies the release, and changelog history and old-artifact cleanup are limited to that namespace.
+Each package's Nix `version`, or `imageTag` for a container image, is the source of truth for its release. flake-release finds the Git tag on `HEAD` or its ancestors whose version matches, with or without a leading `v` and with any namespace, and creates or updates the release for that tag. Packages are grouped by tag, so one run can release several packages of a monorepo to their own tags. Each release is prepared and validated before anything is published, and a failure in one release doesn't stop the others.
+
+When several tags match a version, such as `packages/api/v1.0.0` and `packages/web/v1.0.0`, the tag whose namespace ends in the package's `pname` is chosen. Otherwise the run fails until `TAG` selects one. A package with no version, or with no tag for its version, is skipped with a warning, and a run with nothing left to release fails.
+
+`TAG`, or the tag of a CI tag event, filters the packages instead: only those whose version matches it are released, to that tag, which need not exist yet. A monorepo workflow triggered by tag pushes can therefore select every package, and each tag releases only its own. Branch and other non-tag events give no tag, so every package is released to the tag for its version.
+
+When no packages are selected and the flake provides none for the current system, the changelog-only release uses `TAG`, the CI tag, or the latest tag on `HEAD`.
+
+#### Scoped release tags
+
+Tags may include a namespace before the version, such as `packages/api/v1.2.3`. The full tag identifies the release, and changelog history and old-artifact cleanup are limited to that namespace: the changelog lists the commits since the previous tag with the same namespace.
 
 The namespace is treated as a case-sensitive repository path: a scoped changelog only includes commits that touch that path (compared to their first parent). Unscoped tags include changes from the entire repository. For Go modules, the namespace must match the module path within the repository.
 
-A namespace does not select Nix packages or filter source manifests, so for a scoped release pass only the packages that belong to that namespace.
+Source manifests are discovered only from the packages released to a tag, and must match that tag's version.
 
 Container images append the namespace to the repository path and use the version as the image tag. For example, `packages/api/v1.2.3` publishes `registry/owner/repo/packages/api:1.2.3-amd64` (per architecture), `registry/owner/repo/packages/api:1.2.3` (combined manifest), and `registry/owner/repo/packages/api:latest`. Unscoped tags publish directly to `registry/owner/repo`. Container paths are lowercased, so namespaces that differ only by case share a container repository.
 
@@ -198,7 +208,7 @@ With `--dry-run` or `DRY_RUN=true`, nothing is written to a registry and old art
 
 ### Action
 
-Check out the full Git history and tags with `fetch-depth: 0`. flake-release uses them to find the previous release tag for the changelog, and to find the latest tag when the run is not triggered by a tag. A shallow checkout produces an incomplete changelog.
+Check out the full Git history and tags with `fetch-depth: 0`. flake-release uses them to find the tag for each package's version and the previous release tag for the changelog. A shallow checkout misses tags and produces an incomplete changelog.
 
 ```yaml
 - name: Checkout

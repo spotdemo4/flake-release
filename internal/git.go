@@ -70,6 +70,49 @@ func gitLatestTag() (string, error) {
 	return "", errors.New("no tags found")
 }
 
+// gitReachableReleaseTags returns the valid release tags on HEAD or its ancestors,
+// sorted by name. Tags that don't point to a commit are ignored.
+func gitReachableReleaseTags() ([]releaseTag, error) {
+	repo, err := openGitRepository()
+	if err != nil {
+		return nil, err
+	}
+	defer closeGitRepository(repo)
+
+	head, err := repo.Head()
+	if err != nil {
+		return nil, err
+	}
+	ancestors, err := reachableCommits(repo, head.Hash())
+	if err != nil {
+		return nil, err
+	}
+
+	refs, err := repo.Tags()
+	if err != nil {
+		return nil, err
+	}
+	defer refs.Close()
+
+	var tags []releaseTag
+	if err := refs.ForEach(func(ref *plumbing.Reference) error {
+		tag, err := parseSelectedReleaseTag(ref.Name().Short())
+		if err != nil {
+			return nil //nolint:nilerr // malformed tags are not release tags
+		}
+		hash, err := tagCommitHash(repo, ref)
+		if err != nil || !ancestors[hash] {
+			return nil //nolint:nilerr // tags off HEAD's history are not candidates
+		}
+		tags = append(tags, tag)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(tags, func(i, j int) bool { return tags[i].full < tags[j].full })
+	return tags, nil
+}
+
 func gitUser() (string, error) {
 	repo, err := openGitRepository()
 	if err != nil {
