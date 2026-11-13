@@ -272,6 +272,7 @@ cachePackages = [
   'golang.org/x/crypto/ssh',
   'golang.org/x/crypto/ssh/agent',
   'golang.org/x/crypto/ssh/knownhosts',
+  'golang.org/x/mod/modfile',
   'golang.org/x/mod/module',
   'golang.org/x/mod/semver',
   'golang.org/x/net/http/httpguts',
@@ -586,8 +587,8 @@ cachePackages = [
     hash = 'sha256-cQqC2WaxPrFUfKHAOZk5QszAYKtyj4SueZPE8zBkwwo='
 
   [mod.'go.podman.io/skopeo']
-    version = 'v1.24.1'
-    hash = 'sha256-GzKBIyUCBrpXqgdUdgsNOt+RdFu+rbMUFUBQAhgtTq8='
+    version = 'v1.25.1'
+    hash = 'sha256-1YQem2znuS90j3LnvTV0VQ4/0K9ApFnYX62UKTWZKUc='
 
   [mod.'go.podman.io/storage']
     version = 'v1.65.1'
