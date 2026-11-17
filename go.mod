@@ -12,7 +12,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.2-0.20261022171424-4feed4a6674e
 	go.podman.io/image/v5 v5.42.1
-	go.podman.io/skopeo v1.25.1
+	go.podman.io/skopeo v1.25.2
 	mvdan.cc/sh/v3 v3.14.1
 )
 
@@ -80,7 +80,7 @@ require (
 	golang.org/x/mod v0.43.0
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5 // indirect

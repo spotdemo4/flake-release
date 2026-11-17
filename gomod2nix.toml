@@ -587,8 +587,8 @@ cachePackages = [
     hash = 'sha256-cQqC2WaxPrFUfKHAOZk5QszAYKtyj4SueZPE8zBkwwo='
 
   [mod.'go.podman.io/skopeo']
-    version = 'v1.25.1'
-    hash = 'sha256-1YQem2znuS90j3LnvTV0VQ4/0K9ApFnYX62UKTWZKUc='
+    version = 'v1.25.2'
+    hash = 'sha256-w3/Xg9kByhKbX/NPJi0vB8IxoFm7rY5l0KJLdQkFY0Q='
 
   [mod.'go.podman.io/storage']
     version = 'v1.65.1'
@@ -615,8 +615,8 @@ cachePackages = [
     hash = 'sha256-gViyLpsZFBKTEUtK6Li3m6plz5J/VCAcpTLymQVRpj4='
 
   [mod.'golang.org/x/sys']
-    version = 'v0.49.0'
-    hash = 'sha256-/1S3yy3in72ygZT1CKymvOzJZqCMYiGSqZDfvSyB3LI='
+    version = 'v0.50.0'
+    hash = 'sha256-3T1I5T5pgbQBxRhN9Q2Ajvsy1kJW9WM/uddR9cOUVNA='
 
   [mod.'golang.org/x/term']
     version = 'v0.47.0'
