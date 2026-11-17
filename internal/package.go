@@ -105,10 +105,14 @@ type packagePublication struct {
 	// manifestName is the name other manifests depend on the package by, which differs
 	// from name when the package is renamed for its registry.
 	manifestName string
-	// dependencies are the names of the packages of the same kind that the package
-	// needs from its registry, as far as its manifest declares them.
+	// dependencies are the names of the packages of the same ecosystem that the
+	// package needs from its registry, as far as its manifest declares them.
 	dependencies []string
-	published    bool
+	// pathDependencies maps the dependencies that the manifest takes from a local path
+	// to that path. A registry refuses them, so they must be replaced with registry
+	// requirements on packages released in the same run before publishing.
+	pathDependencies map[string]string
+	published        bool
 }
 
 // nixPackageVersion is a flake package and the version it evaluates to, empty when unset.
@@ -245,6 +249,12 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 					}
 				}
 				if foundManifest == "" {
+					continue
+				}
+				// A gleam.toml next to a rebar.config usually only lets Gleam build the
+				// rebar3 project as a path dependency, so the source is published once.
+				if kind == packageGleam && slices.Contains(target.kinds, packageRebar3) && isFile(filepath.Join(source, packageManifests[packageRebar3])) {
+					status("gleam.toml is next to rebar.config; publishing with rebar3 only")
 					continue
 				}
 				// Stage the whole src so paths outside sourceRoot, such as shared test data, still resolve.
@@ -433,15 +443,21 @@ func publicationIdentity(publication packagePublication) string {
 	if publication.kind == packagePyPI {
 		name = normalizePyPIName(name)
 	}
-	// Gradle and Maven publish to the same Maven registry, and rebar3 and Gleam to Hex.
-	kind := publication.kind
+	return string(publication.registry) + "\x00" + string(packageEcosystem(publication.kind)) + "\x00" + name + "\x00" + publication.version
+}
+
+// packageEcosystem returns the kind whose packages share a namespace and can depend on
+// each other: Gradle and Maven publish to the same Maven registry, and rebar3 and Gleam
+// to Hex.
+func packageEcosystem(kind packageKind) packageKind {
 	switch kind {
 	case packageGradle:
-		kind = packageMaven
+		return packageMaven
 	case packageGleam:
-		kind = packageRebar3
+		return packageRebar3
+	default:
+		return kind
 	}
-	return string(publication.registry) + "\x00" + string(kind) + "\x00" + name + "\x00" + publication.version
 }
 
 func (set *packagePublicationSet) publish() error {
@@ -518,6 +534,17 @@ func (publication *packagePublication) verifier() func(*packagePublicationSet, *
 		return verifyGleamPackage
 	default:
 		return nil
+	}
+}
+
+// resolvePathDependencies replaces the publication's path dependencies in its staged
+// manifest with registry requirements starting at the versions given by name.
+func (publication *packagePublication) resolvePathDependencies(versions map[string]string) error {
+	switch publication.kind {
+	case packageGleam:
+		return rewriteGleamPathDependencies(publication, versions)
+	default:
+		return fmt.Errorf("%s packages can't replace path dependencies", publication.kind)
 	}
 }
 

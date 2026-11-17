@@ -4,6 +4,7 @@ package flakerelease
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -335,6 +336,9 @@ func Run(args []string) error {
 			return err
 		}
 	}
+	if err := resolvePathDependencies(prepared); err != nil {
+		return err
+	}
 
 	return publishReleases(cfg, prepared, func(ready preparedRelease, unpublished func(packagePublication) []string) error {
 		return publishRelease(cfg, provider, release, retain, ready, unpublished)
@@ -436,7 +440,7 @@ func releaseDependencies(prepared []preparedRelease) [][]int {
 }
 
 func publicationDependencyKey(kind packageKind, name string) string {
-	return string(kind) + "\x00" + name
+	return string(packageEcosystem(kind)) + "\x00" + name
 }
 
 // publicationDependenciesIn returns the dependencies of publication that the releases
@@ -445,13 +449,67 @@ func publicationDependenciesIn(publication packagePublication, prepared []prepar
 	var names []string
 	for _, index := range indexes {
 		for _, provided := range prepared[index].publicationList() {
-			if provided.kind == publication.kind && slices.Contains(publication.dependencies, provided.manifestName) && !slices.Contains(names, provided.manifestName) {
+			if packageEcosystem(provided.kind) == packageEcosystem(publication.kind) && slices.Contains(publication.dependencies, provided.manifestName) && !slices.Contains(names, provided.manifestName) {
 				names = append(names, provided.manifestName)
 			}
 		}
 	}
 	slices.Sort(names)
 	return names
+}
+
+// resolvePathDependencies replaces each path dependency of a package with a registry
+// requirement on the package that another release in the run publishes, starting at
+// that release's version. A path dependency on anything else is an error, since the
+// registry would refuse it.
+func resolvePathDependencies(prepared []preparedRelease) error {
+	for index, ready := range prepared {
+		packages := ready.publicationList()
+		for packageIndex := range packages {
+			publication := &packages[packageIndex]
+			if len(publication.pathDependencies) == 0 {
+				continue
+			}
+			names := slices.Sorted(maps.Keys(publication.pathDependencies))
+			versions := make(map[string]string, len(names))
+			for _, name := range names {
+				version, err := pathDependencyVersion(*publication, name, prepared, index)
+				if err != nil {
+					return fmt.Errorf("%s package %s at %s: %w", publication.kind, publication.name, publication.source, err)
+				}
+				versions[name] = version
+			}
+			if err := publication.resolvePathDependencies(versions); err != nil {
+				return fmt.Errorf("%s package %s at %s: %w", publication.kind, publication.name, publication.source, err)
+			}
+		}
+	}
+	return nil
+}
+
+// pathDependencyVersion returns the version that another release in prepared publishes
+// of publication's path dependency name to the same registry.
+func pathDependencyVersion(publication packagePublication, name string, prepared []preparedRelease, index int) (string, error) {
+	path := publication.pathDependencies[name]
+	provides := func(provided packagePublication) bool {
+		return provided.registry == publication.registry && packageEcosystem(provided.kind) == packageEcosystem(publication.kind) && provided.manifestName == name
+	}
+	for providerIndex, ready := range prepared {
+		if providerIndex == index {
+			continue
+		}
+		for _, provided := range ready.publicationList() {
+			if provides(provided) {
+				// Every package in a release has its version, even those that only
+				// learn it once verification builds them.
+				return firstNonEmpty(provided.version, ready.tag.version), nil
+			}
+		}
+	}
+	if slices.ContainsFunc(prepared[index].publicationList(), provides) {
+		return "", fmt.Errorf("dependency %s from path %q is published by the same release, so it can't be published first; release it with its own tag", name, path)
+	}
+	return "", fmt.Errorf("dependency %s from path %q is not published by another release in this run, and registries don't accept path dependencies", name, path)
 }
 
 // orderReleases orders releases so each follows the releases it depends on, otherwise
