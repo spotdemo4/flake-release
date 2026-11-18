@@ -269,6 +269,8 @@ func TestHexSourceWithRebar3AndGleamPublishesWithRebar3(t *testing.T) {
 	writeTestFile(t, filepath.Join(source, "rebar.config"), "{deps, []}.\n")
 	writeTestFile(t, filepath.Join(source, "gleam.toml"), "name = \"app\"\nversion = \"1.2.3\"\n")
 	writeTestFile(t, filepath.Join(source, "src", "app.app.src"), "{application, app, [{vsn, \"1.2.3\"}]}.\n")
+	// Gleam only publishes modules from src.
+	writeTestFile(t, filepath.Join(source, "test", "app_test.gleam"), "pub fn main() { Nil }\n")
 	set, err := preparePackagePublicationsWith(config{dryRun: true, hexPMToken: "hex-token"}, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"pkg"}, nil, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
 		requireFunc: func(string) error { return nil },
 		runFunc:     func(commandOptions) error { return nil },
@@ -285,6 +287,66 @@ func TestHexSourceWithRebar3AndGleamPublishesWithRebar3(t *testing.T) {
 	}
 	if set.packages[0].manifestName != "app" {
 		t.Fatalf("rebar3 manifest name = %q; want app from the .app.src", set.packages[0].manifestName)
+	}
+}
+
+func TestHexSourceWithRebar3AndGleamModulesPublishesWithGleam(t *testing.T) {
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "rebar.config"), "{deps, []}.\n")
+	writeTestFile(t, filepath.Join(source, "gleam.toml"), "name = \"a\"\nversion = \"1.2.3\"\n")
+	writeTestFile(t, filepath.Join(source, "src", "a.app.src"), "{application, a, [{vsn, \"1.2.3\"}]}.\n")
+	writeTestFile(t, filepath.Join(source, "src", "a_runtime.erl"), "-module(a_runtime).\n")
+	writeTestFile(t, filepath.Join(source, "src", "a", "b.gleam"), "pub fn main() { Nil }\n")
+	var commands []commandOptions
+	set, err := preparePackagePublicationsWith(config{dryRun: true, hexPMToken: "hex-token"}, releaseForgejo, parseReleaseTag("v1.2.3"), []string{"pkg"}, nil, func(string) (nixSource, error) { return nixSource{root: source}, nil }, fakePackageCommandRunner{
+		requireFunc: func(string) error { return nil },
+		runFunc: func(options commandOptions) error {
+			commands = append(commands, options)
+			return nil
+		},
+		captureFunc: func(options commandOptions) (string, error) {
+			commands = append(commands, options)
+			return `{"gleam.toml":{"name":"a","version":"1.2.3"}}`, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(set.Close)
+	if len(set.packages) != 1 || set.packages[0].kind != packageGleam || set.packages[0].manifestName != "a" {
+		t.Fatalf("prepared packages = %#v; want gleam package a only", set.packages)
+	}
+	publication := &set.packages[0]
+	if err := publication.verify(set); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range commands {
+		if command.name != "gleam" || command.dir != publication.dir {
+			t.Fatalf("commands = %v; want gleam only, in the staged source", commands)
+		}
+	}
+	if last := commands[len(commands)-1]; !slices.Equal(last.args, []string{"export", "hex-tarball"}) {
+		t.Fatalf("commands = %v; want verification with gleam export hex-tarball", commands)
+	}
+}
+
+func TestHasGleamModules(t *testing.T) {
+	for _, test := range []struct {
+		files []string
+		want  bool
+	}{
+		{[]string{"src/a.gleam"}, true},
+		{[]string{"src/a.erl", "src/a/b/c.gleam"}, true},
+		{[]string{"src/a.erl", "test/a_test.gleam", "a.gleam"}, false},
+		{nil, false},
+	} {
+		dir := t.TempDir()
+		for _, file := range test.files {
+			writeTestFile(t, filepath.Join(dir, file), "")
+		}
+		if got := hasGleamModules(dir); got != test.want {
+			t.Errorf("hasGleamModules(%q) = %v; want %v", test.files, got, test.want)
+		}
 	}
 }
 
@@ -454,6 +516,50 @@ func TestGleamPathDependencyOnRebar3ReleaseIsPublishedFromHex(t *testing.T) {
 	}
 	if !slices.Equal(pending["b/v1.0.0"], []string{"a"}) {
 		t.Fatalf("unpublished dependencies = %v; want a for b", pending)
+	}
+}
+
+func TestGleamPathDependencyOnGleamReleaseIsPublishedFromHex(t *testing.T) {
+	gleam, dir := testGleamPathDependencyRelease(t)
+	// a has a rebar.config too, but its Gleam modules make it a Gleam package.
+	provider := preparedRelease{
+		releaseGroup: releaseGroup{tag: parseReleaseTag("a/v1.2.0")},
+		publications: &packagePublicationSet{packages: []packagePublication{{
+			kind:         packageGleam,
+			registry:     registryHexPM,
+			name:         "a",
+			version:      "1.2.0",
+			manifestName: "a",
+		}}},
+	}
+	prepared := []preparedRelease{gleam, provider}
+	if err := resolvePathDependencies(prepared); err != nil {
+		t.Fatal(err)
+	}
+	var gleamConfig struct {
+		Dependencies map[string]any `toml:"dependencies"`
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "gleam.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := toml.Decode(string(data), &gleamConfig); err != nil {
+		t.Fatal(err)
+	}
+	if gleamConfig.Dependencies["a"] != ">= 1.2.0 and < 2.0.0" {
+		t.Fatalf("rewritten gleam.toml = %s; want a from hex.pm", data)
+	}
+
+	var published []string
+	err = publishReleases(config{}, prepared, func(ready preparedRelease, _ func(packagePublication) []string) error {
+		published = append(published, ready.tag.full)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(published, ","), "a/v1.2.0,b/v1.0.0"; got != want {
+		t.Fatalf("published = %s; want %s", got, want)
 	}
 }
 

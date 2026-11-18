@@ -251,10 +251,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 				if foundManifest == "" {
 					continue
 				}
-				// A gleam.toml next to a rebar.config usually only lets Gleam build the
-				// rebar3 project as a path dependency, so the source is published once.
-				if kind == packageGleam && slices.Contains(target.kinds, packageRebar3) && isFile(filepath.Join(source, packageManifests[packageRebar3])) {
-					status("gleam.toml is next to rebar.config; publishing with rebar3 only")
+				if skipHexKind(source, kind, target.kinds) {
 					continue
 				}
 				// Stage the whole src so paths outside sourceRoot, such as shared test data, still resolve.
@@ -322,6 +319,52 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 
 	cleanup = false
 	return set, nil
+}
+
+// skipHexKind reports whether a source with both rebar.config and gleam.toml should not
+// be published as kind, since one package can only be published to Hex once. A source
+// with Gleam modules is published with Gleam, since a rebar3 package's Gleam modules
+// can't be imported by Gleam projects, while Gleam's package also builds with rebar3
+// and mix. Otherwise the gleam.toml usually only lets Gleam build the rebar3 project
+// as a path dependency, so it is published with rebar3.
+func skipHexKind(source string, kind packageKind, kinds []packageKind) bool {
+	if kind != packageGleam && kind != packageRebar3 {
+		return false
+	}
+	for _, other := range []packageKind{packageGleam, packageRebar3} {
+		if !slices.Contains(kinds, other) || !isFile(filepath.Join(source, packageManifests[other])) {
+			return false
+		}
+	}
+	gleamModules := hasGleamModules(source)
+	switch {
+	case kind == packageGleam && !gleamModules:
+		status("gleam.toml is next to rebar.config without Gleam modules in src; publishing with rebar3 only")
+		return true
+	case kind == packageRebar3 && gleamModules:
+		status("rebar.config is next to gleam.toml with Gleam modules in src; publishing with Gleam only")
+		return true
+	default:
+		return false
+	}
+}
+
+// hasGleamModules reports whether the Gleam project in dir has modules in src, the
+// only directory Gleam publishes modules from.
+func hasGleamModules(dir string) bool {
+	found := false
+	// A missing src, or an unreadable directory in it, ends the walk without modules.
+	_ = filepath.WalkDir(filepath.Join(dir, "src"), func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".gleam") {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func (set *packagePublicationSet) Close() {
