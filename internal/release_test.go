@@ -196,6 +196,76 @@ func TestCreateReleaseSkipsExistingRelease(t *testing.T) {
 	}
 }
 
+func TestUploadAssetSkipsExistingAsset(t *testing.T) {
+	asset := filepath.Join(t.TempDir(), "app_1.0.0_linux_amd64.tar.xz")
+	if err := os.WriteFile(asset, []byte("archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(asset)
+	for _, provider := range []releaseProvider{releaseGitHub, releaseGitea, releaseForgejo} {
+		for _, test := range []struct {
+			name        string
+			before      []releaseAsset
+			after       []releaseAsset
+			uploadCode  int
+			wantUploads int
+			wantErr     bool
+		}{
+			{name: "uploaded", uploadCode: http.StatusCreated, wantUploads: 1},
+			{name: "other asset exists", before: []releaseAsset{{ID: 1, Name: "other.tar.xz"}}, uploadCode: http.StatusCreated, wantUploads: 1},
+			{name: "already exists", before: []releaseAsset{{ID: 1, Name: name}}, uploadCode: http.StatusCreated},
+			{name: "already uploaded", before: []releaseAsset{{ID: 1, Name: name, State: "uploaded"}}, uploadCode: http.StatusCreated},
+			{name: "incomplete asset", before: []releaseAsset{{ID: 1, Name: name, State: "starter"}}, uploadCode: http.StatusUnprocessableEntity, wantUploads: 1, wantErr: true},
+			{name: "uploaded concurrently", after: []releaseAsset{{ID: 1, Name: name}}, uploadCode: http.StatusUnprocessableEntity, wantUploads: 1},
+			{name: "failure", uploadCode: http.StatusUnauthorized, wantUploads: 1, wantErr: true},
+		} {
+			t.Run(string(provider)+"/"+test.name, func(t *testing.T) {
+				prefix := "/api/v1/repos/owner/repo/releases"
+				uploadPath := prefix + "/1/assets"
+				if provider == releaseGitHub {
+					prefix = "/api/v3/repos/owner/repo/releases"
+					uploadPath = "/uploads/repos/owner/repo/releases/1/assets"
+				}
+				uploads := 0
+				var server *httptest.Server
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.Method == http.MethodGet && r.URL.Path == prefix+"/tags/v1.0.0":
+						assets := test.before
+						if uploads > 0 {
+							assets = append(slices.Clone(test.before), test.after...)
+						}
+						writeCleanupJSON(w, map[string]any{
+							"id":         1,
+							"tag_name":   "v1.0.0",
+							"upload_url": server.URL + uploadPath + "{?name,label}",
+							"assets":     assets,
+						})
+					case r.Method == http.MethodPost && r.URL.Path == uploadPath:
+						uploads++
+						if got := r.URL.Query().Get("name"); got != name {
+							t.Errorf("upload name = %q; want %q", got, name)
+						}
+						w.WriteHeader(test.uploadCode)
+						writeCleanupJSON(w, map[string]any{"id": 2, "name": name})
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				defer server.Close()
+
+				err := cleanupTestClient(provider, server.URL).uploadAsset("v1.0.0", asset)
+				if (err != nil) != test.wantErr {
+					t.Fatalf("uploadAsset() error = %v; want error %t", err, test.wantErr)
+				}
+				if uploads != test.wantUploads {
+					t.Fatalf("uploadAsset() uploads = %d; want %d", uploads, test.wantUploads)
+				}
+			})
+		}
+	}
+}
+
 func TestParseRepository(t *testing.T) {
 	repo, err := parseRepository("owner/project")
 	if err != nil {

@@ -36,8 +36,19 @@ func (r repository) path() string {
 }
 
 type releaseAsset struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state,omitempty"`
+}
+
+// hasReleaseAsset reports whether assets contains a completed asset named name.
+// GitHub reports a state for each asset, and an asset whose upload never
+// finished is not counted so that uploading it again fails loudly instead of
+// leaving a broken asset on the release. Gitea and Forgejo report no state.
+func hasReleaseAsset(assets []releaseAsset, name string) bool {
+	return slices.ContainsFunc(assets, func(asset releaseAsset) bool {
+		return asset.Name == name && (asset.State == "" || asset.State == "uploaded")
+	})
 }
 
 type githubReleaseResponse struct {
@@ -204,11 +215,16 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		return err
 	}
 
+	name := filepath.Base(asset)
 	release, err := c.releaseByTag(repo, tag)
 	if err != nil {
 		return err
 	}
-	uploadURL, err := releaseAssetUploadURL(release.UploadURL, filepath.Base(asset))
+	if hasReleaseAsset(release.Assets, name) {
+		status("asset %s already exists on release %s at %s, skipping upload", name, tag, c.cfg.gitRepository)
+		return nil
+	}
+	uploadURL, err := releaseAssetUploadURL(release.UploadURL, name)
 	if err != nil {
 		return err
 	}
@@ -228,7 +244,7 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		contentType = "application/octet-stream"
 	}
 
-	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.gitRepository)
+	status("uploading %s to release %s at %s", name, tag, c.cfg.gitRepository)
 	_, err = c.httpRequest(httpRequestOptions{
 		method:        http.MethodPost,
 		url:           uploadURL,
@@ -236,7 +252,15 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		body:          file,
 		contentLength: stat.Size(),
 	})
-	return err
+	if err != nil {
+		// another runner may have uploaded the asset first
+		if release, lookupErr := c.releaseByTag(repo, tag); lookupErr == nil && hasReleaseAsset(release.Assets, name) {
+			status("asset %s already exists on release %s at %s, skipping upload", name, tag, c.cfg.gitRepository)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (c githubReleaseClient) addReleaseLinks(tag string, links []releaseLink) error {
@@ -490,6 +514,11 @@ func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
 	if release.ID == 0 {
 		return fmt.Errorf("%s release %s has no id", c.name, tag)
 	}
+	name := filepath.Base(asset)
+	if hasReleaseAsset(release.Assets, name) {
+		status("asset %s already exists on release %s at %s, skipping upload", name, tag, c.cfg.gitRepository)
+		return nil
+	}
 
 	body, contentType, err := multipartFileBody("attachment", asset)
 	if err != nil {
@@ -499,20 +528,28 @@ func (c giteaReleaseClient) uploadAsset(tag string, asset string) error {
 
 	endpoint, err := releaseAssetUploadURL(
 		fmt.Sprintf("%s/repos/%s/releases/%d/assets", c.apiBase(), repo.path(), release.ID),
-		filepath.Base(asset),
+		name,
 	)
 	if err != nil {
 		return err
 	}
 
-	status("uploading %s to release %s at %s", filepath.Base(asset), tag, c.cfg.gitRepository)
+	status("uploading %s to release %s at %s", name, tag, c.cfg.gitRepository)
 	_, err = c.httpRequest(httpRequestOptions{
 		method:      http.MethodPost,
 		url:         endpoint,
 		contentType: contentType,
 		body:        body,
 	})
-	return err
+	if err != nil {
+		// another runner may have uploaded the asset first
+		if release, lookupErr := c.releaseByTag(repo, tag); lookupErr == nil && hasReleaseAsset(release.Assets, name) {
+			status("asset %s already exists on release %s at %s, skipping upload", name, tag, c.cfg.gitRepository)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (c giteaReleaseClient) addReleaseLinks(tag string, links []releaseLink) error {
