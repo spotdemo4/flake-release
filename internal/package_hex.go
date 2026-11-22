@@ -3,17 +3,21 @@ package flakerelease
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -28,6 +32,15 @@ const (
 	gleamVersionZeroConfirmation = "I am not using semantic versioning"
 	// gleamNotPublishing is printed when gleam publish declines without failing.
 	gleamNotPublishing = "Not publishing."
+)
+
+var (
+	hexPMAPIURL = "https://hex.pm/api"
+	// hexPMReleaseAttempts bounds how many times a published release is looked up when
+	// hex.pm neither serves nor stages it, since it may be slow to serve a new release.
+	hexPMReleaseAttempts      = 6
+	hexPMReleaseRetryInterval = 5 * time.Second
+	hexPMClient               = &http.Client{Timeout: time.Minute}
 )
 
 // hexMetadataField matches a top-level binary field of a Hex package's metadata.config.
@@ -418,4 +431,136 @@ func gleamPublishCommand(set *packagePublicationSet, publication *packagePublica
 		command.stdin = gleamVersionZeroConfirmation + "\n"
 	}
 	return command
+}
+
+// hexPMStagedRelease is a release that hex.pm holds until a package owner approves it.
+type hexPMStagedRelease struct {
+	Status    string `json:"status"`
+	ExpiresAt string `json:"expires_at"`
+	HTMLURL   string `json:"html_url"`
+}
+
+// confirmHexPMRelease checks that hex.pm serves a release that its publish command
+// reported as published. Publish commands report success for a staged release too,
+// which hex.pm only serves once an owner approves it on the dashboard, so a staged
+// release warns. A release that was rejected, expired, or is neither served nor staged
+// fails.
+func confirmHexPMRelease(key string, name string, version string) error {
+	release := strings.TrimRight(hexPMAPIURL, "/") + "/packages/" + url.PathEscape(name) + "/releases/" + url.PathEscape(version)
+	status("checking that hex.pm serves the release")
+	if served, _ := hexPMServesRelease(release); served {
+		return nil
+	}
+
+	stagedURL := release + "/staged"
+	detail("GET %s", stagedURL)
+	code, body, err := hexPMGet(stagedURL, key)
+	var reason string
+	switch {
+	case err != nil:
+		reason = fmt.Sprintf("its staged release can't be looked up: %v", err)
+	case code == http.StatusOK:
+		var staged hexPMStagedRelease
+		if err := json.Unmarshal(body, &staged); err != nil {
+			return fmt.Errorf("parsing hex.pm staged release %s@%s: %w", name, version, err)
+		}
+		switch staged.Status {
+		case "staged":
+			message := fmt.Sprintf("hex.pm holds %s@%s as a staged release, which is not public until a package owner approves it", name, version)
+			if staged.HTMLURL != "" {
+				message += " at " + staged.HTMLURL
+			}
+			if staged.ExpiresAt != "" {
+				message += "; it expires at " + staged.ExpiresAt
+			}
+			itemWarn("%s", message)
+			return nil
+		case "approved":
+			status("hex.pm staged release was approved")
+			return nil
+		case "rejected", "expired":
+			return fmt.Errorf("hex.pm staged release %s@%s was %s, so it is not published", name, version, staged.Status)
+		default:
+			return fmt.Errorf("hex.pm staged release %s@%s has unknown status %q", name, version, staged.Status)
+		}
+	case code == http.StatusNotFound:
+		reason = "hex.pm has no staged release of it"
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		reason = "it may be a staged release waiting for approval on the hex.pm dashboard, which HEXPM_TOKEN can only check with the api:read permission as an owner of the package"
+	default:
+		reason = "its staged release can't be looked up: " + hexPMStatusError(stagedURL, code, body, key).Error()
+	}
+
+	// hex.pm may take a moment to serve a release that it did not stage.
+	var lastErr error
+	if hexPMReleaseAttempts > 1 {
+		status("hex.pm does not serve the release yet; retrying")
+	}
+	for attempt := 2; attempt <= hexPMReleaseAttempts; attempt++ {
+		time.Sleep(hexPMReleaseRetryInterval)
+		served, err := hexPMServesRelease(release)
+		if served {
+			return nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return fmt.Errorf("hex.pm does not serve %s@%s after publishing it (%w), and %s", name, version, lastErr, reason)
+	}
+	return fmt.Errorf("hex.pm does not serve %s@%s after publishing it, and %s", name, version, reason)
+}
+
+// hexPMServesRelease reports whether the hex.pm API serves the release at endpoint, with an
+// error explaining why when it does not.
+func hexPMServesRelease(endpoint string) (bool, error) {
+	detail("GET %s", endpoint)
+	code, body, err := hexPMGet(endpoint, "")
+	if err != nil {
+		return false, err
+	}
+	if code != http.StatusOK {
+		return false, hexPMStatusError(endpoint, code, body, "")
+	}
+	return true, nil
+}
+
+// hexPMGet requests endpoint from the hex.pm API, authenticated with key when it is set, and
+// returns the response's status code and body.
+func hexPMGet(endpoint string, key string) (int, []byte, error) {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Accept", jsonAccept)
+	if key != "" {
+		// hex.pm takes the bare API key, without a scheme.
+		req.Header.Set("Authorization", key)
+	}
+	resp, err := hexPMClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, body, nil
+}
+
+// hexPMStatusError describes an unsuccessful hex.pm API response.
+func hexPMStatusError(endpoint string, code int, body []byte, key string) error {
+	text := fmt.Sprintf("%d %s", code, http.StatusText(code))
+	var response struct {
+		Message string `json:"message"`
+	}
+	message := strings.TrimSpace(string(body))
+	if json.Unmarshal(body, &response) == nil && response.Message != "" {
+		message = response.Message
+	}
+	message = redactSecrets(message, []string{key})
+	if message != "" {
+		return fmt.Errorf("GET %s failed: %s: %s", endpoint, text, message)
+	}
+	return fmt.Errorf("GET %s failed: %s", endpoint, text)
 }

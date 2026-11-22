@@ -3,11 +3,16 @@ package flakerelease
 import (
 	"archive/tar"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -736,5 +741,180 @@ func TestGleamPathDependencyMustBeReleasedByAnotherRelease(t *testing.T) {
 	err = resolvePathDependencies([]preparedRelease{gleam}, noReleasedTags(t))
 	if err == nil || !strings.Contains(err.Error(), "published by the same release") {
 		t.Fatalf("error = %v; want path dependency in the same release rejected", err)
+	}
+}
+
+// hexPMServer records the requests to a fake hex.pm API, with the Authorization header
+// of each.
+type hexPMServer struct {
+	mu       sync.Mutex
+	requests []string
+}
+
+func (server *hexPMServer) recorded() []string {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return slices.Clone(server.requests)
+}
+
+func useHexPMServer(t *testing.T, handler func(w http.ResponseWriter, r *http.Request)) *hexPMServer {
+	t.Helper()
+	recorder := &hexPMServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder.mu.Lock()
+		recorder.requests = append(recorder.requests, strings.TrimSpace(r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization")))
+		recorder.mu.Unlock()
+		handler(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	previousURL, previousAttempts, previousInterval := hexPMAPIURL, hexPMReleaseAttempts, hexPMReleaseRetryInterval
+	hexPMAPIURL, hexPMReleaseAttempts, hexPMReleaseRetryInterval = server.URL+"/api/", 3, time.Millisecond
+	t.Cleanup(func() {
+		hexPMAPIURL, hexPMReleaseAttempts, hexPMReleaseRetryInterval = previousURL, previousAttempts, previousInterval
+	})
+	return recorder
+}
+
+// hexPMStagedHandler serves a release only through its staged endpoint, with body.
+func hexPMStagedHandler(code int, body string) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/staged") {
+			w.WriteHeader(code)
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"status":404,"message":"Page not found"}`))
+	}
+}
+
+// publishGleamToHexPM publishes app@1.2.3 with Gleam to hex.pm, whose gleam publish
+// reports success, and returns the set and any error.
+func publishGleamToHexPM(t *testing.T) (*packagePublicationSet, error) {
+	t.Helper()
+	var commands []commandOptions
+	set := newGleamTestSet(t, "", "Published package and documentation", &commands)
+	set.packages = []packagePublication{{kind: packageGleam, registry: registryHexPM, name: "app", version: "1.2.3"}}
+	err := set.publish()
+	if len(commands) != 1 || commands[0].args[0] != "publish" {
+		t.Fatalf("commands = %v; want gleam publish", commands)
+	}
+	return set, err
+}
+
+func TestHexPMPublishConfirmsServedRelease(t *testing.T) {
+	server := useHexPMServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"1.2.3"}`))
+	})
+	set, err := publishGleamToHexPM(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"GET /api/packages/app/releases/1.2.3"}; !slices.Equal(server.recorded(), want) {
+		t.Fatalf("requests = %q; want %q", server.recorded(), want)
+	}
+	if links := set.releaseLinks(); len(links) != 1 || links[0].url != "https://hex.pm/packages/app/1.2.3" {
+		t.Fatalf("links = %#v; want the hex.pm release", links)
+	}
+}
+
+func TestHexPMPublishRetriesUntilReleaseIsServed(t *testing.T) {
+	var releaseRequests atomic.Int32
+	useHexPMServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/staged") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if releaseRequests.Add(1) < 3 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"version":"1.2.3"}`))
+	})
+	set, err := publishGleamToHexPM(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(set.releaseLinks()) != 1 {
+		t.Fatal("release served after a retry was not linked")
+	}
+}
+
+func TestHexPMPublishWarnsAboutStagedRelease(t *testing.T) {
+	output := captureHumanOutput(t)
+	server := useHexPMServer(t, hexPMStagedHandler(http.StatusOK, `{"name":"app","version":"1.2.3","kind":"release","status":"staged",`+
+		`"expires_at":"2026-11-29T15:52:21Z","html_url":"https://hex.pm/dashboard/staged-releases/1"}`))
+	set, err := publishGleamToHexPM(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"GET /api/packages/app/releases/1.2.3", "GET /api/packages/app/releases/1.2.3/staged hex-token"}
+	if !slices.Equal(server.recorded(), want) {
+		t.Fatalf("requests = %q; want %q", server.recorded(), want)
+	}
+	for _, text := range []string{"warning: hex.pm holds app@1.2.3 as a staged release", "https://hex.pm/dashboard/staged-releases/1", "2026-11-29T15:52:21Z"} {
+		if !strings.Contains(output.String(), text) {
+			t.Fatalf("output = %q; want %q", output.String(), text)
+		}
+	}
+	// The staged release is linked, since approving it publishes it there.
+	if len(set.releaseLinks()) != 1 {
+		t.Fatal("staged release was not linked")
+	}
+}
+
+func TestHexPMPublishAcceptsApprovedStagedRelease(t *testing.T) {
+	useHexPMServer(t, hexPMStagedHandler(http.StatusOK, `{"status":"approved"}`))
+	if _, err := publishGleamToHexPM(t); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHexPMPublishFailsForUnpublishedRelease(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		code   int
+		body   string
+		reason string
+	}{
+		{name: "rejected", code: http.StatusOK, body: `{"status":"rejected"}`, reason: "staged release app@1.2.3 was rejected"},
+		{name: "expired", code: http.StatusOK, body: `{"status":"expired"}`, reason: "staged release app@1.2.3 was expired"},
+		{name: "unknown status", code: http.StatusOK, body: `{"status":"pending"}`, reason: `unknown status "pending"`},
+		{name: "missing", code: http.StatusNotFound, body: `{"status":404,"message":"Page not found"}`, reason: "hex.pm has no staged release of it"},
+		{name: "unauthorized", code: http.StatusUnauthorized, body: `{"status":401,"message":"invalid API key"}`, reason: "api:read permission"},
+		{name: "forbidden", code: http.StatusForbidden, body: `{"status":403,"message":"key not authorized"}`, reason: "api:read permission"},
+		{name: "server error", code: http.StatusInternalServerError, body: `{"message":"internal error hex-token"}`, reason: "500 Internal Server Error: internal error [REDACTED]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			useHexPMServer(t, hexPMStagedHandler(test.code, test.body))
+			set, err := publishGleamToHexPM(t)
+			if err == nil || !strings.Contains(err.Error(), test.reason) {
+				t.Fatalf("error = %v; want %q", err, test.reason)
+			}
+			if !strings.Contains(err.Error(), "confirming gleam package app@1.2.3 on hex.pm") {
+				t.Fatalf("error = %v; want the publication", err)
+			}
+			if links := set.releaseLinks(); len(links) != 0 {
+				t.Fatalf("links = %#v; want none for a release hex.pm does not serve", links)
+			}
+		})
+	}
+}
+
+func TestHexPMPublishRetriesMissingRelease(t *testing.T) {
+	server := useHexPMServer(t, hexPMStagedHandler(http.StatusNotFound, ""))
+	_, err := publishGleamToHexPM(t)
+	if err == nil || !strings.Contains(err.Error(), "hex.pm does not serve app@1.2.3 after publishing it (GET ") || !strings.Contains(err.Error(), "404 Not Found: Page not found") {
+		t.Fatalf("error = %v; want the release missing from hex.pm", err)
+	}
+	want := []string{
+		"GET /api/packages/app/releases/1.2.3",
+		"GET /api/packages/app/releases/1.2.3/staged hex-token",
+		"GET /api/packages/app/releases/1.2.3",
+		"GET /api/packages/app/releases/1.2.3",
+	}
+	if !slices.Equal(server.recorded(), want) {
+		t.Fatalf("requests = %q; want %q", server.recorded(), want)
 	}
 }

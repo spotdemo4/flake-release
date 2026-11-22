@@ -525,6 +525,10 @@ func (set *packagePublicationSet) publish() error {
 		if err := publication.publish(set); err != nil {
 			return fmt.Errorf("publishing %s package %s@%s to %s: %w", publication.kind, publication.name, publication.version, registry, err)
 		}
+		// A package the registry does not serve is not linked in the release.
+		if err := publication.confirm(set); err != nil {
+			return fmt.Errorf("confirming %s package %s@%s on %s: %w", publication.kind, publication.name, publication.version, registry, err)
+		}
 		publication.published = true
 	}
 	return nil
@@ -634,6 +638,15 @@ func (publication *packagePublication) publish(set *packagePublicationSet) error
 	default:
 		return fmt.Errorf("unsupported package kind %q", publication.kind)
 	}
+}
+
+// confirm checks that the registry serves the version just published, for registries
+// whose publish commands report success for versions they don't serve yet.
+func (publication *packagePublication) confirm(set *packagePublicationSet) error {
+	if publication.registry == registryHexPM {
+		return confirmHexPMRelease(set.cfg.hexPMToken, publication.name, publication.version)
+	}
+	return nil
 }
 
 // selectPackageTargets returns the registries to publish to and the package kinds to
