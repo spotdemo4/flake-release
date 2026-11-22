@@ -308,8 +308,19 @@ func renameAsset(filepathName string, name string, version string, osName string
 		final = filepath.Join(outdir, stem)
 	case strings.EqualFold(ext, "appimage"):
 		final = filepath.Join(outdir, name+"_"+version+"_"+arch+"."+ext)
-	case isAndroidPackageExtension(ext):
-		// Android packages run on any device their ABIs support, whatever system built them
+	case strings.EqualFold(ext, "apk"):
+		// APKs run on any device their ABIs support, whatever system built them, but only once signed
+		signed, err := apkSigned(filepathName)
+		if err != nil {
+			return "", err
+		}
+		if signed {
+			final = filepath.Join(outdir, name+"_"+version+"."+ext)
+		} else {
+			final = filepath.Join(outdir, name+"_"+version+"_unsigned."+ext)
+		}
+	case strings.EqualFold(ext, "aab"):
+		// app bundles are uploaded to app stores, which build APKs from them for each device
 		final = filepath.Join(outdir, name+"_"+version+"."+ext)
 	default:
 		final = filepath.Join(outdir, stem+"."+ext)
@@ -320,10 +331,6 @@ func renameAsset(filepathName string, name string, version string, osName string
 	}
 	cleanup = false
 	return final, nil
-}
-
-func isAndroidPackageExtension(ext string) bool {
-	return strings.EqualFold(ext, "apk") || strings.EqualFold(ext, "aab")
 }
 
 func validAssetComponent(value string) bool {

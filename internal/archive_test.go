@@ -777,20 +777,19 @@ func TestArchiveOutputsPreservesNestedAPK(t *testing.T) {
 	}
 }
 
-func TestRenameAssetOmitsPlatformForAndroidPackages(t *testing.T) {
+func TestRenameAssetNamesAndroidPackagesWithoutPlatform(t *testing.T) {
 	for _, test := range []struct {
-		filename string
-		want     string
+		filename  string
+		signature testAPKSignature
+		want      string
 	}{
-		{filename: "app-unsigned.apk", want: "app_1.2.3.apk"},
-		{filename: "app.APK", want: "app_1.2.3.APK"},
-		{filename: "app-release.aab", want: "app_1.2.3.aab"},
+		{filename: "app-release.apk", signature: testAPKSignedV2, want: "app_1.2.3.apk"},
+		{filename: "app-release.APK", signature: testAPKSignedV1, want: "app_1.2.3.APK"},
+		{filename: "app-release-unsigned.apk", signature: testAPKUnsigned, want: "app_1.2.3_unsigned.apk"},
 	} {
 		t.Run(test.filename, func(t *testing.T) {
 			archivePath := filepath.Join(t.TempDir(), test.filename)
-			if err := os.WriteFile(archivePath, []byte("archive"), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeTestAPK(t, archivePath, test.signature, 0)
 
 			asset, err := renameAsset(archivePath, "app", "1.2.3", "linux", "amd64")
 			if err != nil {
@@ -801,6 +800,32 @@ func TestRenameAssetOmitsPlatformForAndroidPackages(t *testing.T) {
 				t.Fatalf("asset name = %q; want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestRenameAssetNamesAppBundlesWithoutPlatform(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "app-release.aab")
+	if err := os.WriteFile(archivePath, []byte("archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	asset, err := renameAsset(archivePath, "app", "1.2.3", "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(filepath.Dir(asset))
+	if got, want := filepath.Base(asset), "app_1.2.3.aab"; got != want {
+		t.Fatalf("asset name = %q; want %q", got, want)
+	}
+}
+
+func TestRenameAssetRejectsInvalidAPK(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "app.apk")
+	if err := os.WriteFile(archivePath, []byte("not a zip file at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := renameAsset(archivePath, "app", "1.2.3", "linux", "amd64"); err == nil {
+		t.Fatal("renameAsset returned no error for an invalid APK")
 	}
 }
 

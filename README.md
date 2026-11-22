@@ -15,7 +15,7 @@ Generates release artifacts for packages in a nix flake:
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
-- packages whose outputs contain only an `.AppImage`, `.apk`, `.aab`, or already compressed archive upload that file as is; Android packages are named without a platform, such as `app_1.2.3.apk`, since they don't run on the system that built them
+- packages whose outputs contain only an `.AppImage`, `.apk`, `.aab`, or already compressed archive upload that file as is; Android packages are named without a platform, such as `app_1.2.3.apk`, since they don't run on the system that built them, and APKs without a signature, which Android won't install, are named `app_1.2.3_unsigned.apk`
 - Go, Cargo, npm, PyPI, Maven, Gradle, rebar3, and Gleam packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, pypi.org, Maven Central, pkg.go.dev, and hex.pm
 
 Packages are built and published in order of their platform's distance from the runner, so a slow cross-compiled build doesn't hold up the rest of the release: native packages and container images first, then [package registries](#package-publishing), then packages for another architecture on the same OS, another OS, and finally another OS and architecture. Container image destinations are validated before anything is built, and the combined image manifest is updated once every image is uploaded.
