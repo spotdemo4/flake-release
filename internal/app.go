@@ -14,32 +14,38 @@ import (
 )
 
 type config struct {
-	dryRun                      bool
-	bundleAppImage              bool
-	deleteOldReleaseArtifacts   string
-	gitRepository               string
-	gitServerURL                string
-	gitActor                    string
-	gitToken                    string
-	containerRegistry           string
-	containerRegistryUsername   string
-	containerRegistryPassword   string
-	publishPackages             string
-	packageRegistryOwner        string
-	packageRegistryURL          string
-	packageRegistryToken        string
-	packageRegistryUsername     string
-	cratesIOToken               string
-	npmjsToken                  string
-	npmjsTrustedPublishing      bool
-	pypiToken                   string
-	pypiTrustedPublishing       bool
-	mavenCentralUsername        string
-	mavenCentralToken           string
-	mavenCentralSigningKey      string
-	mavenCentralSigningPassword string
-	pkgGoDevPublishing          bool
-	hexPMToken                  string
+	dryRun                         bool
+	bundleAppImage                 bool
+	deleteOldReleaseArtifacts      string
+	gitRepository                  string
+	gitServerURL                   string
+	gitActor                       string
+	gitToken                       string
+	containerRegistry              string
+	containerRegistryUsername      string
+	containerRegistryPassword      string
+	publishPackages                string
+	packageRegistryOwner           string
+	packageRegistryURL             string
+	packageRegistryToken           string
+	packageRegistryUsername        string
+	cratesIOToken                  string
+	npmjsToken                     string
+	npmjsTrustedPublishing         bool
+	pypiToken                      string
+	pypiTrustedPublishing          bool
+	mavenCentralUsername           string
+	mavenCentralToken              string
+	mavenCentralSigningKey         string
+	mavenCentralSigningPassword    string
+	pkgGoDevPublishing             bool
+	hexPMToken                     string
+	androidSigningKeystore         string
+	androidSigningKeystorePassword string
+	androidSigningKeyAlias         string
+	androidSigningKeyPassword      string
+	// apkSigning is parsed from the androidSigning fields when a release starts.
+	apkSigning *apkSigningConfig
 }
 
 type releaseSession struct {
@@ -85,32 +91,36 @@ func (session releaseSession) requireOutput() error {
 
 func configFromEnv() config {
 	return config{
-		dryRun:                      truthy(os.Getenv("DRY_RUN")),
-		bundleAppImage:              truthy(os.Getenv("BUNDLE_APPIMAGE")),
-		deleteOldReleaseArtifacts:   os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
-		gitRepository:               actionsEnv("GIT_REPOSITORY", "GITHUB_REPOSITORY"),
-		gitServerURL:                actionsEnv("GIT_SERVER_URL", "GITHUB_SERVER_URL"),
-		gitActor:                    actionsEnv("GIT_ACTOR", "GITHUB_ACTOR"),
-		gitToken:                    gitTokenEnv(),
-		containerRegistry:           deprecatedEnv("CONTAINER_REGISTRY", "REGISTRY"),
-		containerRegistryUsername:   deprecatedEnv("CONTAINER_REGISTRY_USERNAME", "REGISTRY_USERNAME"),
-		containerRegistryPassword:   deprecatedEnv("CONTAINER_REGISTRY_PASSWORD", "REGISTRY_PASSWORD"),
-		publishPackages:             os.Getenv("PUBLISH_PACKAGES"),
-		packageRegistryOwner:        os.Getenv("PACKAGE_REGISTRY_OWNER"),
-		packageRegistryURL:          os.Getenv("PACKAGE_REGISTRY_URL"),
-		packageRegistryToken:        os.Getenv("PACKAGE_REGISTRY_TOKEN"),
-		packageRegistryUsername:     os.Getenv("PACKAGE_REGISTRY_USERNAME"),
-		cratesIOToken:               os.Getenv("CRATES_IO_TOKEN"),
-		npmjsToken:                  os.Getenv("NPMJS_TOKEN"),
-		npmjsTrustedPublishing:      truthy(os.Getenv("NPMJS_TRUSTED_PUBLISHING")),
-		pypiToken:                   os.Getenv("PYPI_TOKEN"),
-		pypiTrustedPublishing:       truthy(os.Getenv("PYPI_TRUSTED_PUBLISHING")),
-		mavenCentralUsername:        os.Getenv("MAVEN_CENTRAL_USERNAME"),
-		mavenCentralToken:           os.Getenv("MAVEN_CENTRAL_TOKEN"),
-		mavenCentralSigningKey:      os.Getenv("MAVEN_CENTRAL_SIGNING_KEY"),
-		mavenCentralSigningPassword: os.Getenv("MAVEN_CENTRAL_SIGNING_PASSWORD"),
-		pkgGoDevPublishing:          truthy(os.Getenv("PKG_GO_DEV_PUBLISHING")),
-		hexPMToken:                  os.Getenv("HEXPM_TOKEN"),
+		dryRun:                         truthy(os.Getenv("DRY_RUN")),
+		bundleAppImage:                 truthy(os.Getenv("BUNDLE_APPIMAGE")),
+		deleteOldReleaseArtifacts:      os.Getenv("DELETE_OLD_RELEASE_ARTIFACTS"),
+		gitRepository:                  actionsEnv("GIT_REPOSITORY", "GITHUB_REPOSITORY"),
+		gitServerURL:                   actionsEnv("GIT_SERVER_URL", "GITHUB_SERVER_URL"),
+		gitActor:                       actionsEnv("GIT_ACTOR", "GITHUB_ACTOR"),
+		gitToken:                       gitTokenEnv(),
+		containerRegistry:              deprecatedEnv("CONTAINER_REGISTRY", "REGISTRY"),
+		containerRegistryUsername:      deprecatedEnv("CONTAINER_REGISTRY_USERNAME", "REGISTRY_USERNAME"),
+		containerRegistryPassword:      deprecatedEnv("CONTAINER_REGISTRY_PASSWORD", "REGISTRY_PASSWORD"),
+		publishPackages:                os.Getenv("PUBLISH_PACKAGES"),
+		packageRegistryOwner:           os.Getenv("PACKAGE_REGISTRY_OWNER"),
+		packageRegistryURL:             os.Getenv("PACKAGE_REGISTRY_URL"),
+		packageRegistryToken:           os.Getenv("PACKAGE_REGISTRY_TOKEN"),
+		packageRegistryUsername:        os.Getenv("PACKAGE_REGISTRY_USERNAME"),
+		cratesIOToken:                  os.Getenv("CRATES_IO_TOKEN"),
+		npmjsToken:                     os.Getenv("NPMJS_TOKEN"),
+		npmjsTrustedPublishing:         truthy(os.Getenv("NPMJS_TRUSTED_PUBLISHING")),
+		pypiToken:                      os.Getenv("PYPI_TOKEN"),
+		pypiTrustedPublishing:          truthy(os.Getenv("PYPI_TRUSTED_PUBLISHING")),
+		mavenCentralUsername:           os.Getenv("MAVEN_CENTRAL_USERNAME"),
+		mavenCentralToken:              os.Getenv("MAVEN_CENTRAL_TOKEN"),
+		mavenCentralSigningKey:         os.Getenv("MAVEN_CENTRAL_SIGNING_KEY"),
+		mavenCentralSigningPassword:    os.Getenv("MAVEN_CENTRAL_SIGNING_PASSWORD"),
+		pkgGoDevPublishing:             truthy(os.Getenv("PKG_GO_DEV_PUBLISHING")),
+		hexPMToken:                     os.Getenv("HEXPM_TOKEN"),
+		androidSigningKeystore:         os.Getenv("ANDROID_SIGNING_KEYSTORE"),
+		androidSigningKeystorePassword: os.Getenv("ANDROID_SIGNING_KEYSTORE_PASSWORD"),
+		androidSigningKeyAlias:         os.Getenv("ANDROID_SIGNING_KEY_ALIAS"),
+		androidSigningKeyPassword:      os.Getenv("ANDROID_SIGNING_KEY_PASSWORD"),
 	}
 }
 
@@ -210,6 +220,10 @@ func Run(args []string) error {
 	case runRelease:
 	}
 	retain, err := parseArtifactRetention(cfg.deleteOldReleaseArtifacts)
+	if err != nil {
+		return err
+	}
+	cfg.apkSigning, err = parseAPKSigningConfig(cfg)
 	if err != nil {
 		return err
 	}
@@ -1191,6 +1205,11 @@ func releasePackageAsset(cfg config, release releaseClient, tag string, outputs 
 }
 
 func uploadArchive(cfg config, release releaseClient, tag string, archivePath string, pname string, version string, osName string, archName string, ensureRelease func() error) error {
+	archivePath, cleanupAPK, err := prepareAPK(cfg.apkSigning, archivePath)
+	if err != nil {
+		return err
+	}
+	defer cleanupAPK()
 	asset, err := renameAsset(archivePath, pname, version, osName, archName)
 	if err != nil {
 		return err

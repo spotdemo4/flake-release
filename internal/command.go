@@ -51,16 +51,17 @@ func (execPackageCommandRunner) capture(options commandOptions) (string, error) 
 // nixCommandPackages lists the nixpkgs attributes that provide a command missing from
 // PATH, along with the toolchain the command needs to run.
 var nixCommandPackages = map[string][]string{
-	"cargo":    {"cargo", "rustc", "stdenv.cc"},
-	"escript":  {"beamPackages.erlang"},
-	"gleam":    {"gleam", "beamPackages.erlang", "rebar3"},
-	"go":       {"go"},
-	"gradle":   {"gradle"},
-	"mvn":      {"maven"},
-	"npm":      {"nodejs"},
-	"patchelf": {"patchelf"},
-	"rebar3":   {"rebar3"},
-	"uv":       {"uv", "python3"},
+	"apksigner": {"apksigner"},
+	"cargo":     {"cargo", "rustc", "stdenv.cc"},
+	"escript":   {"beamPackages.erlang"},
+	"gleam":     {"gleam", "beamPackages.erlang", "rebar3"},
+	"go":        {"go"},
+	"gradle":    {"gradle"},
+	"mvn":       {"maven"},
+	"npm":       {"nodejs"},
+	"patchelf":  {"patchelf"},
+	"rebar3":    {"rebar3"},
+	"uv":        {"uv", "python3"},
 }
 
 // requireCommand ensures name is on PATH. A command missing from PATH is built from the

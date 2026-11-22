@@ -15,7 +15,7 @@ Generates release artifacts for packages in a nix flake:
 - dynamic ELF executables in the `out` and `bin` outputs are patched with their non-glibc dependencies
 - shell scripts in the `out` and `bin` outputs are patched to find bundled files relative to themselves and other nix store programs through `PATH`
 - Linux packages whose `meta.mainProgram` is a script rather than a native binary can be bundled into an AppImage when explicitly enabled
-- packages whose outputs contain only an `.AppImage`, `.apk`, `.aab`, or already compressed archive upload that file as is; Android packages are named without a platform, such as `app_1.2.3.apk`, since they don't run on the system that built them, and APKs without a signature, which Android won't install, are named `app_1.2.3_unsigned.apk`
+- packages whose outputs contain only an `.AppImage`, `.apk`, `.aab`, or already compressed archive upload that file as is; Android packages are named without a platform, such as `app_1.2.3.apk`, since they don't run on the system that built them, and APKs without a signature, which Android won't install, are [signed](#apk-signing) when a keystore is set and named `app_1.2.3_unsigned.apk` otherwise
 - Go, Cargo, npm, PyPI, Maven, Gradle, rebar3, and Gleam packages can be published from package source manifests, to the git host's package registry and to crates.io, npmjs.com, pypi.org, Maven Central, pkg.go.dev, and hex.pm
 
 Packages are built and published in order of their platform's distance from the runner, so a slow cross-compiled build doesn't hold up the rest of the release: native packages and container images first, then [package registries](#package-publishing), then packages for another architecture on the same OS, another OS, and finally another OS and architecture. Container image destinations are validated before anything is built, and the combined image manifest is updated once every image is uploaded.
@@ -45,41 +45,58 @@ Packages are flake attribute paths such as `packages.x86_64-linux.server`. If a 
 
 ### Environment
 
-| Variable                       | Description                                                                          | Default                                                     | Example                        |
-| ------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------ |
-| PACKAGES                       | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system                         | `default api`                  |
-| GIT_TYPE                       | Host type for release                                                                | detected from the CI environment or origin URL              | `github` / `gitea` / `forgejo` |
-| GIT_REPOSITORY                 | Repository to push releases                                                          | `GITHUB_REPOSITORY` in Actions, or from `remote.origin.url` | `spotdemo4/flake-release`      |
-| GIT_SERVER_URL                 | Server to push releases                                                              | `GITHUB_SERVER_URL` in Actions, or from `remote.origin.url` | `https://github.com`           |
-| GIT_ACTOR                      | User for Gitea & Forgejo                                                             | `GITHUB_ACTOR` in Actions, or Git user name                 | `github-actions[bot]`          |
-| GIT_TOKEN                      | Token used to push releases                                                          | `GITHUB_TOKEN`                                              |                                |
-| GITHUB_TOKEN                   | github.com access token for Nix, and release token when `GIT_TOKEN` is unset         |                                                             |                                |
-| TAG                            | Release only packages with this version; see [release tags](#release-tags)           | CI tag event                                                | `packages/api/v1.2.3`          |
-| CONTAINER_REGISTRY             | Container registry                                                                   | `ghcr.io` on GitHub, `GIT_SERVER_URL` host                  | `ghcr.io`                      |
-| CONTAINER_REGISTRY_USERNAME    | Username for container registry                                                      | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
-| CONTAINER_REGISTRY_PASSWORD    | Password for container registry                                                      | `GIT_TOKEN`                                                 |                                |
-| PACKAGE_REGISTRY_OWNER         | Package owner or namespace                                                           | owner from `GIT_REPOSITORY`                                 | `spotdemo4`                    |
-| PACKAGE_REGISTRY_URL           | Registry URL override                                                                | [host-specific](#package-publishing)                        | `https://npm.pkg.github.com`   |
-| PACKAGE_REGISTRY_USERNAME      | Registry username                                                                    | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
-| PACKAGE_REGISTRY_TOKEN         | Package registry write token; enables package publishing                             |                                                             |                                |
-| CRATES_IO_TOKEN                | crates.io API token; enables [publishing](#public-registries) to crates.io           |                                                             |                                |
-| NPMJS_TOKEN                    | npmjs.com access token; enables publishing to npmjs.com                              |                                                             |                                |
-| NPMJS_TRUSTED_PUBLISHING       | Publish to npmjs.com with [trusted publishing](#trusted-publishing) instead          | `false`                                                     | `true`                         |
-| PYPI_TOKEN                     | pypi.org API token; enables publishing to pypi.org                                   |                                                             |                                |
-| PYPI_TRUSTED_PUBLISHING        | Publish to pypi.org with [trusted publishing](#trusted-publishing) instead           | `false`                                                     | `true`                         |
-| MAVEN_CENTRAL_USERNAME         | Maven Central Portal user token username                                             |                                                             |                                |
-| MAVEN_CENTRAL_TOKEN            | Maven Central Portal user token password; enables publishing to Maven Central        |                                                             |                                |
-| MAVEN_CENTRAL_SIGNING_KEY      | ASCII-armored PGP private key that signs Maven Central bundles                       |                                                             |                                |
-| MAVEN_CENTRAL_SIGNING_PASSWORD | Passphrase for `MAVEN_CENTRAL_SIGNING_KEY`, when it is encrypted                     |                                                             |                                |
-| PKG_GO_DEV_PUBLISHING          | Enables [publishing](#public-registries) Go modules to pkg.go.dev                    | `false`                                                     | `true`                         |
-| HEXPM_TOKEN                    | hex.pm API key; enables publishing to hex.pm                                         |                                                             |                                |
-| DRY_RUN                        | Validate and prepare releases without publishing or cleanup                          | `false`                                                     | `true`                         |
-| DELETE_OLD_RELEASE_ARTIFACTS   | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                                     | `2`                            |
-| BUNDLE_APPIMAGE                | Bundle eligible Linux script packages as AppImages                                   | `false`                                                     | `true`                         |
+| Variable                          | Description                                                                          | Default                                                     | Example                        |
+| --------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------ |
+| PACKAGES                          | Packages to release, separated by spaces or newlines; added to any arguments         | all packages for the current system                         | `default api`                  |
+| GIT_TYPE                          | Host type for release                                                                | detected from the CI environment or origin URL              | `github` / `gitea` / `forgejo` |
+| GIT_REPOSITORY                    | Repository to push releases                                                          | `GITHUB_REPOSITORY` in Actions, or from `remote.origin.url` | `spotdemo4/flake-release`      |
+| GIT_SERVER_URL                    | Server to push releases                                                              | `GITHUB_SERVER_URL` in Actions, or from `remote.origin.url` | `https://github.com`           |
+| GIT_ACTOR                         | User for Gitea & Forgejo                                                             | `GITHUB_ACTOR` in Actions, or Git user name                 | `github-actions[bot]`          |
+| GIT_TOKEN                         | Token used to push releases                                                          | `GITHUB_TOKEN`                                              |                                |
+| GITHUB_TOKEN                      | github.com access token for Nix, and release token when `GIT_TOKEN` is unset         |                                                             |                                |
+| TAG                               | Release only packages with this version; see [release tags](#release-tags)           | CI tag event                                                | `packages/api/v1.2.3`          |
+| CONTAINER_REGISTRY                | Container registry                                                                   | `ghcr.io` on GitHub, `GIT_SERVER_URL` host                  | `ghcr.io`                      |
+| CONTAINER_REGISTRY_USERNAME       | Username for container registry                                                      | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
+| CONTAINER_REGISTRY_PASSWORD       | Password for container registry                                                      | `GIT_TOKEN`                                                 |                                |
+| PACKAGE_REGISTRY_OWNER            | Package owner or namespace                                                           | owner from `GIT_REPOSITORY`                                 | `spotdemo4`                    |
+| PACKAGE_REGISTRY_URL              | Registry URL override                                                                | [host-specific](#package-publishing)                        | `https://npm.pkg.github.com`   |
+| PACKAGE_REGISTRY_USERNAME         | Registry username                                                                    | `GIT_ACTOR`                                                 | `github-actions[bot]`          |
+| PACKAGE_REGISTRY_TOKEN            | Package registry write token; enables package publishing                             |                                                             |                                |
+| CRATES_IO_TOKEN                   | crates.io API token; enables [publishing](#public-registries) to crates.io           |                                                             |                                |
+| NPMJS_TOKEN                       | npmjs.com access token; enables publishing to npmjs.com                              |                                                             |                                |
+| NPMJS_TRUSTED_PUBLISHING          | Publish to npmjs.com with [trusted publishing](#trusted-publishing) instead          | `false`                                                     | `true`                         |
+| PYPI_TOKEN                        | pypi.org API token; enables publishing to pypi.org                                   |                                                             |                                |
+| PYPI_TRUSTED_PUBLISHING           | Publish to pypi.org with [trusted publishing](#trusted-publishing) instead           | `false`                                                     | `true`                         |
+| MAVEN_CENTRAL_USERNAME            | Maven Central Portal user token username                                             |                                                             |                                |
+| MAVEN_CENTRAL_TOKEN               | Maven Central Portal user token password; enables publishing to Maven Central        |                                                             |                                |
+| MAVEN_CENTRAL_SIGNING_KEY         | ASCII-armored PGP private key that signs Maven Central bundles                       |                                                             |                                |
+| MAVEN_CENTRAL_SIGNING_PASSWORD    | Passphrase for `MAVEN_CENTRAL_SIGNING_KEY`, when it is encrypted                     |                                                             |                                |
+| PKG_GO_DEV_PUBLISHING             | Enables [publishing](#public-registries) Go modules to pkg.go.dev                    | `false`                                                     | `true`                         |
+| HEXPM_TOKEN                       | hex.pm API key; enables publishing to hex.pm                                         |                                                             |                                |
+| ANDROID_SIGNING_KEYSTORE          | Base64-encoded JKS or PKCS#12 keystore; enables [APK signing](#apk-signing)          |                                                             |                                |
+| ANDROID_SIGNING_KEYSTORE_PASSWORD | Password for `ANDROID_SIGNING_KEYSTORE`                                              |                                                             |                                |
+| ANDROID_SIGNING_KEY_ALIAS         | Alias of the signing key; required when the keystore holds several keys              | the keystore's only key                                     | `release`                      |
+| ANDROID_SIGNING_KEY_PASSWORD      | Password for the signing key                                                         | `ANDROID_SIGNING_KEYSTORE_PASSWORD`                         |                                |
+| DRY_RUN                           | Validate and prepare releases without publishing or cleanup                          | `false`                                                     | `true`                         |
+| DELETE_OLD_RELEASE_ARTIFACTS      | Cleanup release assets and image tags: `false`, `true`, or a release retention count | `false`                                                     | `2`                            |
+| BUNDLE_APPIMAGE                   | Bundle eligible Linux script packages as AppImages                                   | `false`                                                     | `true`                         |
 
 `GITHUB_REPOSITORY`, `GITHUB_SERVER_URL`, and `GITHUB_ACTOR` are read only as fallbacks, since GitHub, Gitea, and Forgejo Actions runners set them; setting them by hand outside Actions is deprecated. `GITHUB_TOKEN` is always passed to Nix as the `github.com` access token, so on GitHub it can serve as both; on Gitea and Forgejo set the release token as `GIT_TOKEN` and use `GITHUB_TOKEN` only for a real GitHub token.
 
 By default, packages are released as normal output archives. Enable automatic AppImage conversion with `--bundle-appimage`, `BUNDLE_APPIMAGE=true`, or the Action input below. Explicitly selected package outputs that already contain an `.AppImage` are uploaded as AppImages regardless of this setting.
+
+### APK signing
+
+Android only installs signed APKs, and signing keys don't belong in the Nix store, so a package that builds an APK usually builds it unsigned. Set `ANDROID_SIGNING_KEYSTORE` to a base64-encoded keystore, such as the output of `base64 -w0 release.jks`, and `ANDROID_SIGNING_KEYSTORE_PASSWORD` to its password, and flake-release signs each unsigned APK it releases with [apksigner](https://developer.android.com/tools/apksigner), then verifies the signature before uploading it. apksigner is used from `PATH`, or built from nixpkgs like the [package tools](#tools-and-versions).
+
+- apksigner picks the signature schemes from the APK's minimum SDK version, and aligns its files, so the APK needn't be aligned with `zipalign` first. v4 signatures, which are written to a separate `.idsig` file that only `adb` uses, are disabled.
+- APKs that are already signed are released as they are, since signing them with another key would change the app's identity, and Android refuses an update signed with a different key than the installed app.
+- Keep the keystore safe: every update to an app must be signed with the same key, so flake-release never generates one.
+- Passwords are passed to apksigner through its environment, never on its command line.
+- `.aab` app bundles aren't signed, since they are signed with an upload key for an app store rather than installed.
+- Dry runs sign and verify APKs too, so a wrong keystore or password fails before a real release.
+
+Invalid keystore settings, such as a password without a keystore or a keystore that isn't valid base64, fail before anything is published.
 
 ### Artifact retention
 
@@ -259,6 +276,10 @@ Check out the full Git history and tags with `fetch-depth: 0`. flake-release use
     pkg_go_dev_publishing: # publish Go modules to pkg.go.dev; default: false
     hexpm_token: # enables publishing to hex.pm
     delete_old_release_artifacts: # false (default), true, or a count including current (e.g. "2")
+    android_signing_keystore: # base64-encoded keystore; enables signing unsigned APKs
+    android_signing_keystore_password: # password for the keystore
+    android_signing_key_alias: # default: the keystore's only key
+    android_signing_key_password: # default: android_signing_keystore_password
     bundle_appimage: # default: false
 ```
 
