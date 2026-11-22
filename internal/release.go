@@ -239,10 +239,7 @@ func (c githubReleaseClient) uploadAsset(tag string, asset string) error {
 		return err
 	}
 
-	contentType := mime.TypeByExtension(filepath.Ext(asset))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	contentType := assetContentType(asset)
 
 	status("uploading %s to release %s at %s", name, tag, c.cfg.gitRepository)
 	_, err = c.httpRequest(httpRequestOptions{
@@ -787,4 +784,17 @@ func releaseAssetUploadURL(uploadURL string, name string) (string, error) {
 	query.Set("name", name)
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+// assetContentType returns the media type GitHub serves an asset with, so that Android devices
+// offer to install a downloaded APK.
+func assetContentType(asset string) string {
+	ext := filepath.Ext(asset)
+	if strings.EqualFold(ext, ".apk") {
+		return "application/vnd.android.package-archive"
+	}
+	if contentType := mime.TypeByExtension(ext); contentType != "" {
+		return contentType
+	}
+	return "application/octet-stream"
 }

@@ -303,14 +303,16 @@ func renameAsset(filepathName string, name string, version string, osName string
 	}()
 
 	var final string
-	if ext != "" {
-		if strings.EqualFold(ext, "appimage") {
-			final = filepath.Join(outdir, name+"_"+version+"_"+arch+"."+ext)
-		} else {
-			final = filepath.Join(outdir, stem+"."+ext)
-		}
-	} else {
+	switch {
+	case ext == "":
 		final = filepath.Join(outdir, stem)
+	case strings.EqualFold(ext, "appimage"):
+		final = filepath.Join(outdir, name+"_"+version+"_"+arch+"."+ext)
+	case isAndroidPackageExtension(ext):
+		// Android packages run on any device their ABIs support, whatever system built them
+		final = filepath.Join(outdir, name+"_"+version+"."+ext)
+	default:
+		final = filepath.Join(outdir, stem+"."+ext)
 	}
 
 	if err := copyPath(filepathName, final); err != nil {
@@ -318,6 +320,10 @@ func renameAsset(filepathName string, name string, version string, osName string
 	}
 	cleanup = false
 	return final, nil
+}
+
+func isAndroidPackageExtension(ext string) bool {
+	return strings.EqualFold(ext, "apk") || strings.EqualFold(ext, "aab")
 }
 
 func validAssetComponent(value string) bool {
@@ -512,7 +518,7 @@ func isAlreadyCompressedFile(name string) bool {
 	lower := strings.ToLower(filepath.Base(name))
 	for _, ext := range []string{
 		".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.zstd", ".tar.lz4", ".tar.br",
-		".appimage",
+		".appimage", ".apk", ".aab",
 		".tgz", ".tbz2", ".tbz", ".txz", ".tzst", ".tzstd", ".tlz4",
 		".zip", ".gz", ".bz2", ".xz", ".zst", ".zstd", ".7z", ".rar", ".lz4", ".br", ".tar",
 	} {

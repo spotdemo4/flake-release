@@ -749,6 +749,61 @@ func TestRenameAssetUsesAppImageExtension(t *testing.T) {
 	}
 }
 
+func TestArchiveOutputsPreservesNestedAPK(t *testing.T) {
+	out := t.TempDir()
+	apk := filepath.Join(out, "share", "app", "app-1.2.3-unsigned.apk")
+	if err := os.MkdirAll(filepath.Dir(apk), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(apk, []byte("apk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath, err := archiveOutputs([]packageOutput{{Name: "out", Path: out}}, "app_1.2.3_linux_amd64", "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deletePath(filepath.Dir(archivePath))
+
+	if got, want := filepath.Base(archivePath), "app-1.2.3-unsigned.apk"; got != want {
+		t.Fatalf("archive filename = %q; want %q", got, want)
+	}
+	data, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "apk"; got != want {
+		t.Fatalf("archive contents = %q; want %q", got, want)
+	}
+}
+
+func TestRenameAssetOmitsPlatformForAndroidPackages(t *testing.T) {
+	for _, test := range []struct {
+		filename string
+		want     string
+	}{
+		{filename: "app-unsigned.apk", want: "app_1.2.3.apk"},
+		{filename: "app.APK", want: "app_1.2.3.APK"},
+		{filename: "app-release.aab", want: "app_1.2.3.aab"},
+	} {
+		t.Run(test.filename, func(t *testing.T) {
+			archivePath := filepath.Join(t.TempDir(), test.filename)
+			if err := os.WriteFile(archivePath, []byte("archive"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			asset, err := renameAsset(archivePath, "app", "1.2.3", "linux", "amd64")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer deletePath(filepath.Dir(asset))
+			if got := filepath.Base(asset); got != test.want {
+				t.Fatalf("asset name = %q; want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRenameAssetRejectsPathTraversal(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "archive.zip")
 	if err := os.WriteFile(archivePath, []byte("archive"), 0o644); err != nil {

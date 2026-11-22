@@ -615,3 +615,21 @@ func writeCleanupJSON(w http.ResponseWriter, value any) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
+
+func TestAssetContentType(t *testing.T) {
+	for _, test := range []struct {
+		asset string
+		want  string
+	}{
+		{asset: "app_1.2.3.apk", want: "application/vnd.android.package-archive"},
+		{asset: "app_1.2.3.APK", want: "application/vnd.android.package-archive"},
+		{asset: "app_1.2.3.json", want: "application/json"},
+		{asset: "app_1.2.3_linux_amd64", want: "application/octet-stream"},
+	} {
+		t.Run(test.asset, func(t *testing.T) {
+			if got := assetContentType(test.asset); got != test.want {
+				t.Fatalf("assetContentType(%q) = %q; want %q", test.asset, got, test.want)
+			}
+		})
+	}
+}
