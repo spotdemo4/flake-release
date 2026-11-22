@@ -173,6 +173,27 @@ func sourcePathTag(plan releasePackagePlan, versions []string, tags []releaseTag
 	return tagContainingPath(candidates, sourcePath(plan))
 }
 
+// releasedTagForPath returns the tag in tags with version for the directory at path, a
+// repository path that is "" for the root: the tag whose namespace is path or the
+// nearest directory above it, as in tag resolution, or an unscoped tag for the root.
+func releasedTagForPath(tags []releaseTag, version string, path string) (releaseTag, bool) {
+	var candidates []releaseTag
+	for _, tag := range tags {
+		if tag.version == version {
+			candidates = append(candidates, tag)
+		}
+	}
+	if path == "" {
+		for _, tag := range candidates {
+			if tag.namespace == "" {
+				return tag, true
+			}
+		}
+		return releaseTag{}, false
+	}
+	return tagContainingPath(candidates, path)
+}
+
 // tagContainingPath returns the tag whose namespace is the longest one that equals path
 // or is a directory above it. Unscoped tags never match, since their namespace says
 // nothing about where a package lives.

@@ -447,6 +447,167 @@ gleam_stdlib = { version = ">= 0.44.0 and < 2.0.0" }
 	}, dir
 }
 
+// noReleasedTags returns released tags that fail the test when they are consulted.
+func noReleasedTags(t *testing.T) func() ([]releaseTag, error) {
+	t.Helper()
+	return func() ([]releaseTag, error) {
+		t.Fatal("released tags consulted")
+		return nil, nil
+	}
+}
+
+// releasedTags returns released tags parsed from names.
+func releasedTags(names ...string) func() ([]releaseTag, error) {
+	return func() ([]releaseTag, error) { return parseReleaseTags(names...), nil }
+}
+
+// testGleamPathDependencyReleaseFromSource returns the release of b from
+// testGleamPathDependencyRelease, with its source at b in a temporary repository whose
+// files are given by path, and the staged gleam.toml.
+func testGleamPathDependencyReleaseFromSource(t *testing.T, files map[string]string) (preparedRelease, string) {
+	t.Helper()
+	gleam, dir := testGleamPathDependencyRelease(t)
+	root := t.TempDir()
+	for path, contents := range files {
+		writeTestFile(t, filepath.Join(root, filepath.FromSlash(path)), contents)
+	}
+	gleam.publications.packages[0].root = root
+	gleam.publications.packages[0].source = filepath.Join(root, "b")
+	return gleam, filepath.Join(dir, "gleam.toml")
+}
+
+// gleamDependency returns the requirement on name in the gleam.toml at path.
+func gleamDependency(t *testing.T, path string, name string) any {
+	t.Helper()
+	var config struct {
+		Dependencies map[string]any `toml:"dependencies"`
+	}
+	if _, err := toml.DecodeFile(path, &config); err != nil {
+		t.Fatal(err)
+	}
+	return config.Dependencies[name]
+}
+
+func TestGleamPathDependencyOnReleasedVersionIsPublishedFromHex(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		files map[string]string
+		path  string
+		tags  []string
+	}{
+		{
+			name:  "gleam package with its own tag",
+			files: map[string]string{"a/gleam.toml": "name = \"a\"\nversion = \"1.0.3\"\n"},
+			tags:  []string{"v2.0.0", "b/v1.0.0", "a/v1.0.2", "a/v1.0.3"},
+		},
+		{
+			name:  "rebar3 package with its own tag",
+			files: map[string]string{"a/src/a.app.src": "{application, a, [{vsn, \"1.0.3\"}, {applications, [kernel, stdlib]}]}.\n"},
+			tags:  []string{"a/v1.0.3"},
+		},
+		{
+			name:  "package in the nearest tagged directory",
+			files: map[string]string{"lib/a/gleam.toml": "name = \"a\"\nversion = \"1.0.3\"\n"},
+			path:  "../lib/a",
+			tags:  []string{"lib/v1.0.3", "v1.0.3"},
+		},
+		{
+			name:  "package at the repository root",
+			files: map[string]string{"gleam.toml": "name = \"a\"\nversion = \"1.0.3\"\n"},
+			path:  "..",
+			tags:  []string{"other/v1.0.3", "v1.0.3"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gleam, manifest := testGleamPathDependencyReleaseFromSource(t, test.files)
+			if test.path != "" {
+				gleam.publications.packages[0].pathDependencies["a"] = test.path
+			}
+			if err := resolvePathDependencies([]preparedRelease{gleam}, releasedTags(test.tags...)); err != nil {
+				t.Fatal(err)
+			}
+			if got := gleamDependency(t, manifest, "a"); got != ">= 1.0.3 and < 2.0.0" {
+				t.Fatalf("dependency a = %v; want it from hex.pm at 1.0.3", got)
+			}
+		})
+	}
+}
+
+func TestGleamPathDependencyOnUnreleasedVersionIsRejected(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		files map[string]string
+		path  string
+		tags  []string
+		err   string
+	}{
+		{
+			name:  "version bumped without a tag",
+			files: map[string]string{"a/gleam.toml": "name = \"a\"\nversion = \"1.0.4\"\n"},
+			tags:  []string{"a/v1.0.3", "v1.0.4"},
+			err:   `dependency a from path "../a" is at 1.0.4, which has no release tag; release it in this run or tag it`,
+		},
+		{
+			name:  "version tagged for another directory",
+			files: map[string]string{"a/gleam.toml": "name = \"a\"\nversion = \"1.0.3\"\n"},
+			tags:  []string{"other/v1.0.3", "ab/v1.0.3"},
+			err:   `dependency a from path "../a" is at 1.0.3, which has no release tag`,
+		},
+		{
+			name: "no manifest",
+			tags: []string{"a/v1.0.3"},
+			err:  `dependency a from path "../a" is not published by another release in this run, and its released version can't be found: found no gleam.toml and 0 .app.src files`,
+		},
+		{
+			name:  "version that isn't literal",
+			files: map[string]string{"a/src/a.app.src": "{application, a, [{vsn, git}]}.\n"},
+			tags:  []string{"a/v1.0.3"},
+			err:   "a.app.src has no literal vsn",
+		},
+		{
+			name: "outside the src",
+			path: "../../a",
+			tags: []string{"a/v1.0.3"},
+			err:  "it is outside the package's src",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gleam, _ := testGleamPathDependencyReleaseFromSource(t, test.files)
+			if test.path != "" {
+				gleam.publications.packages[0].pathDependencies["a"] = test.path
+			}
+			err := resolvePathDependencies([]preparedRelease{gleam}, releasedTags(test.tags...))
+			if err == nil || !strings.Contains(err.Error(), test.err) {
+				t.Fatalf("error = %v; want %q", err, test.err)
+			}
+		})
+	}
+}
+
+func TestGleamPathDependencyReleasedInTheRunWinsOverReleasedVersion(t *testing.T) {
+	gleam, manifest := testGleamPathDependencyReleaseFromSource(t, map[string]string{
+		"a/gleam.toml": "name = \"a\"\nversion = \"1.2.0\"\n",
+	})
+	prepared := []preparedRelease{gleam, testRebar3Release("a/v1.2.0", "a")}
+	if err := resolvePathDependencies(prepared, noReleasedTags(t)); err != nil {
+		t.Fatal(err)
+	}
+	if got := gleamDependency(t, manifest, "a"); got != ">= 1.2.0 and < 2.0.0" {
+		t.Fatalf("dependency a = %v; want it from hex.pm at 1.2.0", got)
+	}
+	var published []string
+	err := publishReleases(config{}, prepared, func(ready preparedRelease, _ func(packagePublication) []string) error {
+		published = append(published, ready.tag.full)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(published, ","), "a/v1.2.0,b/v1.0.0"; got != want {
+		t.Fatalf("published = %s; want %s", got, want)
+	}
+}
+
 // testRebar3Release returns a release of rebar3 package name, whose name and version
 // are only known from its .app.src and tag until verification.
 func testRebar3Release(tag string, name string) preparedRelease {
@@ -463,7 +624,7 @@ func testRebar3Release(tag string, name string) preparedRelease {
 func TestGleamPathDependencyOnRebar3ReleaseIsPublishedFromHex(t *testing.T) {
 	gleam, dir := testGleamPathDependencyRelease(t)
 	prepared := []preparedRelease{gleam, testRebar3Release("a/v1.0.0", "a")}
-	if err := resolvePathDependencies(prepared); err != nil {
+	if err := resolvePathDependencies(prepared, noReleasedTags(t)); err != nil {
 		t.Fatal(err)
 	}
 	var gleamConfig struct {
@@ -533,7 +694,7 @@ func TestGleamPathDependencyOnGleamReleaseIsPublishedFromHex(t *testing.T) {
 		}}},
 	}
 	prepared := []preparedRelease{gleam, provider}
-	if err := resolvePathDependencies(prepared); err != nil {
+	if err := resolvePathDependencies(prepared, noReleasedTags(t)); err != nil {
 		t.Fatal(err)
 	}
 	var gleamConfig struct {
@@ -565,14 +726,14 @@ func TestGleamPathDependencyOnGleamReleaseIsPublishedFromHex(t *testing.T) {
 
 func TestGleamPathDependencyMustBeReleasedByAnotherRelease(t *testing.T) {
 	gleam, _ := testGleamPathDependencyRelease(t)
-	err := resolvePathDependencies([]preparedRelease{gleam, testRebar3Release("c/v1.0.0", "c")})
+	err := resolvePathDependencies([]preparedRelease{gleam, testRebar3Release("c/v1.0.0", "c")}, noReleasedTags(t))
 	if err == nil || !strings.Contains(err.Error(), `dependency a from path "../a" is not published by another release in this run`) {
 		t.Fatalf("error = %v; want unreleased path dependency rejected", err)
 	}
 
 	gleam, _ = testGleamPathDependencyRelease(t)
 	gleam.publications.packages = append(gleam.publications.packages, testRebar3Release("b/v1.0.0", "a").publicationList()...)
-	err = resolvePathDependencies([]preparedRelease{gleam})
+	err = resolvePathDependencies([]preparedRelease{gleam}, noReleasedTags(t))
 	if err == nil || !strings.Contains(err.Error(), "published by the same release") {
 		t.Fatalf("error = %v; want path dependency in the same release rejected", err)
 	}

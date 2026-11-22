@@ -90,8 +90,11 @@ type packageTarget struct {
 }
 
 type packagePublication struct {
-	kind      packageKind
-	registry  packageRegistry
+	kind     packageKind
+	registry packageRegistry
+	// root is the root of the package's src, which is the repository root when src is
+	// the repository, and source is the package's directory within it.
+	root      string
 	source    string
 	dir       string
 	manifest  string
@@ -110,7 +113,8 @@ type packagePublication struct {
 	dependencies []string
 	// pathDependencies maps the dependencies that the manifest takes from a local path
 	// to that path. A registry refuses them, so they must be replaced with registry
-	// requirements on packages released in the same run before publishing.
+	// requirements before publishing: on packages released in the same run, or on the
+	// versions already released from those paths.
 	pathDependencies map[string]string
 	published        bool
 }
@@ -269,6 +273,7 @@ func preparePackagePublicationsWith(cfg config, provider releaseProvider, tag re
 				set.packages = append(set.packages, packagePublication{
 					kind:        kind,
 					registry:    target.registry,
+					root:        root,
 					source:      source,
 					dir:         dir,
 					manifest:    filepath.Join(dir, foundManifest),
@@ -588,6 +593,17 @@ func (publication *packagePublication) resolvePathDependencies(versions map[stri
 		return rewriteGleamPathDependencies(publication, versions)
 	default:
 		return fmt.Errorf("%s packages can't replace path dependencies", publication.kind)
+	}
+}
+
+// pathDependencyManifestVersion returns the version that the manifest of the path
+// dependency in dir declares.
+func (publication *packagePublication) pathDependencyManifestVersion(dir string) (string, error) {
+	switch publication.kind {
+	case packageGleam:
+		return gleamPathDependencyVersion(dir)
+	default:
+		return "", fmt.Errorf("%s packages can't read path dependency versions", publication.kind)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 )
 
 type config struct {
@@ -350,7 +351,7 @@ func Run(args []string) error {
 			return err
 		}
 	}
-	if err := resolvePathDependencies(prepared); err != nil {
+	if err := resolvePathDependencies(prepared, sync.OnceValues(gitReachableReleaseTags)); err != nil {
 		return err
 	}
 
@@ -474,9 +475,10 @@ func publicationDependenciesIn(publication packagePublication, prepared []prepar
 
 // resolvePathDependencies replaces each path dependency of a package with a registry
 // requirement on the package that another release in the run publishes, starting at
-// that release's version. A path dependency on anything else is an error, since the
-// registry would refuse it.
-func resolvePathDependencies(prepared []preparedRelease) error {
+// that release's version. A path dependency that no other release publishes is required
+// from the version already released from its path, which releasedTags must show. Any
+// other path dependency is an error, since the registry would refuse it.
+func resolvePathDependencies(prepared []preparedRelease, releasedTags func() ([]releaseTag, error)) error {
 	for index, ready := range prepared {
 		packages := ready.publicationList()
 		for packageIndex := range packages {
@@ -487,7 +489,7 @@ func resolvePathDependencies(prepared []preparedRelease) error {
 			names := slices.Sorted(maps.Keys(publication.pathDependencies))
 			versions := make(map[string]string, len(names))
 			for _, name := range names {
-				version, err := pathDependencyVersion(*publication, name, prepared, index)
+				version, err := pathDependencyVersion(*publication, name, prepared, index, releasedTags)
 				if err != nil {
 					return fmt.Errorf("%s package %s at %s: %w", publication.kind, publication.name, publication.source, err)
 				}
@@ -502,8 +504,9 @@ func resolvePathDependencies(prepared []preparedRelease) error {
 }
 
 // pathDependencyVersion returns the version that another release in prepared publishes
-// of publication's path dependency name to the same registry.
-func pathDependencyVersion(publication packagePublication, name string, prepared []preparedRelease, index int) (string, error) {
+// of publication's path dependency name to the same registry, or otherwise the version
+// already released from its path.
+func pathDependencyVersion(publication packagePublication, name string, prepared []preparedRelease, index int, releasedTags func() ([]releaseTag, error)) (string, error) {
 	path := publication.pathDependencies[name]
 	provides := func(provided packagePublication) bool {
 		return provided.registry == publication.registry && packageEcosystem(provided.kind) == packageEcosystem(publication.kind) && provided.manifestName == name
@@ -523,7 +526,46 @@ func pathDependencyVersion(publication packagePublication, name string, prepared
 	if slices.ContainsFunc(prepared[index].publicationList(), provides) {
 		return "", fmt.Errorf("dependency %s from path %q is published by the same release, so it can't be published first; release it with its own tag", name, path)
 	}
-	return "", fmt.Errorf("dependency %s from path %q is not published by another release in this run, and registries don't accept path dependencies", name, path)
+	return releasedPathDependencyVersion(publication, name, releasedTags)
+}
+
+// releasedPathDependencyVersion returns the version of publication's path dependency
+// name that its manifest declares, once a tag in releasedTags for its directory shows
+// that this version is released, so the registry already has it.
+func releasedPathDependencyVersion(publication packagePublication, name string, releasedTags func() ([]releaseTag, error)) (string, error) {
+	path := publication.pathDependencies[name]
+	unreleased := func(err error) error {
+		return fmt.Errorf("dependency %s from path %q is not published by another release in this run, and its released version can't be found: %w", name, path, err)
+	}
+	if publication.root == "" {
+		return "", unreleased(errors.New("the package's source root is unknown"))
+	}
+	dir := filepath.Join(publication.source, filepath.FromSlash(path))
+	repositoryPath, err := filepath.Rel(publication.root, dir)
+	if err != nil {
+		return "", unreleased(err)
+	}
+	repositoryPath = filepath.ToSlash(repositoryPath)
+	if repositoryPath == ".." || strings.HasPrefix(repositoryPath, "../") {
+		return "", unreleased(errors.New("it is outside the package's src"))
+	}
+	if repositoryPath == "." {
+		repositoryPath = ""
+	}
+	version, err := publication.pathDependencyManifestVersion(dir)
+	if err != nil {
+		return "", unreleased(err)
+	}
+	tags, err := releasedTags()
+	if err != nil {
+		return "", unreleased(err)
+	}
+	tag, ok := releasedTagForPath(tags, version, repositoryPath)
+	if !ok {
+		return "", fmt.Errorf("dependency %s from path %q is at %s, which has no release tag; release it in this run or tag it", name, path, version)
+	}
+	status("dependency %s from path %q is released at %s by %s", name, path, version, tag.full)
+	return version, nil
 }
 
 // orderReleases orders releases so each follows the releases it depends on, otherwise

@@ -38,6 +38,8 @@ var (
 	rebar3Application = regexp.MustCompile(`\{\s*application\s*,\s*'?([a-z][A-Za-z0-9_@]*)'?\s*,`)
 	// rebar3PackageName matches the Hex package name that overrides the application name.
 	rebar3PackageName = regexp.MustCompile(`\{\s*pkg_name\s*,\s*(?:<<)?["']?([A-Za-z0-9_]+)["']?(?:>>)?\s*\}`)
+	// rebar3Version matches a literal application version in a .app.src file.
+	rebar3Version = regexp.MustCompile(`\{\s*vsn\s*,\s*"([^"]*)"\s*\}`)
 )
 
 type gleamPackageInformation struct {
@@ -262,6 +264,44 @@ func preflightGleamPackage(set *packagePublicationSet, publication *packagePubli
 		}
 	}
 	return nil
+}
+
+// gleamPathDependencyVersion returns the version of the Gleam or rebar3 package in dir:
+// the version in its gleam.toml, or the vsn in the .app.src of its single application.
+func gleamPathDependencyVersion(dir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "gleam.toml"))
+	switch {
+	case err == nil:
+		var config struct {
+			Version string `toml:"version"`
+		}
+		if err := toml.Unmarshal(data, &config); err != nil {
+			return "", fmt.Errorf("parsing gleam.toml: %w", err)
+		}
+		if config.Version == "" {
+			return "", errors.New("gleam.toml has no version")
+		}
+		return config.Version, nil
+	case !errors.Is(err, os.ErrNotExist):
+		return "", err
+	}
+
+	files, err := filepath.Glob(filepath.Join(dir, "src", "*.app.src"))
+	if err != nil {
+		return "", err
+	}
+	if len(files) != 1 {
+		return "", fmt.Errorf("found no gleam.toml and %d .app.src files in %s; want 1", len(files), dir)
+	}
+	data, err = os.ReadFile(files[0])
+	if err != nil {
+		return "", err
+	}
+	match := rebar3Version.FindSubmatch(data)
+	if match == nil || len(match[1]) == 0 {
+		return "", fmt.Errorf("%s has no literal vsn", filepath.Base(files[0]))
+	}
+	return string(match[1]), nil
 }
 
 // rewriteGleamPathDependencies replaces the path dependencies in the staged gleam.toml
