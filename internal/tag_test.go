@@ -139,7 +139,70 @@ func TestResolvePackageTag(t *testing.T) {
 			hint: "v1.0.0",
 			ci:   true,
 			tags: monorepo,
-			skip: `version "1.2.3" does not match git tag "v1.0.0"`,
+			skip: `version "1.2.3" does not match git tag "v1.0.0" or a tag on HEAD for its source directory`,
+		},
+		{
+			name:   "unscoped CI tag releases another version to its scoped tag on HEAD",
+			plan:   releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.3"},
+			hint:   "v2.0.0",
+			ci:     true,
+			source: "lib",
+			tags:   parseReleaseTags("v2.0.0", "a/v2.0.0", "lib/v1.0.3"),
+			want:   "lib/v1.0.3",
+		},
+		{
+			name:   "unscoped CI tag releases another version to the nearest tagged directory",
+			plan:   releasePackagePlan{pkg: "packages.qmux", pname: "qmux", version: "1.0.3"},
+			hint:   "v2.0.0",
+			ci:     true,
+			source: "trevrpc-go/qmux/cmd/qmux",
+			tags:   parseReleaseTags("v2.0.0", "trevrpc-go/v2.0.0", "trevrpc-go/qmux/v1.0.3"),
+			want:   "trevrpc-go/qmux/v1.0.3",
+		},
+		{
+			name:   "unscoped CI tag skips another version without a scoped tag on HEAD",
+			plan:   releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.2"},
+			hint:   "v2.0.0",
+			ci:     true,
+			source: "lib",
+			tags:   parseReleaseTags("v2.0.0", "a/v2.0.0"),
+			skip:   `version "1.0.2" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+		},
+		{
+			name:   "unscoped CI tag skips another version tagged for another directory",
+			plan:   releasePackagePlan{pkg: "packages.lib", pname: "other", version: "1.0.3"},
+			hint:   "v2.0.0",
+			ci:     true,
+			source: "lib",
+			tags:   parseReleaseTags("v2.0.0", "other/v1.0.3"),
+			skip:   `version "1.0.3" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+		},
+		{
+			name:   "unscoped CI tag skips another version tagged without a namespace",
+			plan:   releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.3"},
+			hint:   "v2.0.0",
+			ci:     true,
+			source: "lib",
+			tags:   parseReleaseTags("v2.0.0", "v1.0.3"),
+			skip:   `version "1.0.3" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+		},
+		{
+			name:   "unscoped CI tag releases the base version without a scoped tag to it",
+			plan:   releasePackagePlan{pkg: "packages.default", pname: "app", version: "2.0.0"},
+			hint:   "v2.0.0",
+			ci:     true,
+			source: "lib",
+			tags:   parseReleaseTags("v2.0.0", "a/v2.0.0", "lib/v1.0.3"),
+			want:   "v2.0.0",
+		},
+		{
+			name:   "scoped CI tag ignores other scoped tags",
+			plan:   releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.3"},
+			hint:   "a/v2.0.0",
+			ci:     true,
+			source: "lib",
+			tags:   parseReleaseTags("lib/v1.0.3"),
+			skip:   `version "1.0.3" does not match git tag "a/v2.0.0"`,
 		},
 		{
 			name: "unscoped CI tag ignores tags for the image tag",
@@ -314,6 +377,54 @@ func TestGroupReleasePackagesFromUnscopedCITag(t *testing.T) {
 		}
 	}
 	want := "packages.a=a/v1.0.0,packages.b=b/v1.0.0,packages.c=v1.0.0"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("groupReleasePackages() = %s; want %s", strings.Join(got, ","), want)
+	}
+}
+
+func TestGroupReleasePackagesFromUnscopedCITagWithOtherVersions(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGitRepository(repo)
+
+	first := commitGitTestFile(t, repo, dir, "first")
+	createGitTestTag(t, repo, "old/v1.0.2", first)
+	second := commitGitTestFile(t, repo, dir, "second")
+	for _, name := range []string{"v2.0.0", "a/v2.0.0", "lib/v1.0.3"} {
+		createGitTestTag(t, repo, name, second)
+	}
+	chdir(t, dir)
+
+	tags, err := gitHeadReleaseTags()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans := []releasePackagePlan{
+		{pkg: "packages.a", pname: "a", version: "2.0.0"},
+		{pkg: "packages.lib", pname: "lib", version: "1.0.3"},
+		{pkg: "packages.old", pname: "old", version: "1.0.2"},
+		{pkg: "packages.default", pname: "app", version: "2.0.0"},
+	}
+	sources := map[string]string{"packages.a": "a", "packages.lib": "lib", "packages.old": "old"}
+	hint, err := newTagHint("v2.0.0", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, err := groupReleasePackages(plans, hint, tags, func(plan releasePackagePlan) string { return sources[plan.pkg] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, group := range groups {
+		for _, plan := range group.packages {
+			got = append(got, plan.pkg+"="+group.tag.full)
+		}
+	}
+	want := "packages.a=a/v2.0.0,packages.lib=lib/v1.0.3,packages.default=v2.0.0"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("groupReleasePackages() = %s; want %s", strings.Join(got, ","), want)
 	}

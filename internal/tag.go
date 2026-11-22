@@ -18,8 +18,10 @@ type releaseGroup struct {
 type tagHint struct {
 	tag releaseTag
 	// filter is set for an unscoped CI tag, which only selects the packages whose version
-	// matches it. Each of them is still released to its own tag among those on HEAD, with
-	// the CI tag as the fallback, so one base tag can trigger a monorepo's scoped releases.
+	// matches it, or that have their own scoped tag on HEAD. Each of them is released to
+	// its own tag among those on HEAD, with the CI tag as the fallback for packages whose
+	// version matches it, so one base tag can trigger a monorepo's scoped releases, even
+	// for packages versioned apart from it.
 	filter bool
 }
 
@@ -77,10 +79,11 @@ type packageSourcePath func(releasePackagePlan) string
 //
 // With a hint from TAG or a scoped CI tag, only packages whose version matches the hint
 // are released to it. Otherwise the package is released to the tag in tags whose version
-// matches its own, and an unscoped CI tag only filters packages by version and is the
-// fallback when no scoped tag matches. When several tags match, the one whose namespace
-// contains the package's source directory is chosen, then the one whose namespace ends
-// in the package's pname.
+// matches its own. An unscoped CI tag is the fallback when no scoped tag matches, and a
+// package whose version differs from it is only released to a scoped tag in tags for
+// its source directory, so it is released only when its own tag was created with the CI
+// tag. When several tags match, the one whose namespace contains the package's source
+// directory is chosen, then the one whose namespace ends in the package's pname.
 func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag, sourcePath packageSourcePath) (releaseTag, string, error) {
 	versions := packageTagVersions(plan)
 	if len(versions) == 0 {
@@ -91,6 +94,12 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 	var fallback *releaseTag
 	if hint != nil {
 		if !slices.Contains(versions, hint.tag.version) {
+			if hint.filter {
+				if tag, ok := sourcePathTag(plan, versions, tags, sourcePath); ok {
+					return tag, "", nil
+				}
+				return releaseTag{}, fmt.Sprintf("version %s does not match git tag %q or a tag on HEAD for its source directory", quoted, hint.tag.full), nil
+			}
 			return releaseTag{}, fmt.Sprintf("version %s does not match git tag %q", quoted, hint.tag.full), nil
 		}
 		if !hint.filter {
@@ -143,6 +152,25 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 	}
 	slices.Sort(names)
 	return releaseTag{}, "", fmt.Errorf("%s version %s matches multiple git tags (%s); set TAG to choose one", plan.pkg, quoted, strings.Join(names, ", "))
+}
+
+// sourcePathTag returns the tag in tags with one of versions whose namespace is the
+// package's source directory or the nearest directory above it. The pname is not
+// considered, so an unrelated tag that happens to share a version can't select it.
+func sourcePathTag(plan releasePackagePlan, versions []string, tags []releaseTag, sourcePath packageSourcePath) (releaseTag, bool) {
+	if sourcePath == nil {
+		return releaseTag{}, false
+	}
+	var candidates []releaseTag
+	for _, tag := range tags {
+		if tag.namespace != "" && slices.Contains(versions, tag.version) {
+			candidates = append(candidates, tag)
+		}
+	}
+	if len(candidates) == 0 {
+		return releaseTag{}, false
+	}
+	return tagContainingPath(candidates, sourcePath(plan))
 }
 
 // tagContainingPath returns the tag whose namespace is the longest one that equals path
