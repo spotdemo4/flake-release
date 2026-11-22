@@ -134,7 +134,7 @@
           default = pkgs.trev.libs.mkGoModule (
             final: with pkgs.lib; {
               pname = "flake-release";
-              version = "0.49.0";
+              version = "0.50.0";
 
               src = fileset.toSource {
                 root = ./.;
