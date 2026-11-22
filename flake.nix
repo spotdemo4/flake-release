@@ -42,7 +42,7 @@
         # nix develop [#...]
         devShells = {
           default = pkgs.mkShell {
-            shellHook = pkgs.shellhook.ref;
+            shellHook = pkgs.trev.shellhook.ref;
             env = {
               GOTOOLCHAIN = "local";
               GOFLAGS = goFlags;
@@ -71,14 +71,14 @@
 
               # util
               treefmt
-              bumper
+              trev.bumper
               gomod2nix.packages.${system}.default
             ];
           };
 
           bump = pkgs.mkShell {
             packages = with pkgs; [
-              bumper
+              trev.bumper
             ];
           };
 
@@ -91,9 +91,8 @@
 
           update = pkgs.mkShell {
             packages = with pkgs; [
-              renovate
+              trev.renovate
               go # go mod tidy
-              gomod2nix.packages.${system}.default # gomod2nix.toml
             ];
           };
 
@@ -114,14 +113,25 @@
           };
         };
 
-        # nix run #dev
-        apps = pkgs.mkApps {
+        # nix run [#...]
+        apps = pkgs.trev.libs.mkApps {
           dev = "go run .";
+          update-deps = {
+            packages = with pkgs; [
+              go
+              gomod2nix.packages.${system}.default
+            ];
+            script = ''
+              export GOFLAGS="${goFlags}"
+              go mod tidy
+              gomod2nix generate --with-deps
+            '';
+          };
         };
 
         # nix build [#...]
         packages = {
-          default = pkgs.mkGoModule (
+          default = pkgs.trev.libs.mkGoModule (
             final: with pkgs.lib; {
               pname = "flake-release";
               version = "0.49.0";
@@ -169,8 +179,10 @@
                 platforms = platforms.unix;
                 badPlatforms = [ systems.inspect.platformPatterns.isStatic ];
                 homepage = "https://trev.zip/llc/flake-release";
+                downloadPage = "https://trev.zip/llc/flake-release/releases";
                 changelog = "https://trev.zip/llc/flake-release/releases/tag/v${final.version}";
-                downloadPage = "https://trev.zip/llc/flake-release/releases/tag/v${final.version}";
+                sourceProvenance = [ sourceTypes.fromSource ];
+                maintainers = [ maintainers.spotdemo4 ];
               };
             }
           );
@@ -178,8 +190,8 @@
 
         # nix build #images.[...]
         images = {
-          default = pkgs.mkImage {
-            fromImage = pkgs.image.nix;
+          default = pkgs.trev.libs.mkImage {
+            fromImage = pkgs.trev.images.nix;
             src = self.packages.${system}.default;
             contents = with pkgs; [ dockerTools.caCertificates ];
             config.Env = [ "DOCKER=true" ];
@@ -188,7 +200,7 @@
 
         # nix build #appimages.[...]
         appimages = {
-          default = pkgs.mkAppImage {
+          default = pkgs.trev.libs.mkAppImage {
             src = self.packages.${system}.default;
           };
         };
@@ -204,9 +216,7 @@
         };
 
         # nix flake check
-        checks = pkgs.mkChecks {
-          inherit (self.packages.${system}) default;
-
+        checks = pkgs.trev.libs.mkChecks {
           go-lint = {
             src = self.packages.${system}.default;
             packages = with pkgs; [ golangci-lint ];
@@ -261,7 +271,7 @@
             root = ./.forgejo;
             files = ./.forgejo/renovate.jsonc;
             packages = with pkgs; [
-              renovate
+              trev.renovate
             ];
             script = ''
               renovate-config-validator renovate.jsonc
@@ -277,7 +287,6 @@
               || file.hasExt "yaml"
               || file.hasExt "toml"
               || file.hasExt "md";
-            ignore = ./gomod2nix.toml; # generated
             packages = with pkgs; [
               oxfmt
             ];

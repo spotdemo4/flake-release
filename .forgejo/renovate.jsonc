@@ -7,13 +7,21 @@
   "platform": "forgejo",
   "endpoint": "https://trev.zip/api/v1",
   "repositories": ["llc/flake-release"],
-  "allowedCommands": ["^gomod2nix generate --with-deps$"],
+  "allowedCommands": ["^nix run \\.#update-deps$"],
 
   // repository
   "extends": ["config:recommended"],
   "addLabels": ["dep"],
+  "prHourlyLimit": 0,
   "nix": {
     "enabled": true
+  },
+  // fix PRs for vulnerable direct and indirect go modules, from osv.dev
+  "osvVulnerabilityAlerts": true,
+  "dependencyDashboard": { "osvVulnerabilitySummary": "unresolved" },
+  "vulnerabilityAlerts": {
+    "addLabels": ["security"],
+    "automerge": true
   },
   "lockFileMaintenance": {
     "enabled": true,
@@ -54,10 +62,10 @@
     {
       "matchManagers": ["gomod"],
       "addLabels": ["go"],
-      "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
+      "postUpdateOptions": ["gomodUpdateImportPaths"],
       // gomod2nix.toml has an entry per module, so updates do not conflict
       "postUpgradeTasks": {
-        "commands": ["gomod2nix generate --with-deps"],
+        "commands": ["nix run .#update-deps"],
         "executionMode": "branch"
       }
     },

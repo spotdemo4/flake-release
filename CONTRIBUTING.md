@@ -68,9 +68,16 @@ go build ./...
 
 ### dependencies
 
-after changing `go.mod`, update `gomod2nix.toml` with [gomod2nix](https://github.com/nix-community/gomod2nix):
+after changing `go.mod`, tidy it and update `gomod2nix.toml`:
 
 ```sh
+nix run .#update-deps
+```
+
+with [go](https://go.dev/) and [gomod2nix](https://github.com/nix-community/gomod2nix):
+
+```sh
+go mod tidy
 gomod2nix generate --with-deps
 ```
 

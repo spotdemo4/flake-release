@@ -11,6 +11,5 @@ includes = ["*.nix"]
 
 [formatter.oxfmt]
 command = "oxfmt"
-options = ["--write"]
+options = ["--write", "--no-error-on-unmatched-pattern"]
 includes = ["*.json", "*.jsonc", "*.yaml", "*.toml", "*.md"]
-excludes = ["gomod2nix.toml"] # generated
