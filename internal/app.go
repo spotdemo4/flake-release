@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 type config struct {
@@ -41,12 +42,15 @@ type config struct {
 	mavenCentralSigningPassword    string
 	pkgGoDevPublishing             bool
 	hexPMToken                     string
+	hexPMStagedTimeoutValue        string
 	androidSigningKeystore         string
 	androidSigningKeystorePassword string
 	androidSigningKeyAlias         string
 	androidSigningKeyPassword      string
 	// apkSigning is parsed from the androidSigning fields when a release starts.
 	apkSigning *apkSigningConfig
+	// hexPMStagedTimeout is parsed from hexPMStagedTimeoutValue when a release starts.
+	hexPMStagedTimeout time.Duration
 }
 
 type releaseSession struct {
@@ -118,6 +122,7 @@ func configFromEnv() config {
 		mavenCentralSigningPassword:    os.Getenv("MAVEN_CENTRAL_SIGNING_PASSWORD"),
 		pkgGoDevPublishing:             truthy(os.Getenv("PKG_GO_DEV_PUBLISHING")),
 		hexPMToken:                     os.Getenv("HEXPM_TOKEN"),
+		hexPMStagedTimeoutValue:        os.Getenv("HEXPM_STAGED_TIMEOUT"),
 		androidSigningKeystore:         os.Getenv("ANDROID_SIGNING_KEYSTORE"),
 		androidSigningKeystorePassword: os.Getenv("ANDROID_SIGNING_KEYSTORE_PASSWORD"),
 		androidSigningKeyAlias:         os.Getenv("ANDROID_SIGNING_KEY_ALIAS"),
@@ -225,6 +230,10 @@ func Run(args []string) error {
 		return err
 	}
 	cfg.apkSigning, err = parseAPKSigningConfig(cfg)
+	if err != nil {
+		return err
+	}
+	cfg.hexPMStagedTimeout, err = parseStagedTimeout(cfg.hexPMStagedTimeoutValue)
 	if err != nil {
 		return err
 	}
@@ -381,9 +390,15 @@ func publishReleases(cfg config, prepared []preparedRelease, publish releasePubl
 				blockers = append(blockers, prepared[dependency].tag.full)
 			}
 		}
+		var reasons []string
 		if len(blockers) > 0 {
+			reasons = append(reasons, strings.Join(blockers, ", ")+" failed")
+		} else if !cfg.dryRun {
+			reasons = awaitStagedDependencies(cfg, ready, prepared, dependencies[index])
+		}
+		if len(reasons) > 0 {
 			failed[index] = true
-			outcomes[index] = "skipped because " + strings.Join(blockers, ", ") + " failed"
+			outcomes[index] = "skipped because " + strings.Join(reasons, "; ")
 			section("Skipping release %s", ready.tag.full)
 			itemWarn("%s", outcomes[index])
 			errs = errors.Join(errs, fmt.Errorf("%s: %s", ready.tag.full, outcomes[index]))
@@ -416,14 +431,62 @@ func publishReleases(cfg config, prepared []preparedRelease, publish releasePubl
 		section("Release summary")
 		for _, index := range order {
 			item("%s", prepared[index].tag.full)
-			if outcomes[index] == "released" {
-				status("%s", outcomes[index])
-			} else {
+			switch staged := prepared[index].stagedPublications(); {
+			case outcomes[index] != "released":
 				itemWarn("%s", outcomes[index])
+			case len(staged) > 0:
+				itemWarn("released, but %s", strings.Join(staged, "; "))
+			default:
+				status("%s", outcomes[index])
 			}
 		}
 	}
 	return errs
+}
+
+// awaitStagedDependencies waits for hex.pm to serve the packages that ready depends on
+// and that the releases at indexes published as staged releases, which a package owner
+// must approve first. It returns why ready can't be released yet, as when
+// HEXPM_STAGED_TIMEOUT is unset or passes, or when a staged release is rejected.
+func awaitStagedDependencies(cfg config, ready preparedRelease, prepared []preparedRelease, indexes []int) []string {
+	staged := stagedDependencies(ready, prepared, indexes)
+	if len(staged) == 0 {
+		return nil
+	}
+	if cfg.hexPMStagedTimeout > 0 {
+		section("Waiting for staged releases that %s depends on", ready.tag.full)
+	}
+	var reasons []string
+	for _, publication := range staged {
+		if err := publication.awaitApproval(cfg); err != nil {
+			reasons = append(reasons, err.Error())
+		}
+	}
+	return reasons
+}
+
+// stagedDependencies returns the publications of the releases at indexes that hex.pm
+// holds as staged releases and that a publication of ready depends on.
+func stagedDependencies(ready preparedRelease, prepared []preparedRelease, indexes []int) []*packagePublication {
+	var staged []*packagePublication
+	for _, index := range indexes {
+		if prepared[index].publications == nil {
+			continue
+		}
+		packages := prepared[index].publications.packages
+		for packageIndex := range packages {
+			provided := &packages[packageIndex]
+			if provided.staged == nil || slices.Contains(staged, provided) {
+				continue
+			}
+			if slices.ContainsFunc(ready.publicationList(), func(publication packagePublication) bool {
+				return publication.registry == provided.registry && packageEcosystem(publication.kind) == packageEcosystem(provided.kind) && slices.Contains(publication.dependencies, provided.manifestName)
+			}) {
+				staged = append(staged, provided)
+			}
+		}
+	}
+	return staged
 }
 
 // releaseDependencies returns, for each release, the other releases that publish a
@@ -654,6 +717,22 @@ type preparedRelease struct {
 	imageRepository string
 }
 
+// stagedPublications describes the release's publications that hex.pm still holds as
+// staged releases, or that were rejected or not approved while a dependent waited.
+func (release preparedRelease) stagedPublications() []string {
+	var staged []string
+	for _, publication := range release.publicationList() {
+		switch {
+		case publication.staged == nil:
+		case publication.approvalErr != nil:
+			staged = append(staged, publication.approvalErr.Error())
+		default:
+			staged = append(staged, fmt.Sprintf("%s@%s waits for approval on hex.pm at %s", publication.name, publication.version, publication.staged.approvalURL()))
+		}
+	}
+	return staged
+}
+
 // publicationList returns the release's package publications.
 func (release preparedRelease) publicationList() []packagePublication {
 	if release.publications == nil {
@@ -700,6 +779,11 @@ func prepareRelease(cfg config, provider releaseProvider, group releaseGroup, ch
 func publishRelease(cfg config, provider releaseProvider, release releaseClient, retain int, prepared preparedRelease, unpublished func(packagePublication) []string) error {
 	tag := prepared.tag
 	publications := prepared.publications
+	// A version that a registry already has, such as from an earlier run, is not
+	// verified, since some dry runs refuse it, nor published again.
+	if err := publications.checkRegistries(); err != nil {
+		return err
+	}
 	if err := publications.verify(unpublished); err != nil {
 		return err
 	}

@@ -3,7 +3,6 @@ package flakerelease
 import (
 	"archive/tar"
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,7 +39,12 @@ var (
 	// hex.pm neither serves nor stages it, since it may be slow to serve a new release.
 	hexPMReleaseAttempts      = 6
 	hexPMReleaseRetryInterval = 5 * time.Second
+	// hexPMApprovalPollInterval is how often a staged release is looked up while a
+	// dependent waits for its approval.
+	hexPMApprovalPollInterval = 15 * time.Second
 	hexPMClient               = &http.Client{Timeout: time.Minute}
+	// hexPMStagedReleasesURL is the dashboard page listing staged releases to approve.
+	hexPMStagedReleasesURL = "https://hex.pm/dashboard/staged-releases"
 )
 
 // hexMetadataField matches a top-level binary field of a Hex package's metadata.config.
@@ -440,55 +444,122 @@ type hexPMStagedRelease struct {
 	HTMLURL   string `json:"html_url"`
 }
 
+// approvalURL returns where a package owner approves the staged release.
+func (staged hexPMStagedRelease) approvalURL() string {
+	return firstNonEmpty(staged.HTMLURL, hexPMStagedReleasesURL)
+}
+
+// pending describes the staged release of name@version waiting for approval.
+func (staged hexPMStagedRelease) pending(name string, version string) string {
+	message := fmt.Sprintf("hex.pm holds %s@%s as a staged release, which is not public until a package owner approves it at %s", name, version, staged.approvalURL())
+	if staged.ExpiresAt != "" {
+		message += "; it expires at " + staged.ExpiresAt
+	}
+	return message
+}
+
+// err returns why hex.pm won't serve the staged release of name@version, or nil when it
+// waits for approval or was approved.
+func (staged hexPMStagedRelease) err(name string, version string) error {
+	switch staged.Status {
+	case "staged", "approved":
+		return nil
+	case "rejected", "expired":
+		return fmt.Errorf("hex.pm staged release %s@%s was %s, so it is not published", name, version, staged.Status)
+	default:
+		return fmt.Errorf("hex.pm staged release %s@%s has unknown status %q", name, version, staged.Status)
+	}
+}
+
+// hexPMReleaseURL returns the hex.pm API endpoint of a release.
+func hexPMReleaseURL(name string, version string) string {
+	return strings.TrimRight(hexPMAPIURL, "/") + "/packages/" + url.PathEscape(name) + "/releases/" + url.PathEscape(version)
+}
+
+// lookupHexPMStagedRelease looks up the staged release of the release at endpoint,
+// authenticated with key. It returns the staged release when hex.pm has one, and
+// otherwise the response's status code and body.
+func lookupHexPMStagedRelease(endpoint string, key string) (*hexPMStagedRelease, int, []byte, error) {
+	detail("GET %s", endpoint+"/staged")
+	return getHexPMStagedRelease(endpoint, key)
+}
+
+// getHexPMStagedRelease is lookupHexPMStagedRelease without logging the request.
+func getHexPMStagedRelease(endpoint string, key string) (*hexPMStagedRelease, int, []byte, error) {
+	code, body, err := hexPMGet(endpoint+"/staged", key)
+	if err != nil || code != http.StatusOK {
+		return nil, code, body, err
+	}
+	var staged hexPMStagedRelease
+	if err := json.Unmarshal(body, &staged); err != nil {
+		return nil, code, body, fmt.Errorf("parsing hex.pm staged release: %w", err)
+	}
+	return &staged, code, body, nil
+}
+
+// lookupHexPMRelease returns whether hex.pm serves name@version, or holds it as a staged
+// release, before it is published.
+func lookupHexPMRelease(key string, name string, version string) (registryVersion, error) {
+	release := hexPMReleaseURL(name, version)
+	detail("GET %s", release)
+	code, body, err := hexPMGet(release, "")
+	switch {
+	case err != nil:
+		return registryVersion{}, err
+	case code == http.StatusOK:
+		return registryVersion{served: true}, nil
+	case code != http.StatusNotFound:
+		return registryVersion{}, hexPMStatusError(release, code, body, "")
+	}
+
+	staged, code, body, err := lookupHexPMStagedRelease(release, key)
+	switch {
+	case err != nil:
+		return registryVersion{}, err
+	case staged != nil:
+		return registryVersion{staged: staged}, nil
+	case code == http.StatusNotFound:
+		return registryVersion{}, nil
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return registryVersion{}, errors.New("hex.pm does not serve it, and only a key with the api:read permission from an owner of the package can look up its staged release")
+	default:
+		return registryVersion{}, hexPMStatusError(release+"/staged", code, body, key)
+	}
+}
+
 // confirmHexPMRelease checks that hex.pm serves a release that its publish command
 // reported as published. Publish commands report success for a staged release too,
 // which hex.pm only serves once an owner approves it on the dashboard, so a staged
-// release warns. A release that was rejected, expired, or is neither served nor staged
-// fails.
-func confirmHexPMRelease(key string, name string, version string) error {
-	release := strings.TrimRight(hexPMAPIURL, "/") + "/packages/" + url.PathEscape(name) + "/releases/" + url.PathEscape(version)
+// release warns and is returned. A release that was rejected, expired, or is neither
+// served nor staged fails.
+func confirmHexPMRelease(key string, name string, version string) (*hexPMStagedRelease, error) {
+	release := hexPMReleaseURL(name, version)
 	status("checking that hex.pm serves the release")
 	if served, _ := hexPMServesRelease(release); served {
-		return nil
+		return nil, nil
 	}
 
-	stagedURL := release + "/staged"
-	detail("GET %s", stagedURL)
-	code, body, err := hexPMGet(stagedURL, key)
+	staged, code, body, err := lookupHexPMStagedRelease(release, key)
 	var reason string
 	switch {
 	case err != nil:
 		reason = fmt.Sprintf("its staged release can't be looked up: %v", err)
-	case code == http.StatusOK:
-		var staged hexPMStagedRelease
-		if err := json.Unmarshal(body, &staged); err != nil {
-			return fmt.Errorf("parsing hex.pm staged release %s@%s: %w", name, version, err)
+	case staged != nil:
+		if err := staged.err(name, version); err != nil {
+			return nil, err
 		}
-		switch staged.Status {
-		case "staged":
-			message := fmt.Sprintf("hex.pm holds %s@%s as a staged release, which is not public until a package owner approves it", name, version)
-			if staged.HTMLURL != "" {
-				message += " at " + staged.HTMLURL
-			}
-			if staged.ExpiresAt != "" {
-				message += "; it expires at " + staged.ExpiresAt
-			}
-			itemWarn("%s", message)
-			return nil
-		case "approved":
+		if staged.Status == "approved" {
 			status("hex.pm staged release was approved")
-			return nil
-		case "rejected", "expired":
-			return fmt.Errorf("hex.pm staged release %s@%s was %s, so it is not published", name, version, staged.Status)
-		default:
-			return fmt.Errorf("hex.pm staged release %s@%s has unknown status %q", name, version, staged.Status)
+			return nil, nil
 		}
+		itemWarn("%s", staged.pending(name, version))
+		return staged, nil
 	case code == http.StatusNotFound:
 		reason = "hex.pm has no staged release of it"
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		reason = "it may be a staged release waiting for approval on the hex.pm dashboard, which HEXPM_TOKEN can only check with the api:read permission as an owner of the package"
 	default:
-		reason = "its staged release can't be looked up: " + hexPMStatusError(stagedURL, code, body, key).Error()
+		reason = "its staged release can't be looked up: " + hexPMStatusError(release+"/staged", code, body, key).Error()
 	}
 
 	// hex.pm may take a moment to serve a release that it did not stage.
@@ -500,14 +571,44 @@ func confirmHexPMRelease(key string, name string, version string) error {
 		time.Sleep(hexPMReleaseRetryInterval)
 		served, err := hexPMServesRelease(release)
 		if served {
-			return nil
+			return nil, nil
 		}
 		lastErr = err
 	}
 	if lastErr != nil {
-		return fmt.Errorf("hex.pm does not serve %s@%s after publishing it (%w), and %s", name, version, lastErr, reason)
+		return nil, fmt.Errorf("hex.pm does not serve %s@%s after publishing it (%w), and %s", name, version, lastErr, reason)
 	}
-	return fmt.Errorf("hex.pm does not serve %s@%s after publishing it, and %s", name, version, reason)
+	return nil, fmt.Errorf("hex.pm does not serve %s@%s after publishing it, and %s", name, version, reason)
+}
+
+// waitForHexPMApproval polls hex.pm until it serves name@version, which it holds as
+// staged, until the staged release is rejected or expires, or until deadline.
+func waitForHexPMApproval(key string, name string, version string, staged *hexPMStagedRelease, deadline time.Time) error {
+	release := hexPMReleaseURL(name, version)
+	approvalURL := staged.approvalURL()
+	approved := false
+	for {
+		if code, _, err := hexPMGet(release, ""); err == nil && code == http.StatusOK {
+			status("hex.pm serves %s@%s", name, version)
+			return nil
+		}
+		// A key that can't look up staged releases still sees the release once it is served.
+		if current, _, _, err := getHexPMStagedRelease(release, key); err == nil && current != nil {
+			if err := current.err(name, version); err != nil {
+				return err
+			}
+			approvalURL = firstNonEmpty(current.HTMLURL, approvalURL)
+			if current.Status == "approved" && !approved {
+				approved = true
+				status("hex.pm staged release was approved; waiting for hex.pm to serve it")
+			}
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("%s@%s was not approved on hex.pm in time; approve it at %s", name, version, approvalURL)
+		}
+		time.Sleep(min(hexPMApprovalPollInterval, remaining))
+	}
 }
 
 // hexPMServesRelease reports whether the hex.pm API serves the release at endpoint, with an
@@ -527,40 +628,11 @@ func hexPMServesRelease(endpoint string) (bool, error) {
 // hexPMGet requests endpoint from the hex.pm API, authenticated with key when it is set, and
 // returns the response's status code and body.
 func hexPMGet(endpoint string, key string) (int, []byte, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
-	if err != nil {
-		return 0, nil, err
-	}
-	req.Header.Set("Accept", jsonAccept)
-	if key != "" {
-		// hex.pm takes the bare API key, without a scheme.
-		req.Header.Set("Authorization", key)
-	}
-	resp, err := hexPMClient.Do(req)
-	if err != nil {
-		return 0, nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return resp.StatusCode, nil, err
-	}
-	return resp.StatusCode, body, nil
+	// hex.pm takes the bare API key, without a scheme.
+	return registryLookup{url: endpoint, authorization: key, client: hexPMClient}.get()
 }
 
 // hexPMStatusError describes an unsuccessful hex.pm API response.
 func hexPMStatusError(endpoint string, code int, body []byte, key string) error {
-	text := fmt.Sprintf("%d %s", code, http.StatusText(code))
-	var response struct {
-		Message string `json:"message"`
-	}
-	message := strings.TrimSpace(string(body))
-	if json.Unmarshal(body, &response) == nil && response.Message != "" {
-		message = response.Message
-	}
-	message = redactSecrets(message, []string{key})
-	if message != "" {
-		return fmt.Errorf("GET %s failed: %s: %s", endpoint, text, message)
-	}
-	return fmt.Errorf("GET %s failed: %s", endpoint, text)
+	return lookupStatusError(endpoint, code, body, key)
 }

@@ -795,7 +795,8 @@ func publishGleamToHexPM(t *testing.T) (*packagePublicationSet, error) {
 	t.Helper()
 	var commands []commandOptions
 	set := newGleamTestSet(t, "", "Published package and documentation", &commands)
-	set.packages = []packagePublication{{kind: packageGleam, registry: registryHexPM, name: "app", version: "1.2.3"}}
+	// The registry was checked before verification, so only confirmation is tested.
+	set.packages = []packagePublication{{kind: packageGleam, registry: registryHexPM, name: "app", version: "1.2.3", checked: true}}
 	err := set.publish()
 	if len(commands) != 1 || commands[0].args[0] != "publish" {
 		t.Fatalf("commands = %v; want gleam publish", commands)
@@ -917,4 +918,277 @@ func TestHexPMPublishRetriesMissingRelease(t *testing.T) {
 	if !slices.Equal(server.recorded(), want) {
 		t.Fatalf("requests = %q; want %q", server.recorded(), want)
 	}
+}
+
+// fakeHexPM is a hex.pm whose releases are "served", "staged", "approved", or
+// "rejected" by name@version. A published release is staged, or served when
+// stageOnPublish is unset, and a staged release is served once it was looked up
+// approveAfter times, when that is set.
+type fakeHexPM struct {
+	mu             sync.Mutex
+	releases       map[string]string
+	stageOnPublish bool
+	approveAfter   int
+	stagedLookups  map[string]int
+	published      []string
+}
+
+func (hex *fakeHexPM) handle(w http.ResponseWriter, r *http.Request) {
+	hex.mu.Lock()
+	defer hex.mu.Unlock()
+	path := strings.TrimPrefix(r.URL.Path, "/api/packages/")
+	name, rest, _ := strings.Cut(path, "/releases/")
+	version, staged := strings.CutSuffix(rest, "/staged")
+	release := name + "@" + version
+	state := hex.releases[release]
+	if staged && state == "staged" && hex.approveAfter > 0 {
+		hex.stagedLookups[release]++
+		if hex.stagedLookups[release] >= hex.approveAfter {
+			hex.releases[release] = "served"
+		}
+	}
+	switch {
+	case !staged && state == "served":
+		_, _ = w.Write([]byte(`{"version":"` + version + `"}`))
+	case staged && state != "" && state != "served":
+		_, _ = w.Write([]byte(`{"status":"` + state + `","expires_at":"2026-11-30T06:16:58Z","html_url":"https://hex.pm/dashboard/staged-releases/hexpm/` + name + `/` + version + `"}`))
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"status":404,"message":"Page not found"}`))
+	}
+}
+
+// publish records that release was published.
+func (hex *fakeHexPM) publish(release string) {
+	hex.mu.Lock()
+	defer hex.mu.Unlock()
+	hex.published = append(hex.published, release)
+	if hex.releases[release] == "" {
+		hex.releases[release] = "served"
+		if hex.stageOnPublish {
+			hex.releases[release] = "staged"
+		}
+	}
+}
+
+func (hex *fakeHexPM) publishedReleases() []string {
+	hex.mu.Lock()
+	defer hex.mu.Unlock()
+	return slices.Clone(hex.published)
+}
+
+// useFakeHexPM serves hex as hex.pm, polling staged releases without delay.
+func useFakeHexPM(t *testing.T, hex *fakeHexPM) {
+	t.Helper()
+	if hex.releases == nil {
+		hex.releases = map[string]string{}
+	}
+	hex.stagedLookups = map[string]int{}
+	useHexPMServer(t, hex.handle)
+	previous := hexPMApprovalPollInterval
+	hexPMApprovalPollInterval = time.Millisecond
+	t.Cleanup(func() { hexPMApprovalPollInterval = previous })
+}
+
+// hexDependencyReleases returns a run like TrevRPC's: the rebar3 package qmux, and the
+// Gleam package trevrpc that depends on it, both at 1.13.0. Their publish commands
+// publish to hex.
+func hexDependencyReleases(t *testing.T, cfg config, hex *fakeHexPM) []preparedRelease {
+	t.Helper()
+	commands := fakePackageCommandRunner{
+		requireFunc: func(string) error { return nil },
+		runFunc: func(options commandOptions) error {
+			if slices.Contains(options.args, "publish") && !slices.Contains(options.args, "--dry-run") {
+				hex.publish(filepath.Base(options.dir) + "@1.13.0")
+			}
+			return nil
+		},
+		captureFunc: func(options commandOptions) (string, error) {
+			if options.args[0] == "publish" {
+				hex.publish(filepath.Base(options.dir) + "@1.13.0")
+			}
+			return "Published package and documentation", nil
+		},
+	}
+	release := func(tag string, kind packageKind, name string, dependencies ...string) preparedRelease {
+		return preparedRelease{
+			releaseGroup: releaseGroup{tag: parseReleaseTag(tag)},
+			publications: &packagePublicationSet{
+				cfg:          cfg,
+				releaseTag:   parseReleaseTag(tag),
+				temporaryDir: t.TempDir(),
+				commands:     commands,
+				packages: []packagePublication{{
+					kind:         kind,
+					registry:     registryHexPM,
+					dir:          filepath.Join(t.TempDir(), name),
+					name:         name,
+					manifestName: name,
+					version:      "1.13.0",
+					dependencies: dependencies,
+				}},
+			},
+		}
+	}
+	return []preparedRelease{
+		release("trevrpc-erlang/v1.13.0", packageGleam, "trevrpc", "gleam_stdlib", "qmux"),
+		release("trevrpc-erlang/qmux/v1.13.0", packageRebar3, "qmux"),
+	}
+}
+
+// publishHexReleases publishes the releases like publishRelease does, and returns the
+// releases published and the run's error.
+func publishHexReleases(cfg config, prepared []preparedRelease) ([]string, error) {
+	var released []string
+	err := publishReleases(cfg, prepared, func(ready preparedRelease, _ func(packagePublication) []string) error {
+		if err := ready.publications.checkRegistries(); err != nil {
+			return err
+		}
+		if err := ready.publications.publish(); err != nil {
+			return err
+		}
+		released = append(released, ready.tag.full)
+		return nil
+	})
+	return released, err
+}
+
+func TestHexPMServedDependencyIsNotPublishedAgain(t *testing.T) {
+	hex := &fakeHexPM{releases: map[string]string{"qmux@1.13.0": "served"}}
+	useFakeHexPM(t, hex)
+	cfg := config{hexPMToken: "hex-token"}
+	prepared := hexDependencyReleases(t, cfg, hex)
+	released, err := publishHexReleases(cfg, prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"trevrpc-erlang/qmux/v1.13.0", "trevrpc-erlang/v1.13.0"}; !slices.Equal(released, want) {
+		t.Fatalf("released = %q; want %q", released, want)
+	}
+	if want := []string{"trevrpc@1.13.0"}; !slices.Equal(hex.publishedReleases(), want) {
+		t.Fatalf("published = %q; want only the dependent", hex.publishedReleases())
+	}
+	if links := prepared[1].publications.releaseLinks(); len(links) != 1 {
+		t.Fatalf("links = %#v; want the release hex.pm already serves", links)
+	}
+}
+
+func TestHexPMPendingStagedDependencySkipsDependent(t *testing.T) {
+	output := captureHumanOutput(t)
+	hex := &fakeHexPM{releases: map[string]string{"qmux@1.13.0": "staged"}}
+	useFakeHexPM(t, hex)
+	cfg := config{hexPMToken: "hex-token"}
+	released, err := publishHexReleases(cfg, hexDependencyReleases(t, cfg, hex))
+	approval := "https://hex.pm/dashboard/staged-releases/hexpm/qmux/1.13.0"
+	if want := "trevrpc-erlang/v1.13.0: skipped because qmux@1.13.0 waits for approval on hex.pm at " + approval; err == nil || err.Error() != want {
+		t.Fatalf("error = %v; want %q", err, want)
+	}
+	if want := []string{"trevrpc-erlang/qmux/v1.13.0"}; !slices.Equal(released, want) {
+		t.Fatalf("released = %q; want %q", released, want)
+	}
+	if published := hex.publishedReleases(); len(published) != 0 {
+		t.Fatalf("published = %q; want the staged release not published again", published)
+	}
+	for _, text := range []string{
+		"hex.pm holds it as a staged release waiting for approval, so it is not published again",
+		"warning: hex.pm holds qmux@1.13.0 as a staged release, which is not public until a package owner approves it at " + approval + "; it expires at 2026-11-30T06:16:58Z",
+		"warning: released, but qmux@1.13.0 waits for approval on hex.pm at " + approval,
+	} {
+		if !strings.Contains(output.String(), text) {
+			t.Fatalf("output = %q; want %q", output.String(), text)
+		}
+	}
+}
+
+func TestHexPMStagedDependencyIsAwaitedWithTimeout(t *testing.T) {
+	output := captureHumanOutput(t)
+	hex := &fakeHexPM{stageOnPublish: true, approveAfter: 3}
+	useFakeHexPM(t, hex)
+	cfg := config{hexPMToken: "hex-token", hexPMStagedTimeout: time.Minute}
+	prepared := hexDependencyReleases(t, cfg, hex)
+	released, err := publishHexReleases(cfg, prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"trevrpc-erlang/qmux/v1.13.0", "trevrpc-erlang/v1.13.0"}; !slices.Equal(released, want) {
+		t.Fatalf("released = %q; want %q", released, want)
+	}
+	if want := []string{"qmux@1.13.0", "trevrpc@1.13.0"}; !slices.Equal(hex.publishedReleases(), want) {
+		t.Fatalf("published = %q; want %q", hex.publishedReleases(), want)
+	}
+	if prepared[1].publications.packages[0].staged != nil {
+		t.Fatal("approved release is still staged")
+	}
+	for _, text := range []string{
+		"Waiting for staged releases that trevrpc-erlang/v1.13.0 depends on",
+		"approve it at https://hex.pm/dashboard/staged-releases/hexpm/qmux/1.13.0; waiting until ",
+		"hex.pm serves qmux@1.13.0",
+	} {
+		if !strings.Contains(output.String(), text) {
+			t.Fatalf("output = %q; want %q", output.String(), text)
+		}
+	}
+}
+
+func TestHexPMStagedDependencyTimesOut(t *testing.T) {
+	hex := &fakeHexPM{stageOnPublish: true}
+	useFakeHexPM(t, hex)
+	cfg := config{hexPMToken: "hex-token", hexPMStagedTimeout: 20 * time.Millisecond}
+	released, err := publishHexReleases(cfg, hexDependencyReleases(t, cfg, hex))
+	if want := "skipped because qmux@1.13.0 was not approved on hex.pm in time; approve it at https://hex.pm/dashboard/staged-releases/hexpm/qmux/1.13.0"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %v; want %q", err, want)
+	}
+	if len(released) != 1 {
+		t.Fatalf("released = %q; want only the dependency", released)
+	}
+}
+
+func TestHexPMRejectedStagedDependencyFailsRun(t *testing.T) {
+	t.Run("before publishing", func(t *testing.T) {
+		hex := &fakeHexPM{releases: map[string]string{"qmux@1.13.0": "rejected"}}
+		useFakeHexPM(t, hex)
+		cfg := config{hexPMToken: "hex-token"}
+		released, err := publishHexReleases(cfg, hexDependencyReleases(t, cfg, hex))
+		for _, want := range []string{
+			"trevrpc-erlang/qmux/v1.13.0: hex.pm staged release qmux@1.13.0 was rejected, so it is not published",
+			"trevrpc-erlang/v1.13.0: skipped because trevrpc-erlang/qmux/v1.13.0 failed",
+		} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("error = %v; want %q", err, want)
+			}
+		}
+		if len(released) != 0 || len(hex.publishedReleases()) != 0 {
+			t.Fatalf("released = %q, published = %q; want nothing", released, hex.publishedReleases())
+		}
+	})
+	t.Run("while waiting", func(t *testing.T) {
+		output := captureHumanOutput(t)
+		hex := &fakeHexPM{stageOnPublish: true}
+		useFakeHexPM(t, hex)
+		cfg := config{hexPMToken: "hex-token", hexPMStagedTimeout: time.Minute}
+		var released []string
+		err := publishReleases(cfg, hexDependencyReleases(t, cfg, hex), func(ready preparedRelease, _ func(packagePublication) []string) error {
+			if err := ready.publications.checkRegistries(); err != nil {
+				return err
+			}
+			if err := ready.publications.publish(); err != nil {
+				return err
+			}
+			released = append(released, ready.tag.full)
+			// An owner rejects the release once it is staged.
+			hex.mu.Lock()
+			hex.releases["qmux@1.13.0"] = "rejected"
+			hex.mu.Unlock()
+			return nil
+		})
+		if want := "trevrpc-erlang/v1.13.0: skipped because hex.pm staged release qmux@1.13.0 was rejected, so it is not published"; err == nil || err.Error() != want {
+			t.Fatalf("error = %v; want %q", err, want)
+		}
+		if want := []string{"trevrpc-erlang/qmux/v1.13.0"}; !slices.Equal(released, want) {
+			t.Fatalf("released = %q; want %q", released, want)
+		}
+		if want := "warning: released, but hex.pm staged release qmux@1.13.0 was rejected"; !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q; want %q", output.String(), want)
+		}
+	})
 }

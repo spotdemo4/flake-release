@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v6/plumbing"
 )
@@ -54,6 +55,20 @@ func parseArtifactRetention(value string) (int, error) {
 		return 0, fmt.Errorf("invalid DELETE_OLD_RELEASE_ARTIFACTS %q: expected a boolean or a positive release count", value)
 	}
 	return retain, nil
+}
+
+// parseStagedTimeout parses HEXPM_STAGED_TIMEOUT, a Go duration such as 30m. Unset or
+// zero waits for no staged release.
+func parseStagedTimeout(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout < 0 {
+		return 0, fmt.Errorf("invalid HEXPM_STAGED_TIMEOUT %q: expected a duration such as 30m", value)
+	}
+	return timeout, nil
 }
 
 func deletePath(path string) {

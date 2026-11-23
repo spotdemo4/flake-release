@@ -1077,7 +1077,7 @@ func TestPackagePublishErrorsAreFatal(t *testing.T) {
 		cfg:          config{packageRegistryOwner: "owner", packageRegistryURL: "https://git.example", packageRegistryToken: "token"},
 		provider:     releaseForgejo,
 		temporaryDir: root,
-		packages:     []packagePublication{{kind: packageNPM, name: "example", version: "1.2.3", dir: root}},
+		packages:     []packagePublication{{kind: packageNPM, name: "example", version: "1.2.3", dir: root, checked: true}},
 		commands:     runner,
 	}
 	if err := set.publish(); err == nil || !strings.Contains(err.Error(), "registry rejected upload") {

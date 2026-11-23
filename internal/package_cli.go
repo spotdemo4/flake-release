@@ -13,9 +13,10 @@ import (
 const (
 	cargoRegistryName    = "flake-release"
 	cratesIORegistryName = "crates-io"
-	npmjsRegistryURL     = "https://registry.npmjs.org/"
 	pyPIUploadURL        = "https://upload.pypi.org/legacy/"
 )
+
+var npmjsRegistryURL = "https://registry.npmjs.org/"
 
 type cargoMetadata struct {
 	Packages []struct {

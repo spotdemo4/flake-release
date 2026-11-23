@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 )
@@ -117,6 +118,17 @@ type packagePublication struct {
 	// versions already released from those paths.
 	pathDependencies map[string]string
 	published        bool
+	// checked is set once the registry was asked whether it already has the version.
+	checked bool
+	// served is set when the registry already has the version, so it is neither
+	// verified nor published again.
+	served bool
+	// staged is the release that hex.pm holds until a package owner approves it.
+	// Dependents in the run wait for its approval until approvalDeadline, and
+	// approvalErr records why a wait ended without it.
+	staged           *hexPMStagedRelease
+	approvalDeadline time.Time
+	approvalErr      error
 }
 
 // nixPackageVersion is a flake package and the version it evaluates to, empty when unset.
@@ -428,14 +440,18 @@ func (set *packagePublicationSet) verify(unpublished func(packagePublication) []
 		publication := &set.packages[index]
 		registry := packageRegistryName(publication.registry, set.provider)
 		item("%s %s for %s", publication.kind, firstNonEmpty(publication.name, publication.source), registry)
-		if unpublished != nil && publication.verifier() != nil {
-			if pending := unpublished(*publication); len(pending) > 0 {
-				status("dry run: skipping verification, which needs %s from an earlier release", strings.Join(pending, ", "))
-				continue
+		if publication.served || publication.staged != nil {
+			status("%s already has it; skipping verification", registry)
+		} else {
+			if unpublished != nil && publication.verifier() != nil {
+				if pending := unpublished(*publication); len(pending) > 0 {
+					status("dry run: skipping verification, which needs %s from an earlier release", strings.Join(pending, ", "))
+					continue
+				}
 			}
-		}
-		if err := publication.verify(set); err != nil {
-			return fmt.Errorf("verifying %s package for %s at %s: %w", publication.kind, registry, publication.source, err)
+			if err := publication.verify(set); err != nil {
+				return fmt.Errorf("verifying %s package for %s at %s: %w", publication.kind, registry, publication.source, err)
+			}
 		}
 		if publication.manifestName == "" {
 			publication.manifestName = publication.name
@@ -517,7 +533,24 @@ func (set *packagePublicationSet) publish() error {
 		publication := &set.packages[index]
 		registry := packageRegistryName(publication.registry, set.provider)
 		item("%s %s@%s to %s", publication.kind, publication.name, publication.version, registry)
-		if set.cfg.dryRun {
+		// Packages that only know their identity once verification builds them are
+		// looked up in their registry now.
+		if !publication.checked && !set.cfg.dryRun {
+			if err := set.checkRegistry(publication); err != nil {
+				return fmt.Errorf("checking %s package %s@%s on %s: %w", publication.kind, publication.name, publication.version, registry, err)
+			}
+		}
+		switch {
+		case publication.served:
+			status("already published; skipping publish")
+			publication.published = true
+			continue
+		case publication.staged != nil:
+			// Approving the staged release publishes it, so it is linked.
+			itemWarn("%s", publication.staged.pending(publication.name, publication.version))
+			publication.published = true
+			continue
+		case set.cfg.dryRun:
 			status("dry run: validated package; skipping publish")
 			continue
 		}
@@ -526,8 +559,12 @@ func (set *packagePublicationSet) publish() error {
 			return fmt.Errorf("publishing %s package %s@%s to %s: %w", publication.kind, publication.name, publication.version, registry, err)
 		}
 		// A package the registry does not serve is not linked in the release.
-		if err := publication.confirm(set); err != nil {
+		staged, err := publication.confirm(set)
+		if err != nil {
 			return fmt.Errorf("confirming %s package %s@%s on %s: %w", publication.kind, publication.name, publication.version, registry, err)
+		}
+		if staged != nil {
+			set.stage(publication, staged)
 		}
 		publication.published = true
 	}
@@ -641,11 +678,36 @@ func (publication *packagePublication) publish(set *packagePublicationSet) error
 }
 
 // confirm checks that the registry serves the version just published, for registries
-// whose publish commands report success for versions they don't serve yet.
-func (publication *packagePublication) confirm(set *packagePublicationSet) error {
+// whose publish commands report success for versions they don't serve yet. It returns
+// the staged release that hex.pm holds for approval instead.
+func (publication *packagePublication) confirm(set *packagePublicationSet) (*hexPMStagedRelease, error) {
 	if publication.registry == registryHexPM {
 		return confirmHexPMRelease(set.cfg.hexPMToken, publication.name, publication.version)
 	}
+	return nil, nil
+}
+
+// awaitApproval waits until hex.pm serves the publication, which it holds as a staged
+// release, for at most HEXPM_STAGED_TIMEOUT after it was staged. It returns why the
+// publication is still not served, so its dependents are skipped.
+func (publication *packagePublication) awaitApproval(cfg config) error {
+	if publication.staged == nil {
+		return nil
+	}
+	if publication.approvalErr != nil {
+		return publication.approvalErr
+	}
+	name, version := publication.name, publication.version
+	if cfg.hexPMStagedTimeout <= 0 {
+		return fmt.Errorf("%s@%s waits for approval on hex.pm at %s", name, version, publication.staged.approvalURL())
+	}
+	item("%s@%s on hex.pm", name, version)
+	status("approve it at %s; waiting until %s", publication.staged.approvalURL(), publication.approvalDeadline.Format(time.RFC3339))
+	if err := waitForHexPMApproval(cfg.hexPMToken, name, version, publication.staged, publication.approvalDeadline); err != nil {
+		publication.approvalErr = err
+		return err
+	}
+	publication.staged = nil
 	return nil
 }
 

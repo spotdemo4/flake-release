@@ -115,6 +115,10 @@ inputs:
     description: hex.pm API key; enables publishing rebar3 and Gleam packages to hex.pm
     required: false
 
+  hexpm_staged_timeout:
+    description: how long a release waits for hex.pm to approve a staged release it depends on, such as 30m
+    required: false
+
   android_signing_keystore:
     description: base64-encoded JKS or PKCS#12 keystore; enables signing unsigned APKs
     required: false
@@ -204,6 +208,7 @@ runs:
     MAVEN_CENTRAL_SIGNING_PASSWORD: ${{ inputs.maven_central_signing_password }}
     PKG_GO_DEV_PUBLISHING: ${{ inputs.pkg_go_dev_publishing }}
     HEXPM_TOKEN: ${{ inputs.hexpm_token }}
+    HEXPM_STAGED_TIMEOUT: ${{ inputs.hexpm_staged_timeout }}
     ANDROID_SIGNING_KEYSTORE: ${{ inputs.android_signing_keystore }}
     ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ inputs.android_signing_keystore_password }}
     ANDROID_SIGNING_KEY_ALIAS: ${{ inputs.android_signing_key_alias }}
