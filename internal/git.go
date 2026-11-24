@@ -81,6 +81,21 @@ func gitHeadReleaseTags() ([]releaseTag, error) {
 	return gitReleaseTags(false)
 }
 
+// gitHeadCommit returns the hash of the commit at HEAD.
+func gitHeadCommit() (string, error) {
+	repo, err := openGitRepository()
+	if err != nil {
+		return "", err
+	}
+	defer closeGitRepository(repo)
+
+	head, err := repo.Head()
+	if err != nil {
+		return "", err
+	}
+	return head.Hash().String(), nil
+}
+
 func gitReleaseTags(reachable bool) ([]releaseTag, error) {
 	repo, err := openGitRepository()
 	if err != nil {

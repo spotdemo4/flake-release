@@ -73,6 +73,14 @@ func packageTagVersions(plan releasePackagePlan) []string {
 // src, or "" when it is unknown or the root itself.
 type packageSourcePath func(releasePackagePlan) string
 
+// packageSkip is why a package has no release tag and is not released.
+type packageSkip struct {
+	reason string
+	// untagged is set when an unscoped CI tag selected the package out, since neither it
+	// nor a tag on HEAD for the package's source directory has the package's version.
+	untagged bool
+}
+
 // resolvePackageTag finds the release tag for a package from its version. A non-empty
 // skip reason means the package has no release tag and is not released; an error means
 // its tag is ambiguous.
@@ -84,10 +92,10 @@ type packageSourcePath func(releasePackagePlan) string
 // its source directory, so it is released only when its own tag was created with the CI
 // tag. When several tags match, the one whose namespace contains the package's source
 // directory is chosen, then the one whose namespace ends in the package's pname.
-func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag, sourcePath packageSourcePath) (releaseTag, string, error) {
+func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag, sourcePath packageSourcePath) (releaseTag, packageSkip, error) {
 	versions := packageTagVersions(plan)
 	if len(versions) == 0 {
-		return releaseTag{}, "package has no version", nil
+		return releaseTag{}, packageSkip{reason: "package has no version"}, nil
 	}
 	quoted := quoteVersions(versions)
 
@@ -96,14 +104,17 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 		if !slices.Contains(versions, hint.tag.version) {
 			if hint.filter {
 				if tag, ok := sourcePathTag(plan, versions, tags, sourcePath); ok {
-					return tag, "", nil
+					return tag, packageSkip{}, nil
 				}
-				return releaseTag{}, fmt.Sprintf("version %s does not match git tag %q or a tag on HEAD for its source directory", quoted, hint.tag.full), nil
+				return releaseTag{}, packageSkip{
+					reason:   fmt.Sprintf("version %s does not match git tag %q or a tag on HEAD for its source directory", quoted, hint.tag.full),
+					untagged: true,
+				}, nil
 			}
-			return releaseTag{}, fmt.Sprintf("version %s does not match git tag %q", quoted, hint.tag.full), nil
+			return releaseTag{}, packageSkip{reason: fmt.Sprintf("version %s does not match git tag %q", quoted, hint.tag.full)}, nil
 		}
 		if !hint.filter {
-			return hint.tag, "", nil
+			return hint.tag, packageSkip{}, nil
 		}
 		versions = []string{hint.tag.version}
 		quoted = quoteVersions(versions)
@@ -121,14 +132,14 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 	}
 	switch len(candidates) {
 	case 0:
-		return releaseTag{}, fmt.Sprintf("no git tag found for version %s", quoted), nil
+		return releaseTag{}, packageSkip{reason: fmt.Sprintf("no git tag found for version %s", quoted)}, nil
 	case 1:
-		return candidates[0], "", nil
+		return candidates[0], packageSkip{}, nil
 	}
 
 	if sourcePath != nil {
 		if tag, ok := tagContainingPath(candidates, sourcePath(plan)); ok {
-			return tag, "", nil
+			return tag, packageSkip{}, nil
 		}
 	}
 	if plan.pname != "" {
@@ -139,11 +150,11 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 			}
 		}
 		if len(named) == 1 {
-			return named[0], "", nil
+			return named[0], packageSkip{}, nil
 		}
 	}
 	if fallback != nil {
-		return *fallback, "", nil
+		return *fallback, packageSkip{}, nil
 	}
 
 	names := make([]string, 0, len(candidates))
@@ -151,7 +162,7 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 		names = append(names, tag.full)
 	}
 	slices.Sort(names)
-	return releaseTag{}, "", fmt.Errorf("%s version %s matches multiple git tags (%s); set TAG to choose one", plan.pkg, quoted, strings.Join(names, ", "))
+	return releaseTag{}, packageSkip{}, fmt.Errorf("%s version %s matches multiple git tags (%s); set TAG to choose one", plan.pkg, quoted, strings.Join(names, ", "))
 }
 
 // sourcePathTag returns the tag in tags with one of versions whose namespace is the
@@ -221,11 +232,13 @@ func tagContainingPath(tags []releaseTag, path string) (releaseTag, bool) {
 }
 
 // groupReleasePackages resolves each package's release tag and groups the packages by
-// tag, in the order their tags are first resolved.
-func groupReleasePackages(plans []releasePackagePlan, hint *tagHint, tags []releaseTag, sourcePath packageSourcePath) ([]releaseGroup, error) {
+// tag, in the order their tags are first resolved. It also reports whether every
+// package was skipped only because an unscoped CI tag selected it out.
+func groupReleasePackages(plans []releasePackagePlan, hint *tagHint, tags []releaseTag, sourcePath packageSourcePath) ([]releaseGroup, bool, error) {
 	section("Matching release tags")
 	var groups []releaseGroup
 	var errs error
+	untagged := 0
 	for _, plan := range plans {
 		item("%s", plan.pkg)
 		tag, skip, err := resolvePackageTag(plan, hint, tags, sourcePath)
@@ -234,8 +247,11 @@ func groupReleasePackages(plans []releasePackagePlan, hint *tagHint, tags []rele
 			errs = errors.Join(errs, err)
 			continue
 		}
-		if skip != "" {
-			itemWarn("%s; skipping", skip)
+		if skip.reason != "" {
+			itemWarn("%s; skipping", skip.reason)
+			if skip.untagged {
+				untagged++
+			}
 			continue
 		}
 		detail("tag: %s", tag.full)
@@ -248,9 +264,9 @@ func groupReleasePackages(plans []releasePackagePlan, hint *tagHint, tags []rele
 		groups[index].packages = append(groups[index].packages, plan)
 	}
 	if errs != nil {
-		return nil, errs
+		return nil, false, errs
 	}
-	return groups, nil
+	return groups, len(plans) > 0 && untagged == len(plans), nil
 }
 
 // namespaceName returns the last path segment of a tag namespace.

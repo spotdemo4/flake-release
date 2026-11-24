@@ -340,6 +340,9 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(groups) == 0 {
+		return nil
+	}
 
 	release := newReleaseClient(provider, cfg)
 	// Every release is prepared and validated before anything is published. Registry
@@ -656,7 +659,8 @@ func orderReleases(prepared []preparedRelease, dependencies [][]int) []int {
 }
 
 // releaseGroups resolves the release tag of each package and groups packages by tag.
-// A changelog-only release uses the tag hint, or the latest Git tag.
+// A changelog-only release uses the tag hint, or the latest Git tag. It returns no
+// groups and no error when an unscoped CI tag tags none of the packages on HEAD.
 func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *tagHint, sourcePath packageSourcePath) ([]releaseGroup, error) {
 	if changelogOnly {
 		if hint != nil {
@@ -687,11 +691,23 @@ func releaseGroups(changelogOnly bool, packages []releasePackagePlan, hint *tagH
 	if err != nil {
 		return nil, err
 	}
-	groups, err := groupReleasePackages(packages, hint, tags, sourcePath)
+	groups, untagged, err := groupReleasePackages(packages, hint, tags, sourcePath)
 	if err != nil {
 		return nil, err
 	}
 	if len(groups) == 0 {
+		// A base tag that tags none of the selected packages is a normal outcome for a
+		// monorepo whose workflow runs on it, as when it only tags a package that isn't
+		// released there, so it isn't an error.
+		if hint != nil && hint.filter && untagged {
+			commit, err := gitHeadCommit()
+			if err != nil {
+				commit = "HEAD"
+			}
+			info("")
+			info("no packages tagged on %s for %s; nothing to release", commit, hint.tag.full)
+			return nil, nil
+		}
 		return nil, errors.New("no releasable package outputs found")
 	}
 	return groups, nil

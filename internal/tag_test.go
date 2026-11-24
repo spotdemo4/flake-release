@@ -44,7 +44,9 @@ func TestResolvePackageTag(t *testing.T) {
 		tags   []releaseTag
 		want   string
 		skip   string
-		err    string
+		// untagged is whether the skip is only for having no tag on HEAD.
+		untagged bool
+		err      string
 	}{
 		{
 			name: "unscoped version",
@@ -134,12 +136,13 @@ func TestResolvePackageTag(t *testing.T) {
 			want: "v1.0.0",
 		},
 		{
-			name: "unscoped CI tag filters other versions",
-			plan: releasePackagePlan{pkg: "packages.api", pname: "api", version: "1.2.3"},
-			hint: "v1.0.0",
-			ci:   true,
-			tags: monorepo,
-			skip: `version "1.2.3" does not match git tag "v1.0.0" or a tag on HEAD for its source directory`,
+			name:     "unscoped CI tag filters other versions",
+			plan:     releasePackagePlan{pkg: "packages.api", pname: "api", version: "1.2.3"},
+			hint:     "v1.0.0",
+			ci:       true,
+			tags:     monorepo,
+			skip:     `version "1.2.3" does not match git tag "v1.0.0" or a tag on HEAD for its source directory`,
+			untagged: true,
 		},
 		{
 			name:   "unscoped CI tag releases another version to its scoped tag on HEAD",
@@ -160,31 +163,34 @@ func TestResolvePackageTag(t *testing.T) {
 			want:   "trevrpc-go/qmux/v1.0.3",
 		},
 		{
-			name:   "unscoped CI tag skips another version without a scoped tag on HEAD",
-			plan:   releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.2"},
-			hint:   "v2.0.0",
-			ci:     true,
-			source: "lib",
-			tags:   parseReleaseTags("v2.0.0", "a/v2.0.0"),
-			skip:   `version "1.0.2" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+			name:     "unscoped CI tag skips another version without a scoped tag on HEAD",
+			plan:     releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.2"},
+			hint:     "v2.0.0",
+			ci:       true,
+			source:   "lib",
+			tags:     parseReleaseTags("v2.0.0", "a/v2.0.0"),
+			skip:     `version "1.0.2" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+			untagged: true,
 		},
 		{
-			name:   "unscoped CI tag skips another version tagged for another directory",
-			plan:   releasePackagePlan{pkg: "packages.lib", pname: "other", version: "1.0.3"},
-			hint:   "v2.0.0",
-			ci:     true,
-			source: "lib",
-			tags:   parseReleaseTags("v2.0.0", "other/v1.0.3"),
-			skip:   `version "1.0.3" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+			name:     "unscoped CI tag skips another version tagged for another directory",
+			plan:     releasePackagePlan{pkg: "packages.lib", pname: "other", version: "1.0.3"},
+			hint:     "v2.0.0",
+			ci:       true,
+			source:   "lib",
+			tags:     parseReleaseTags("v2.0.0", "other/v1.0.3"),
+			skip:     `version "1.0.3" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+			untagged: true,
 		},
 		{
-			name:   "unscoped CI tag skips another version tagged without a namespace",
-			plan:   releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.3"},
-			hint:   "v2.0.0",
-			ci:     true,
-			source: "lib",
-			tags:   parseReleaseTags("v2.0.0", "v1.0.3"),
-			skip:   `version "1.0.3" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+			name:     "unscoped CI tag skips another version tagged without a namespace",
+			plan:     releasePackagePlan{pkg: "packages.lib", pname: "lib", version: "1.0.3"},
+			hint:     "v2.0.0",
+			ci:       true,
+			source:   "lib",
+			tags:     parseReleaseTags("v2.0.0", "v1.0.3"),
+			skip:     `version "1.0.3" does not match git tag "v2.0.0" or a tag on HEAD for its source directory`,
+			untagged: true,
 		},
 		{
 			name:   "unscoped CI tag releases the base version without a scoped tag to it",
@@ -304,8 +310,11 @@ func TestResolvePackageTag(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if skip != test.skip {
-				t.Fatalf("resolvePackageTag() skip = %q; want %q", skip, test.skip)
+			if skip.reason != test.skip {
+				t.Fatalf("resolvePackageTag() skip = %q; want %q", skip.reason, test.skip)
+			}
+			if skip.untagged != test.untagged {
+				t.Fatalf("resolvePackageTag() untagged = %t; want %t", skip.untagged, test.untagged)
 			}
 			if got.full != test.want {
 				t.Fatalf("resolvePackageTag() = %q; want %q", got.full, test.want)
@@ -323,7 +332,7 @@ func TestGroupReleasePackagesGroupsByTag(t *testing.T) {
 		{pkg: "packages.unreleased", pname: "unreleased", version: "0.0.1"},
 	}
 
-	groups, err := groupReleasePackages(plans, nil, tags, nil)
+	groups, _, err := groupReleasePackages(plans, nil, tags, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +355,7 @@ func TestGroupReleasePackagesReportsEveryAmbiguity(t *testing.T) {
 		{pkg: "packages.two", pname: "two", version: "2.0.0"},
 	}
 
-	_, err := groupReleasePackages(plans, nil, tags, nil)
+	_, _, err := groupReleasePackages(plans, nil, tags, nil)
 	if err == nil || !strings.Contains(err.Error(), "packages.one") || !strings.Contains(err.Error(), "packages.two") {
 		t.Fatalf("groupReleasePackages() error = %v; want both ambiguities", err)
 	}
@@ -366,7 +375,7 @@ func TestGroupReleasePackagesFromUnscopedCITag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	groups, err := groupReleasePackages(plans, hint, tags, func(plan releasePackagePlan) string { return sources[plan.pkg] })
+	groups, _, err := groupReleasePackages(plans, hint, tags, func(plan releasePackagePlan) string { return sources[plan.pkg] })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +423,7 @@ func TestGroupReleasePackagesFromUnscopedCITagWithOtherVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	groups, err := groupReleasePackages(plans, hint, tags, func(plan releasePackagePlan) string { return sources[plan.pkg] })
+	groups, _, err := groupReleasePackages(plans, hint, tags, func(plan releasePackagePlan) string { return sources[plan.pkg] })
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -345,6 +345,61 @@ func TestReleaseGroupsRejectsRunWithoutMatchingTags(t *testing.T) {
 	}
 }
 
+func TestReleaseGroupsAllowsUnscopedCITagThatTagsNoPackage(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGitRepository(repo)
+	first := commitGitTestFile(t, repo, dir, "first")
+	createGitTestTag(t, repo, "server/v1.0.0", first)
+	second := commitGitTestFile(t, repo, dir, "second")
+	for _, name := range []string{"v4.3.3", "web/v3.2.3"} {
+		createGitTestTag(t, repo, name, second)
+	}
+	chdir(t, dir)
+
+	server := releasePackagePlan{pkg: "packages.server", pname: "server", version: "1.0.0"}
+	cli := releasePackagePlan{pkg: "packages.cli", pname: "cli", version: "2.0.0"}
+	tool := releasePackagePlan{pkg: "packages.tool", pname: "tool"}
+	sources := map[string]string{"packages.server": "server", "packages.cli": "cli"}
+	sourcePath := func(plan releasePackagePlan) string { return sources[plan.pkg] }
+	hint := func(name string, fromCI bool) *tagHint {
+		t.Helper()
+		hint, err := newTagHint(name, fromCI)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hint
+	}
+
+	groups, err := releaseGroups(false, []releasePackagePlan{server, cli}, hint("v4.3.3", true), sourcePath)
+	if err != nil {
+		t.Fatalf("releaseGroups() error = %v; want nothing to release", err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("releaseGroups() = %+v; want no groups", groups)
+	}
+
+	for _, test := range []struct {
+		name  string
+		plans []releasePackagePlan
+		hint  *tagHint
+	}{
+		{name: "package without version", plans: []releasePackagePlan{server, tool}, hint: hint("v4.3.3", true)},
+		{name: "no packages", hint: hint("v4.3.3", true)},
+		{name: "TAG", plans: []releasePackagePlan{server, cli}, hint: hint("v4.3.3", false)},
+		{name: "scoped CI tag", plans: []releasePackagePlan{server, cli}, hint: hint("web/v3.2.3", true)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := releaseGroups(false, test.plans, test.hint, sourcePath); err == nil || !strings.Contains(err.Error(), "no releasable package outputs") {
+				t.Fatalf("releaseGroups() error = %v; want no releasable outputs", err)
+			}
+		})
+	}
+}
+
 func TestReleaseSessionRejectsRunWithoutOutputs(t *testing.T) {
 	client := &recordingReleaseClient{}
 	session := releaseSession{client: client, tag: parseReleaseTag("v1.0.0")}
