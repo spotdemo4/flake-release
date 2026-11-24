@@ -602,14 +602,15 @@ func TestPrepareReleasePackagesSkipsEvaluationFailuresAndAliases(t *testing.T) {
 			return releasePackagePlan{}, errors.New("attribute unavailable")
 		case "valid":
 			return releasePackagePlan{
-				pkg:         pkg,
-				storePath:   "/nix/store/valid",
-				pname:       "example",
-				version:     "1.2.3",
-				mainProgram: "example",
-				platform:    platform{OS: "linux", Arch: "amd64"},
-				imageName:   "example",
-				imageTag:    "1.2.3",
+				pkg:              pkg,
+				storePath:        "/nix/store/valid",
+				pname:            "example",
+				version:          "1.2.3",
+				mainProgram:      "example",
+				platform:         platform{OS: "linux", Arch: "amd64"},
+				imageName:        "example",
+				imageTag:         "1.2.3",
+				releaseNamespace: "example",
 			}, nil
 		case "alias":
 			return releasePackagePlan{pkg: pkg, storePath: "/nix/store/valid"}, nil
@@ -632,6 +633,7 @@ func TestPrepareReleasePackagesSkipsEvaluationFailuresAndAliases(t *testing.T) {
 		"    platform: linux/amd64\n" +
 		"    image name: example\n" +
 		"    image tag: 1.2.3\n" +
+		"    release namespace: example\n" +
 		"  alias\n" +
 		"    same store path as valid; skipping duplicate\n"
 	if got := output.String(); got != want {

@@ -20,8 +20,8 @@ type tagHint struct {
 	// filter is set for an unscoped CI tag, which only selects the packages whose version
 	// matches it, or that have their own scoped tag on HEAD. Each of them is released to
 	// its own tag among those on HEAD, with the CI tag as the fallback for packages whose
-	// version matches it, so one base tag can trigger a monorepo's scoped releases, even
-	// for packages versioned apart from it.
+	// version matches it and that set no meta.releaseNamespace, so one base tag can
+	// trigger a monorepo's scoped releases, even for packages versioned apart from it.
 	filter bool
 }
 
@@ -77,13 +77,17 @@ type packageSourcePath func(releasePackagePlan) string
 type packageSkip struct {
 	reason string
 	// untagged is set when an unscoped CI tag selected the package out, since neither it
-	// nor a tag on HEAD for the package's source directory has the package's version.
+	// nor a tag on HEAD for the package's release namespace or source directory has the
+	// package's version.
 	untagged bool
 }
 
 // resolvePackageTag finds the release tag for a package from its version. A non-empty
 // skip reason means the package has no release tag and is not released; an error means
-// its tag is ambiguous.
+// its tag is ambiguous or its meta.releaseNamespace is invalid.
+//
+// A package that sets meta.releaseNamespace is only released to a tag in that
+// namespace; see namespacePackageTag.
 //
 // With a hint from TAG or a scoped CI tag, only packages whose version matches the hint
 // are released to it. Otherwise the package is released to the tag in tags whose version
@@ -93,9 +97,15 @@ type packageSkip struct {
 // tag. When several tags match, the one whose namespace contains the package's source
 // directory is chosen, then the one whose namespace ends in the package's pname.
 func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag, sourcePath packageSourcePath) (releaseTag, packageSkip, error) {
+	if plan.releaseNamespaceErr != nil {
+		return releaseTag{}, packageSkip{}, fmt.Errorf("%s: %w", plan.pkg, plan.releaseNamespaceErr)
+	}
 	versions := packageTagVersions(plan)
 	if len(versions) == 0 {
 		return releaseTag{}, packageSkip{reason: "package has no version"}, nil
+	}
+	if plan.releaseNamespace != "" {
+		return namespacePackageTag(plan, versions, hint, tags)
 	}
 	quoted := quoteVersions(versions)
 
@@ -163,6 +173,71 @@ func resolvePackageTag(plan releasePackagePlan, hint *tagHint, tags []releaseTag
 	}
 	slices.Sort(names)
 	return releaseTag{}, packageSkip{}, fmt.Errorf("%s version %s matches multiple git tags (%s); set TAG to choose one", plan.pkg, quoted, strings.Join(names, ", "))
+}
+
+// namespacePackageTag finds the release tag for a package that sets
+// meta.releaseNamespace among the tags in that namespace, ignoring its source directory
+// and pname. With TAG or a scoped CI tag, the package is released to it only when it has
+// the namespace and one of versions. With an unscoped CI tag, the package is released to
+// its tag on HEAD, and never to the CI tag itself, so a package whose version happens to
+// match the CI tag is not released without its own tag.
+func namespacePackageTag(plan releasePackagePlan, versions []string, hint *tagHint, tags []releaseTag) (releaseTag, packageSkip, error) {
+	namespace := plan.releaseNamespace
+	quoted := quoteVersions(versions)
+	if hint != nil && !hint.filter {
+		if hint.tag.namespace != namespace {
+			return releaseTag{}, packageSkip{reason: fmt.Sprintf("release namespace %q does not match git tag %q", namespace, hint.tag.full)}, nil
+		}
+		if !slices.Contains(versions, hint.tag.version) {
+			return releaseTag{}, packageSkip{reason: fmt.Sprintf("version %s does not match git tag %q", quoted, hint.tag.full)}, nil
+		}
+		return hint.tag, packageSkip{}, nil
+	}
+
+	var candidates []releaseTag
+	for _, tag := range tags {
+		if tag.namespace == namespace && slices.Contains(versions, tag.version) {
+			candidates = append(candidates, tag)
+		}
+	}
+	switch len(candidates) {
+	case 0:
+		if hint != nil {
+			return releaseTag{}, packageSkip{
+				reason:   fmt.Sprintf("no git tag on HEAD for version %s in release namespace %q", quoted, namespace),
+				untagged: true,
+			}, nil
+		}
+		return releaseTag{}, packageSkip{reason: fmt.Sprintf("no git tag found for version %s in release namespace %q", quoted, namespace)}, nil
+	case 1:
+		return candidates[0], packageSkip{}, nil
+	}
+
+	names := make([]string, 0, len(candidates))
+	for _, tag := range candidates {
+		names = append(names, tag.full)
+	}
+	slices.Sort(names)
+	return releaseTag{}, packageSkip{}, fmt.Errorf("%s version %s matches multiple git tags (%s); set TAG to choose one", plan.pkg, quoted, strings.Join(names, ", "))
+}
+
+// validateReleaseNamespace checks that a meta.releaseNamespace value is a tag namespace:
+// a repository path, such as "server" or "packages/api", that can prefix a version in
+// a valid tag name.
+func validateReleaseNamespace(namespace string) error {
+	if namespace == "" {
+		return errors.New("meta.releaseNamespace must not be empty")
+	}
+	if strings.HasPrefix(namespace, "/") || strings.HasSuffix(namespace, "/") || strings.Contains(namespace, "//") {
+		return fmt.Errorf("meta.releaseNamespace %q must be a repository path without leading, trailing or repeated slashes", namespace)
+	}
+	if slices.ContainsFunc(strings.Split(namespace, "/"), func(segment string) bool { return segment == "." || segment == ".." }) {
+		return fmt.Errorf("meta.releaseNamespace %q must not contain . or .. path segments", namespace)
+	}
+	if _, err := parseSelectedReleaseTag(namespace + "/v0"); err != nil {
+		return fmt.Errorf("meta.releaseNamespace %q is not a valid tag namespace: %w", namespace, err)
+	}
+	return nil
 }
 
 // sourcePathTag returns the tag in tags with one of versions whose namespace is the

@@ -1,6 +1,7 @@
 package flakerelease
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -35,6 +36,7 @@ func TestResolvePackageTag(t *testing.T) {
 		"trevrpc-rust/crates/trevrpc-opentelemetry/v1.9.0",
 	)
 	nested := parseReleaseTags("dir/v1.0.0", "dir/sub/v1.0.0")
+	stack := parseReleaseTags("v4.4.1", "server/v3.4.1", "client/v4.3.2", "android/v0.2.1")
 	for _, test := range []struct {
 		name   string
 		plan   releasePackagePlan
@@ -277,6 +279,115 @@ func TestResolvePackageTag(t *testing.T) {
 			err:    "matches multiple git tags (dir/v1.0.0, v1.0.0); set TAG",
 		},
 		{
+			name: "release namespace selects its tag",
+			plan: releasePackagePlan{pkg: "packages.server", pname: "trevstack-server", version: "3.4.1", releaseNamespace: "server"},
+			tags: append(parseReleaseTags("server/v3.4.0", "client/v3.4.1"), stack...),
+			want: "server/v3.4.1",
+		},
+		{
+			name:   "release namespace takes precedence over source directory and pname",
+			plan:   releasePackagePlan{pkg: "packages.api", pname: "api", version: "1.0.0", releaseNamespace: "packages/web"},
+			source: "packages/api",
+			tags:   monorepo,
+			want:   "packages/web/v1.0.0",
+		},
+		{
+			name: "release namespace tag without v prefix",
+			plan: releasePackagePlan{pkg: "packages.web", version: "0.4.0", releaseNamespace: "packages/web"},
+			tags: monorepo,
+			want: "packages/web/0.4.0",
+		},
+		{
+			name: "release namespace with image tag",
+			plan: releasePackagePlan{pkg: "images.server", imageName: "server", imageTag: "3.4.1", releaseNamespace: "server"},
+			tags: stack,
+			want: "server/v3.4.1",
+		},
+		{
+			name: "release namespace ignores tags in other namespaces",
+			plan: releasePackagePlan{pkg: "packages.server", pname: "server", version: "1.0.0", releaseNamespace: "server"},
+			tags: parseReleaseTags("v1.0.0", "server/sub/v1.0.0", "other/server/v1.0.0"),
+			skip: `no git tag found for version "1.0.0" in release namespace "server"`,
+		},
+		{
+			name: "release namespace with ambiguous tags",
+			plan: releasePackagePlan{pkg: "packages.server", version: "1.0.0", releaseNamespace: "server"},
+			tags: parseReleaseTags("server/v1.0.0", "server/1.0.0"),
+			err:  "packages.server version \"1.0.0\" matches multiple git tags (server/1.0.0, server/v1.0.0); set TAG",
+		},
+		{
+			name: "release namespace matching TAG",
+			plan: releasePackagePlan{pkg: "packages.server", version: "3.4.1", releaseNamespace: "server"},
+			hint: "server/v3.4.1",
+			want: "server/v3.4.1",
+		},
+		{
+			name: "release namespace matching scoped CI tag",
+			plan: releasePackagePlan{pkg: "packages.server", version: "3.4.1", releaseNamespace: "server"},
+			hint: "server/v3.4.1",
+			ci:   true,
+			tags: stack,
+			want: "server/v3.4.1",
+		},
+		{
+			name: "release namespace skips TAG in another namespace",
+			plan: releasePackagePlan{pkg: "packages.server", version: "3.4.1", releaseNamespace: "server"},
+			hint: "client/v3.4.1",
+			skip: `release namespace "server" does not match git tag "client/v3.4.1"`,
+		},
+		{
+			name: "release namespace skips unscoped TAG",
+			plan: releasePackagePlan{pkg: "packages.server", version: "4.4.1", releaseNamespace: "server"},
+			hint: "v4.4.1",
+			skip: `release namespace "server" does not match git tag "v4.4.1"`,
+		},
+		{
+			name: "release namespace skips TAG with another version",
+			plan: releasePackagePlan{pkg: "packages.server", version: "3.4.1", releaseNamespace: "server"},
+			hint: "server/v3.5.0",
+			skip: `version "3.4.1" does not match git tag "server/v3.5.0"`,
+		},
+		{
+			name: "release namespace with unscoped CI tag releases to its tag on HEAD",
+			plan: releasePackagePlan{pkg: "packages.server", pname: "trevstack-server", version: "3.4.1", releaseNamespace: "server"},
+			hint: "v4.4.1",
+			ci:   true,
+			tags: stack,
+			want: "server/v3.4.1",
+		},
+		{
+			name: "release namespace with unscoped CI tag of the same version releases to its tag",
+			plan: releasePackagePlan{pkg: "packages.client", version: "4.4.1", releaseNamespace: "client"},
+			hint: "v4.4.1",
+			ci:   true,
+			tags: parseReleaseTags("v4.4.1", "client/v4.4.1"),
+			want: "client/v4.4.1",
+		},
+		{
+			name:     "release namespace never falls back to unscoped CI tag",
+			plan:     releasePackagePlan{pkg: "packages.client", version: "4.4.1", releaseNamespace: "client"},
+			hint:     "v4.4.1",
+			ci:       true,
+			tags:     parseReleaseTags("v4.4.1", "server/v4.4.1"),
+			skip:     `no git tag on HEAD for version "4.4.1" in release namespace "client"`,
+			untagged: true,
+		},
+		{
+			name:     "release namespace with unscoped CI tag skips another version on HEAD",
+			plan:     releasePackagePlan{pkg: "packages.server", version: "3.4.2", releaseNamespace: "server"},
+			hint:     "v4.4.1",
+			ci:       true,
+			tags:     stack,
+			skip:     `no git tag on HEAD for version "3.4.2" in release namespace "server"`,
+			untagged: true,
+		},
+		{
+			name: "invalid release namespace",
+			plan: releasePackagePlan{pkg: "packages.server", version: "3.4.1", releaseNamespaceErr: errors.New("meta.releaseNamespace must not be empty")},
+			tags: stack,
+			err:  "packages.server: meta.releaseNamespace must not be empty",
+		},
+		{
 			name: "no matching tag",
 			plan: releasePackagePlan{pkg: "packages.api", pname: "api", version: "9.9.9"},
 			tags: monorepo,
@@ -297,6 +408,9 @@ func TestResolvePackageTag(t *testing.T) {
 			sourcePath := func(plan releasePackagePlan) string {
 				if plan.pkg != test.plan.pkg {
 					t.Fatalf("source path requested for %s", plan.pkg)
+				}
+				if plan.releaseNamespace != "" {
+					t.Fatalf("source path requested for %s, which sets a release namespace", plan.pkg)
 				}
 				return test.source
 			}
@@ -436,6 +550,67 @@ func TestGroupReleasePackagesFromUnscopedCITagWithOtherVersions(t *testing.T) {
 	want := "packages.a=a/v2.0.0,packages.lib=lib/v1.0.3,packages.default=v2.0.0"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("groupReleasePackages() = %s; want %s", strings.Join(got, ","), want)
+	}
+}
+
+func TestGroupReleasePackagesWithReleaseNamespacesFromUnscopedCITag(t *testing.T) {
+	tags := parseReleaseTags("v4.4.1", "server/v3.4.1", "client/v4.3.2", "android/v0.2.1")
+	plans := []releasePackagePlan{
+		{pkg: "packages.server", pname: "trevstack-server", version: "3.4.1", releaseNamespace: "server"},
+		{pkg: "packages.client", pname: "trevstack-client", version: "4.3.2", releaseNamespace: "client"},
+		{pkg: "packages.android", pname: "trevstack-android", version: "0.2.1", releaseNamespace: "android"},
+		{pkg: "images.server", imageName: "trevstack-server", imageTag: "3.4.1", releaseNamespace: "server"},
+		{pkg: "images.client", imageName: "trevstack-client", imageTag: "4.3.2", releaseNamespace: "client"},
+		{pkg: "packages.default", pname: "trevstack", version: "4.4.1"},
+	}
+	hint, err := newTagHint("v4.4.1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, untagged, err := groupReleasePackages(plans, hint, tags, func(plan releasePackagePlan) string {
+		if plan.releaseNamespace != "" {
+			t.Fatalf("source path requested for %s, which sets a release namespace", plan.pkg)
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untagged {
+		t.Fatal("groupReleasePackages() reported every package untagged")
+	}
+	var got []string
+	for _, group := range groups {
+		for _, plan := range group.packages {
+			got = append(got, plan.pkg+"="+group.tag.full)
+		}
+	}
+	want := "packages.server=server/v3.4.1,images.server=server/v3.4.1," +
+		"packages.client=client/v4.3.2,images.client=client/v4.3.2," +
+		"packages.android=android/v0.2.1,packages.default=v4.4.1"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("groupReleasePackages() = %s; want %s", strings.Join(got, ","), want)
+	}
+}
+
+func TestGroupReleasePackagesWithReleaseNamespacesUntaggedOnHead(t *testing.T) {
+	tags := parseReleaseTags("v4.4.1", "android/v0.2.1")
+	plans := []releasePackagePlan{
+		{pkg: "packages.server", version: "4.4.1", releaseNamespace: "server"},
+		{pkg: "images.server", imageTag: "4.4.1", releaseNamespace: "server"},
+	}
+	hint, err := newTagHint("v4.4.1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, untagged, err := groupReleasePackages(plans, hint, tags, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 0 || !untagged {
+		t.Fatalf("groupReleasePackages() = %+v, untagged %t; want no groups, every package untagged", groups, untagged)
 	}
 }
 

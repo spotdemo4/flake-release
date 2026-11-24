@@ -97,3 +97,64 @@ func TestParseNixBuildOutputsRejectsEmptyOutputs(t *testing.T) {
 		t.Fatal("parseNixBuildOutputs returned no error for empty outputs")
 	}
 }
+
+func TestParseReleaseNamespace(t *testing.T) {
+	for _, test := range []struct {
+		out  string
+		want string
+		err  string
+	}{
+		{out: "null"},
+		{out: `"server"`, want: "server"},
+		{out: `"packages/api"`, want: "packages/api"},
+		{out: "1", err: "meta.releaseNamespace must be a string; got 1"},
+		{out: `["server"]`, err: "meta.releaseNamespace must be a string"},
+		{out: `""`, err: "meta.releaseNamespace must not be empty"},
+		{out: `"/nix/store/0123456789abcdfghijklmnpqrsvwxyz-server"`, err: "without leading, trailing or repeated slashes"},
+		{out: `"server/"`, err: "without leading, trailing or repeated slashes"},
+		{out: `"packages//api"`, err: "without leading, trailing or repeated slashes"},
+		{out: `"../server"`, err: "must not contain . or .. path segments"},
+		{out: `"my server"`, err: "is not a valid tag namespace"},
+		{out: "not json", err: "parsing meta.releaseNamespace"},
+	} {
+		t.Run(test.out, func(t *testing.T) {
+			got, err := parseReleaseNamespace(test.out)
+			if test.err != "" {
+				if err == nil || !strings.Contains(err.Error(), test.err) {
+					t.Fatalf("parseReleaseNamespace() error = %v; want %q", err, test.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("parseReleaseNamespace() = %q; want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestNixPkgReleaseNamespaceEvaluatesMeta(t *testing.T) {
+	var args []string
+	got, err := nixPkgReleaseNamespaceWithCapture("packages.x86_64-linux.server", func(values ...string) (string, error) {
+		args = values
+		return `"server"`, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "server" {
+		t.Fatalf("nixPkgReleaseNamespaceWithCapture() = %q; want server", got)
+	}
+	want := "eval --json .#packages.x86_64-linux.server --apply pkg: pkg.meta.releaseNamespace or null"
+	if strings.Join(args, " ") != want {
+		t.Fatalf("nix args = %q; want %q", strings.Join(args, " "), want)
+	}
+
+	if _, err := nixPkgReleaseNamespaceWithCapture("packages.x86_64-linux.server", func(...string) (string, error) {
+		return "", errors.New("evaluation failed")
+	}); err == nil || err.Error() != "evaluation failed" {
+		t.Fatalf("nixPkgReleaseNamespaceWithCapture() error = %v; want evaluation failed", err)
+	}
+}

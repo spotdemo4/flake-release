@@ -1004,6 +1004,12 @@ type releasePackagePlan struct {
 	imageTag      string
 	imageBuildErr error
 	image         bool
+	// releaseNamespace is the package's meta.releaseNamespace, the only namespace its
+	// release tag may have, or "" to find it from its source directory and pname.
+	releaseNamespace string
+	// releaseNamespaceErr is why meta.releaseNamespace could not be read; it fails tag
+	// resolution rather than skipping the package.
+	releaseNamespaceErr error
 }
 
 type releasePackageLoader func(string) (releasePackagePlan, error)
@@ -1013,15 +1019,18 @@ func loadReleasePackage(pkg string) (releasePackagePlan, error) {
 	if err != nil {
 		return releasePackagePlan{}, err
 	}
+	releaseNamespace, releaseNamespaceErr := nixPkgReleaseNamespace(pkg)
 	return releasePackagePlan{
-		pkg:         pkg,
-		storePath:   storePath,
-		pname:       nixPkgPname(pkg),
-		version:     nixPkgVersion(pkg),
-		mainProgram: nixPkgMainProgram(pkg),
-		platform:    nixPkgPlatform(pkg),
-		imageName:   nixImageName(pkg),
-		imageTag:    nixImageTag(pkg),
+		pkg:                 pkg,
+		storePath:           storePath,
+		pname:               nixPkgPname(pkg),
+		version:             nixPkgVersion(pkg),
+		mainProgram:         nixPkgMainProgram(pkg),
+		platform:            nixPkgPlatform(pkg),
+		imageName:           nixImageName(pkg),
+		imageTag:            nixImageTag(pkg),
+		releaseNamespace:    releaseNamespace,
+		releaseNamespaceErr: releaseNamespaceErr,
 	}, nil
 }
 
@@ -1073,6 +1082,9 @@ func printReleasePackageDetails(plan releasePackagePlan) {
 	}
 	if plan.imageTag != "" {
 		detail("image tag: %s", plan.imageTag)
+	}
+	if plan.releaseNamespace != "" {
+		detail("release namespace: %s", plan.releaseNamespace)
 	}
 }
 

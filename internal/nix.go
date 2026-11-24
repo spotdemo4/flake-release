@@ -248,6 +248,40 @@ func nixPkgMainProgram(pkg string) string {
 	return ""
 }
 
+// nixPkgReleaseNamespace returns the package's meta.releaseNamespace, or "" when it
+// is unset.
+func nixPkgReleaseNamespace(pkg string) (string, error) {
+	return nixPkgReleaseNamespaceWithCapture(pkg, nixCapture)
+}
+
+func nixPkgReleaseNamespaceWithCapture(pkg string, capture func(...string) (string, error)) (string, error) {
+	out, err := capture("eval", "--json", ".#"+pkg, "--apply", "pkg: pkg.meta.releaseNamespace or null")
+	if err != nil {
+		return "", err
+	}
+	return parseReleaseNamespace(out)
+}
+
+// parseReleaseNamespace parses meta.releaseNamespace from its JSON value, which must be
+// null or a tag namespace.
+func parseReleaseNamespace(out string) (string, error) {
+	var value any
+	if err := json.Unmarshal([]byte(out), &value); err != nil {
+		return "", fmt.Errorf("parsing meta.releaseNamespace: %w", err)
+	}
+	switch value := value.(type) {
+	case nil:
+		return "", nil
+	case string:
+		if err := validateReleaseNamespace(value); err != nil {
+			return "", err
+		}
+		return value, nil
+	default:
+		return "", fmt.Errorf("meta.releaseNamespace must be a string; got %s", out)
+	}
+}
+
 func nixPkgPlatform(pkg string) platform {
 	out, err := nixCapture("eval", "--json", ".#"+pkg+".stdenv.hostPlatform.go")
 	if err != nil || out == "" {
